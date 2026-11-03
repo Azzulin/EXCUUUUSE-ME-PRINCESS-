@@ -1,0 +1,20 @@
+# Copie para config.local.toml (ignorado pelo git) e aponte para os SEUS arquivos.
+# Caminhos no WSL: /mnt/c/... ou ~/...
+
+[input]
+# Jogo base 1.0.0, title id 01002B00111A2000 (NSP ou XCI)
+base = '/home/gabrielazzulin/switch/aoc/base.nsp'
+# Update 1.3.0 (v327680), title id 01002B00111A2800
+update = '/home/gabrielazzulin/switch/aoc/update-1.3.0.nsp'
+# DLCs (opcional nesta fase)
+dlc = []
+# Chaves do SEU console. As ferramentas leem o arquivo; os valores nunca são impressos nem copiados.
+keys = '/home/gabrielazzulin/switch/prod.keys'
+
+[work]
+# Extração, C gerado e builds. Reserve bastante espaço (estimativa: 60+ GB no PC).
+dir = 'build'
+
+[deck]
+# Pasta final que vai para o cartão SD
+dist = 'dist/aoc-deck'

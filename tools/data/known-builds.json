@@ -1,0 +1,14 @@
+{
+  "title_id": "01002B00111A2000",
+  "comment": "Prefixos de build ID (16 bytes) dos módulos ExeFS. Fonte: perfil nxnative dm/games/01002B00111A2000/game.tsv @ 3ace3df. Só identificadores públicos; nenhum hash de conteúdo do jogo.",
+  "builds": {
+    "1.3.0": {
+      "version": 327680,
+      "modules": {
+        "main": "c3cf52bf2b05d7310884971b50bcccb8",
+        "subsdk0": "3ab92c3444d4ece2f52417b5d8ee86eb",
+        "sdk": "95832210b36121e88b4f9b7b66239dad"
+      }
+    }
+  }
+}

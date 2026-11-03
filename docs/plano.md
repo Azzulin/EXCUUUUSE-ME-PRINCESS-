@@ -28,7 +28,7 @@ Objetivo: saber exatamente com o que estamos lidando, sem escrever nada de runti
   - [ ] formatos de textura (ASTC × BCn) nas G1T;
   - [ ] tamanho do RomFS mesclado e dos DLCs.
 
-**Portão A:** build IDs batem com 1.3.0; censos registrados; orçamento de disco do Deck confirmado ou replanejado.
+**Portão A:** build IDs batem com 1.3.0; censos registrados; decisão sobre ASTC (compute × cache BC) tomada.
 
 ## Fase 1 — CPU: lifter para os três módulos · ~2 semanas
 
@@ -112,7 +112,7 @@ de shader após a instalação; 1 h de sessão sem crash.
 |---|---|---|
 | Replay NVN→Vulkan pesado demais para os 4 núcleos do Deck nas batalhas (milhares de dispatches e binds) | 30 fps não fecha | Medir cedo (Fase 3); cache de views, dispatches agrupados, thread de gravação, uniform snapshot; render scale |
 | ASTC em massa sem suporte nativo no RDNA2 | VRAM/tempo de upload | Cache BC gerado na instalação |
-| RomFS + caches não cabem em 32 GB | Não instala no SD | Não descomprimir RDB; caches com teto; mover temp de build para o PC |
+| Leitura aleatória lenta do cartão SD | Travadas ao carregar áreas | Ler RDB em blocos grandes, pré-carregar por área, cache de leitura; medir no Deck |
 | Semântica NVN não documentada que o AoC usa e o nxnative não cobriu | Bugs visuais longos | Comparação com emulador; plano B = GPU LLE (HWDER) |
 | Timers em ticks de 60 Hz quebrando 40/60 fps | Gameplay acelerado | "Original 30" como padrão; 60/40 só após teste de cutscene e batalha contra relógio real |
 | Kernel do WSL2 sem `PAGEMAP_SCAN` | Testes locais limitados | Testar no Deck / Linux nativo; build no WSL só compila |

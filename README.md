@@ -31,7 +31,7 @@ Age of Calamity do [nxnative](https://github.com/seedds/nxnative).
 | [docs/levantamento.md](docs/levantamento.md) | o jogo por dentro, projetos de referência, abordagens, hardware-alvo |
 | [docs/arquitetura.md](docs/arquitetura.md) | arquitetura escolhida, camada por camada |
 | [docs/plano.md](docs/plano.md) | fases, portões de aceitação, riscos |
-| [docs/steam-deck.md](docs/steam-deck.md) | requisitos, orçamento de disco (SD 32 GB) e de desempenho |
+| [docs/steam-deck.md](docs/steam-deck.md) | requisitos, disco (SD de 1 TB) e desempenho |
 | [docs/referencias.md](docs/referencias.md) | repositórios de referência fixados e ordem de leitura |
 | [docs/aoc.md](docs/aoc.md) | fatos medidos no nosso dump (preenchido a partir da Fase 0) |
 

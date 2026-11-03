@@ -25,7 +25,7 @@ na Fase 0.
 | Vídeos | VP9 (WebM) decodificado para NV12 e copiado pelo jogo para texturas R8 1280×720 + RG8 640×360 | README nxnative AoC |
 | Ritmo | 30 fps no Switch, passo fixo por update (3 relógios: tarefa KIDS, bloco de frame-rate da batalha, frame-rate do device KTGL) | patches.py nxnative |
 | Config do device KTGL | `{1920, 1080, 3, 9, 5, interval 2, 9, …}` montada no `nnMain` | patches.py nxnative |
-| Tamanho em disco do dump | **(a medir)** base + 1.3.0 + DLCs | — |
+| Tamanho em disco do dump | ~12,5 GiB em NSP (base 10,65 GiB, update 0,43 GiB, DLCs 1,4 GiB) | nosso dump ([aoc.md](aoc.md)) |
 | Formatos de textura (ASTC × BCn) | **(a medir)** — decide o custo no Steam Deck, que não tem ASTC nativo | — |
 
 ### Peculiaridades que já derrubaram outros ports deste jogo
@@ -124,15 +124,16 @@ Pontos que pesam no Deck:
   não no código do jogo — o código do AoC foi feito para 3 A57 a 1 GHz.
 - **Memória unificada**: a cópia "sombra" dos pools que o TotK usa no Linux custa ~1,1 GB extra; com 16 GB e heap de
   3,2 GB do jogo, cabe com folga.
-- **Cartão SD**: leitura aleatória lenta → evitar descomprimir o RomFS inteiro; caches de shader/pipeline no SD.
+- **Cartão SD**: espaço sobra (1 TB), mas a leitura aleatória é lenta → ler os RDB em blocos grandes e com
+  antecedência; caches de shader/pipeline e de texturas no SD.
 
-Orçamento de disco (32 GB no SD) em [steam-deck.md](steam-deck.md).
+Disco e desempenho no Deck em [steam-deck.md](steam-deck.md).
 
 ---
 
 ## 5. Questões em aberto para a Fase 0
 
-1. Tamanho real do RomFS mesclado (base + 1.3.0 + DLCs) — cabe nos 32 GB junto com caches?
+1. Tamanho real do RomFS mesclado (base + 1.3.0 + DLCs) e padrão de leitura (para o cache de leitura no SD).
 2. Proporção ASTC × BCn nas texturas G1T do KTGL.
 3. Tamanho do `main` e número de funções/jump tables que o lifter vai gerar → tempo de compilação no PC e no Deck.
 4. Lista de imports `nn::*` do SDK 9.6.0 que não estão nos ~178 overrides herdados do TotK.

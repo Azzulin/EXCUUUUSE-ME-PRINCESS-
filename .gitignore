@@ -1,4 +1,6 @@
 # --- Conteúdo do jogo e derivados: NUNCA versionar ---
+/Game Files/
+/dumps/
 /build/
 /generated/
 /dist/

@@ -1,6 +1,6 @@
 # Steam Deck — restrições e orçamento
 
-Alvo principal: Steam Deck (LCD ou OLED), SteamOS 3.8+, jogo instalado num **cartão SD com 32 GB livres**.
+Alvo principal: Steam Deck (LCD ou OLED), SteamOS 3.8+, jogo instalado no **cartão SD de 1 TB**.
 
 ## Requisitos do sistema
 
@@ -13,23 +13,29 @@ Alvo principal: Steam Deck (LCD ou OLED), SteamOS 3.8+, jogo instalado num **car
 | glibc ≥ 2.31 (jogo) | build contra o sysroot *sniper* do Steam Runtime 3 | sim |
 | ASTC nativo | texturas do Switch | **não** → decodificação por compute ou cache BC |
 
-## Orçamento de disco (cartão SD, 32 GB)
+## Disco (cartão SD de 1 TB)
 
-Valores com **?** são estimativas a substituir pelos números da Fase 0.
+Espaço não é restrição: base + update + DLCs, executável, shaders traduzidos e todos os caches cabem com folga. O
+que importa no cartão é **velocidade**: leitura sequencial de ~90–100 MB/s (UHS-I) e leitura aleatória lenta.
 
-| Item | Tamanho | Observação |
+| Item | Tamanho estimado | Decisão |
 |---|---|---|
-| RomFS mesclado (base + 1.3.0) | **?** | ler os RDB como estão (zlib em blocos); **não** descomprimir |
+| RomFS mesclado (base + 1.3.0) | **?** (Fase 0) | ler os RDB como estão (zlib em blocos), em leituras grandes |
 | DLCs | **?** | `.rdb.bin3_0`, mesmo formato |
-| Executável + bibliotecas | ~0,3–0,6 GB | o C gerado de 66 MB de ARM64 vira um binário grande |
-| SPIR-V traduzido (40 726 shaders) | ~0,5–1 GB **?** | AOT na instalação |
+| Executável + bibliotecas | ~0,3–0,6 GB | |
+| SPIR-V traduzido (40 726 shaders) | ~0,5–1 GB | AOT na instalação |
 | Cache de pipeline Vulkan | ~0,2–0,5 GB | |
-| Mesa shader cache | teto de 1 GB | `MESA_SHADER_CACHE_DIR` ao lado do jogo, não em `~/.cache` |
-| Cache BC de texturas (se usado) | **?** | só se o censo mostrar muito ASTC |
+| Mesa shader cache | sem teto apertado | `MESA_SHADER_CACHE_DIR` ao lado do jogo, não em `~/.cache` (que fica na memória interna) |
+| Cache BC de texturas | pode ser grande | viável com 1 TB: elimina a decodificação ASTC em tempo de jogo |
 | Saves e configs | < 50 MB | |
 
-**Fora do cartão:** dump original, chaves, C gerado, objetos de compilação e temporários de extração ficam no **PC**
-(WSL2). O TotK precisa de ~36 GB livres durante o setup — no Deck isso não cabe junto com o jogo.
+Com espaço sobrando, duas opções que antes eram caras ficam baratas:
+
+- **Cache BC de texturas** gerado uma vez na instalação, em vez de decodificar ASTC por compute a cada upload.
+- **Dados "quentes" descomprimidos** (por exemplo, o container de shaders e os arquivos lidos em toda batalha), se
+  as medições mostrarem que a descompressão zlib pesa na CPU.
+
+O dump original, as chaves e o C gerado continuam no **PC** (WSL2): o build é muito mais rápido lá.
 
 Fluxo recomendado:
 

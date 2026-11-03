@@ -1,15 +1,15 @@
 # Copie para config.local.toml (ignorado pelo git) e aponte para os SEUS arquivos.
-# Caminhos no WSL: /mnt/c/... ou ~/...
+# Caminhos no WSL: /mnt/d/... ou ~/...  (o dump pode ficar em 'Game Files/', ignorado pelo git)
 
 [input]
 # Jogo base 1.0.0, title id 01002B00111A2000 (NSP ou XCI)
-base = '/home/gabrielazzulin/switch/aoc/base.nsp'
+base = '/mnt/d/Decomp/Age of Calamity/Game Files/<pasta da base>/<arquivo>.nsp'
 # Update 1.3.0 (v327680), title id 01002B00111A2800
-update = '/home/gabrielazzulin/switch/aoc/update-1.3.0.nsp'
+update = '/mnt/d/Decomp/Age of Calamity/Game Files/<pasta do update>/<arquivo>.nsp'
 # DLCs (opcional nesta fase)
-dlc = []
+dlc = []   # lista de caminhos dos NSP de DLC (01002B00111A3001..3004)
 # Chaves do SEU console. As ferramentas leem o arquivo; os valores nunca são impressos nem copiados.
-keys = '/home/gabrielazzulin/switch/prod.keys'
+keys = '/mnt/d/Decomp/Age of Calamity/Game Files/prod.keys'
 
 [work]
 # Extração, C gerado e builds. Reserve bastante espaço (estimativa: 60+ GB no PC).

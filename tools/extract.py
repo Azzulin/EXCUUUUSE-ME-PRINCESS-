@@ -4,6 +4,9 @@
 Subcomandos:
     inventory  lista os pacotes (base, update, DLCs) achados em --game-dir, pelo conteúdo dos NCAs
     romfs-list lista os arquivos do RomFS da base e dos DLCs (só metadados) e grava build/v130/romfs-*.tsv
+    hactool-home  prepara build/v130/tmp/hactool-home/.switch/{prod,title}.keys para o hactool mesclar o
+               update (BKTR): title keys tiradas dos tickets dos NSPs; prod.keys sem comentários e com o
+               NUL extra do Lockpick removido. Usado por tools/windows/merge_romfs.ps1.
     exefs      extrai o ExeFS do update 1.3.0 (ou da base, com --base-only) para build/v130/exefs/,
                verificando cada bloco pela tabela de hashes, e grava um manifesto com SHA-256
 
@@ -139,9 +142,41 @@ def cmd_romfs_list(args, keys) -> int:
     return 0
 
 
+def cmd_hactool_home(args, keys) -> int:
+    import os
+    import re
+    tickets: dict[bytes, bytes] = {}
+    for pkg in scan(args.game_dir, keys):
+        if pkg["role"] not in ("base", "update"):
+            continue
+        with pkg["path"].open("rb") as f:
+            _, entries = nx.container_entries(f, pkg["path"].stat().st_size)
+            tickets.update(nx.common_tickets(f, entries))
+    home = args.work / "tmp" / "hactool-home" / ".switch"
+    home.mkdir(parents=True, exist_ok=True)
+    lines = []
+    for line in args.keys.read_text(encoding="utf-8", errors="replace").splitlines():
+        body = line.split("#", 1)[0]
+        if "=" not in body:
+            continue
+        name, value = (part.strip() for part in body.split("=", 1))
+        if re.fullmatch(r"(?:mariko_)?master_kek_source_[0-9a-f]{2}", name.lower()) and len(value) == 34 \
+                and value[-2:] == "00":
+            value = value[:32]
+        lines.append(f"{name} = {value}")
+    for name, text in (("prod.keys", "\n".join(lines) + "\n"),
+                       ("title.keys", "".join(f"{r.hex()} = {k.hex()}\n" for r, k in tickets.items()))):
+        target = home / name
+        fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as out:
+            out.write(text)
+    print(f"hactool-home pronto em {home.parent} ({len(lines)} chaves, {len(tickets)} title keys; valores não exibidos)")
+    return 0
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("command", choices=("inventory", "exefs", "romfs-list"))
+    ap.add_argument("command", choices=("inventory", "exefs", "romfs-list", "hactool-home"))
     ap.add_argument("--game-dir", type=Path, default=ROOT / "Game Files")
     ap.add_argument("--keys", type=Path, default=ROOT / "Game Files" / "prod.keys")
     ap.add_argument("--work", type=Path, default=ROOT / "build" / "v130")
@@ -153,6 +188,8 @@ def main(argv=None) -> int:
         return cmd_inventory(args, keys)
     if args.command == "romfs-list":
         return cmd_romfs_list(args, keys)
+    if args.command == "hactool-home":
+        return cmd_hactool_home(args, keys)
     return cmd_exefs(args, keys)
 
 

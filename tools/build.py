@@ -38,6 +38,20 @@ BIG_BYTES = 900_000
 BIG_EXTRA = ["-mllvm", "-disable-machine-sink", "-mllvm", "-join-liveintervals=false",
              "-mllvm", "-rotation-max-header-size=0"]
 MODULES = ("main", "subsdk0", "sdk")
+# RAM que uma compilação de função gigante pode usar (medido: 1,8 GB na de 5 MB; a de 6,6 MB passa disso).
+BIG_MEM = 4 << 30
+GEN_WORKER_MEM = 1536 << 20   # recomp/gen.py WORKER_MEM
+
+
+def mem_available() -> int:
+    """MemAvailable do Linux em bytes (0 se não der para ler)."""
+    try:
+        for line in Path("/proc/meminfo").read_text().splitlines():
+            if line.startswith("MemAvailable:"):
+                return int(line.split()[1]) * 1024
+    except OSError:
+        pass
+    return 0
 
 
 def need(tool: str) -> str:
@@ -54,8 +68,9 @@ def step_gen(args) -> Path:
         return out
     cmd = [sys.executable, str(ROOT / "recomp" / "gen.py"), "--exefs", str(args.exefs), "--out", str(out),
            "--modules", ",".join(MODULES)]
-    if args.jobs:
-        cmd += ["--jobs", str(args.jobs)]
+    # gen.py só mede a memória livre no Windows; aqui ela limita os workers (cada um carrega os módulos: ~1,5 GB).
+    jobs = args.jobs or max(1, min(os.cpu_count() or 1, int(mem_available() * 0.8) // GEN_WORKER_MEM or 1))
+    cmd += ["--jobs", str(jobs)]
     print("gen:", " ".join(cmd))
     subprocess.run(cmd, check=True)
     return out
@@ -81,12 +96,16 @@ def step_guest(args, gen: Path) -> Path:
     # Maiores primeiro: as gigantes começam logo e não seguram o fim do build.
     sources.sort(key=lambda s: -s[3])
     flags = " ".join(GEN_FLAGS + ["-I", ninja_escape(ROOT / "runtime"), "-I", ninja_escape(gen)])
+    # As gigantes rodam num pool limitado pela RAM livre, para várias delas juntas não esgotarem a memória do WSL.
+    big_depth = args.big_jobs or max(1, int(mem_available() * 0.8) // BIG_MEM)
     lines = [
         "ninja_required_version = 1.10",
         f"cc = {cc}",
         f"ar = {ar}",
         f"cflags = {flags}",
         f"bigflags = {' '.join(BIG_EXTRA)}",
+        "pool big",
+        f"  depth = {big_depth}",
         "rule cc",
         "  command = $cc $cflags $extra -c $in -o $out",
         "  description = cc $in",
@@ -100,6 +119,7 @@ def step_guest(args, gen: Path) -> Path:
         lines.append(f"build {ninja_escape(obj)}: cc {ninja_escape(src)}")
         if big:
             lines.append("  extra = $bigflags")
+            lines.append("  pool = big")
     lines.append(f"build {ninja_escape(lib)}: ar " + " ".join(ninja_escape(o) for _, o, _, _ in sources))
     lines.append(f"default {ninja_escape(lib)}")
     for d in {o.parent for _, o, _, _ in sources} | {lib.parent}:
@@ -107,7 +127,7 @@ def step_guest(args, gen: Path) -> Path:
     build_file = args.work / "guest.ninja"
     build_file.write_text("\n".join(lines) + "\n")
     big = sum(1 for s in sources if s[2])
-    print(f"guest: {len(sources)} arquivos de C ({big} com função gigante) → {lib}")
+    print(f"guest: {len(sources)} arquivos de C ({big} com função gigante, até {big_depth} ao mesmo tempo) → {lib}")
     if args.ninja_only:
         print(f"guest: só o arquivo ninja foi escrito ({build_file})")
         return lib
@@ -124,6 +144,7 @@ def main(argv=None) -> int:
     ap.add_argument("--exefs", type=Path, default=ROOT / "build" / "v130" / "exefs")
     ap.add_argument("--jobs", type=int, default=0, help="núcleos (padrão: todos)")
     ap.add_argument("--regen", action="store_true", help="gerar o C de novo")
+    ap.add_argument("--big-jobs", type=int, default=0, help="funções gigantes compiladas ao mesmo tempo (padrão: pela RAM)")
     ap.add_argument("--ninja-only", action="store_true", help="só escreve o guest.ninja, sem compilar")
     ap.add_argument("steps", nargs="*", help="gen, guest (padrão: os dois)")
     args = ap.parse_args(argv)

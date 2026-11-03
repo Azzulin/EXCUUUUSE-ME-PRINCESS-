@@ -6,6 +6,9 @@ nada.
 
 ## 1. Preparar o WSL (uma vez)
 
+Atalho: clique duas vezes em `tools\windows\build_wsl.bat` — faz este passo e o passo 3 de uma vez e grava o
+log em `build\build-wsl.log`. Ou, no terminal do WSL:
+
 ```sh
 bash "/mnt/d/Decomp/Age of Calamity/tools/setup_wsl.sh"
 source ~/.venvs/aoc/bin/activate

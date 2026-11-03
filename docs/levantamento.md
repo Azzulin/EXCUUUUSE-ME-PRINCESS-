@@ -26,7 +26,7 @@ na Fase 0.
 | Ritmo | 30 fps no Switch, passo fixo por update (3 relógios: tarefa KIDS, bloco de frame-rate da batalha, frame-rate do device KTGL) | patches.py nxnative |
 | Config do device KTGL | `{1920, 1080, 3, 9, 5, interval 2, 9, …}` montada no `nnMain` | patches.py nxnative |
 | Tamanho em disco do dump | ~12,5 GiB em NSP (base 10,65 GiB, update 0,43 GiB, DLCs 1,4 GiB) | nosso dump ([aoc.md](aoc.md)) |
-| Formatos de textura (ASTC × BCn) | **(a medir)** — decide o custo no Steam Deck, que não tem ASTC nativo | — |
+| Formatos de textura | **só BCn, nenhum ASTC**: BC7 (11 819), BC1 (6 110), BC5 (1 941), BC3 (594), BC4 (521), BC6H (191), mais pequenas texturas não comprimidas (placeholders) — o Deck (RDNA2) lê tudo nativamente | nosso dump ([aoc.md](aoc.md)) |
 
 ### Peculiaridades que já derrubaram outros ports deste jogo
 
@@ -118,8 +118,8 @@ lado nxnative.** O próprio Astral Chain foi feito assim (CPU da LAS + jogo do M
 
 Pontos que pesam no Deck:
 
-- **Sem ASTC nativo no RDNA2** → decodificador em compute (já existe no Astral Chain) ou recodificar para BC uma vez
-  na instalação e guardar em cache. Depende do censo de texturas da Fase 0.
+- **Texturas:** o RDNA2 não tem ASTC, mas o AoC **não usa ASTC** — só BC1–BC7, que o Deck lê nativamente (medido na
+  Fase 0). O decodificador ASTC do Astral Chain fica só como rede de segurança.
 - **Só 4 núcleos**: o custo vai estar no *replay* NVN→Vulkan na CPU (dispatches, binds de textura, uploads de pool),
   não no código do jogo — o código do AoC foi feito para 3 A57 a 1 GHz.
 - **Memória unificada**: a cópia "sombra" dos pools que o TotK usa no Linux custa ~1,1 GB extra; com 16 GB e heap de
@@ -134,7 +134,7 @@ Disco e desempenho no Deck em [steam-deck.md](steam-deck.md).
 ## 5. Questões em aberto para a Fase 0
 
 1. Tamanho real do RomFS mesclado (base + 1.3.0 + DLCs) e padrão de leitura (para o cache de leitura no SD).
-2. Proporção ASTC × BCn nas texturas G1T do KTGL.
+2. ~~Proporção ASTC × BCn~~ — respondido: só BCn.
 3. Tamanho do `main` e número de funções/jump tables que o lifter vai gerar → tempo de compilação no PC e no Deck.
 4. Lista de imports `nn::*` do SDK 9.6.0 que não estão nos ~178 overrides herdados do TotK.
 5. Lista de nomes NVN pedidos via `nvnBootstrapLoader` (o nxnative registra 523) contra os 537 do Astral Chain.

@@ -19,17 +19,18 @@ Objetivo: saber exatamente com o que estamos lidando, sem escrever nada de runti
 - [x] `tools/fetch_refs.sh` clona as referências em `refs/` nas revisões fixadas.
 - [ ] Ambiente no WSL2/Ubuntu: clang/lld 18+, ninja, uv, .NET 10, Vulkan headers, SDL3, opus, libvpx, zstd.
 - [x] `tools/extract.py`: inventário dos pacotes, ExeFS do 1.3.0 e listagem do RomFS da base e dos DLCs, direto do NSP.
-- [ ] Mesclar o RomFS da base com o patch BKTR do 1.3.0 (em Python, sem hactool).
+- [x] Mesclar o RomFS da base com o patch BKTR do 1.3.0 (`tools/windows/merge_romfs.bat` + hactool.exe) → `build/v130/romfs.bin`.
 - [x] `tools/inspect_dump.py` confere build IDs, NPDM e tamanhos — **build IDs 1.3.0 conferidos**.
 - [ ] Censos (resultados em `docs/aoc.md`, sem dados do jogo, só números):
   - [x] imports dos módulos (`tools/census_imports.py`) — falta cruzar com os overrides herdados;
   - [ ] nomes NVN pedidos pelo jogo × `nvn_procs.inc`;
   - [ ] instruções/funções/jump tables por módulo (dry-run do lifter);
   - [ ] shaders (contagem por estágio, tamanhos de controle) — portar `shader_split.py`;
-  - [ ] formatos de textura (ASTC × BCn) nas G1T;
-  - [x] tamanho do RomFS da base e dos DLCs (falta o mesclado com o 1.3.0).
+  - [x] formatos de textura nas G1T — só BCn, nenhum ASTC (`tools/census_rdb.py`);
+  - [x] tamanho do RomFS da base, do 1.3.0 mesclado e dos DLCs;
+  - [x] tipos de dados nos RDB (`tools/census_rdb.py`);
 
-**Portão A:** build IDs batem com 1.3.0; censos registrados; decisão sobre ASTC (compute × cache BC) tomada.
+**Portão A:** build IDs batem com 1.3.0; censos registrados; formatos de textura conhecidos (resultado: só BCn).
 
 ## Fase 1 — CPU: lifter para os três módulos · ~2 semanas
 
@@ -82,7 +83,7 @@ classificadas.
 
 - [ ] Build Linux contra o sysroot *sniper*; binário roda no SteamOS 3.8 em Desktop e Game Mode.
 - [ ] Write-watch por `userfaultfd` + `PAGEMAP_SCAN`; pools sombra.
-- [ ] Texturas: ASTC → compute ou cache BC gerado na instalação (decidir pelo censo).
+- [ ] Texturas: BC1–BC7 direto no RDNA2 (o AoC não usa ASTC); conferir deswizzle block-linear e sRGB.
 - [ ] Perfil `deck`: 1280×800, render scale + FSR1, limitador 30 fps, vsync.
 - [ ] Layout de instalação no cartão SD; Mesa cache ao lado do jogo; "Add to Steam".
 - [ ] Medições: FPS médio/1 % low, frame time, W da APU, temperatura, em rota fixa (Hyrule Field + uma batalha cheia).
@@ -112,7 +113,7 @@ de shader após a instalação; 1 h de sessão sem crash.
 | Risco | Impacto | Mitigação |
 |---|---|---|
 | Replay NVN→Vulkan pesado demais para os 4 núcleos do Deck nas batalhas (milhares de dispatches e binds) | 30 fps não fecha | Medir cedo (Fase 3); cache de views, dispatches agrupados, thread de gravação, uniform snapshot; render scale |
-| ASTC em massa sem suporte nativo no RDNA2 | VRAM/tempo de upload | Cache BC gerado na instalação |
+| ~~ASTC em massa sem suporte no RDNA2~~ | — | Eliminado na Fase 0: o jogo só usa BCn |
 | Leitura aleatória lenta do cartão SD | Travadas ao carregar áreas | Ler RDB em blocos grandes, pré-carregar por área, cache de leitura; medir no Deck |
 | Semântica NVN não documentada que o AoC usa e o nxnative não cobriu | Bugs visuais longos | Comparação com emulador; plano B = GPU LLE (HWDER) |
 | Timers em ticks de 60 Hz quebrando 40/60 fps | Gameplay acelerado | "Original 30" como padrão; 60/40 só após teste de cutscene e batalha contra relógio real |

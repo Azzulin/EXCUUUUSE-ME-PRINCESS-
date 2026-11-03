@@ -4,6 +4,7 @@
 Subcomandos:
     inventory  lista os pacotes (base, update, DLCs) achados em --game-dir, pelo conteúdo dos NCAs
     romfs-list lista os arquivos do RomFS da base e dos DLCs (só metadados) e grava build/v130/romfs-*.tsv
+    romfs-index lista build/v130/romfs.bin (RomFS 1.3.0 mesclado) em romfs-v130.tsv e compara com a base
     hactool-home  prepara build/v130/tmp/hactool-home/.switch/{prod,title}.keys para o hactool mesclar o
                update (BKTR): title keys tiradas dos tickets dos NSPs; prod.keys sem comentários e com o
                NUL extra do Lockpick removido. Usado por tools/windows/merge_romfs.ps1.
@@ -142,6 +143,31 @@ def cmd_romfs_list(args, keys) -> int:
     return 0
 
 
+def cmd_romfs_index(args, keys) -> int:
+    image = args.work / "romfs.bin"
+    with image.open("rb") as f:
+        files = nx.romfs_image_files(f)
+    (args.work / "romfs-v130.tsv").write_text("".join(f"{s}\t{p}\n" for p, _o, s in files), encoding="utf-8")
+    base_tsv = args.work / f"romfs-{BASE_TID}.tsv"
+    base = {}
+    if base_tsv.exists():
+        for line in base_tsv.read_text(encoding="utf-8").splitlines():
+            size, path = line.split("\t", 1)
+            base[path] = int(size)
+    new = {p: s for p, _o, s in files}
+    added = sorted(set(new) - set(base))
+    removed = sorted(set(base) - set(new))
+    changed = sorted(p for p in set(new) & set(base) if new[p] != base[p])
+    total = sum(new.values())
+    print(f"RomFS 1.3.0: {len(files)} arquivos, {total / 2**30:.2f} GiB (imagem {image.stat().st_size / 2**30:.2f} GiB)")
+    if base:
+        print(f"em relação à base 1.0.0: {len(added)} novos, {len(removed)} removidos, {len(changed)} com tamanho diferente")
+        for label, items in (("novo", added), ("removido", removed), ("mudou", changed)):
+            for path in items[:15]:
+                print(f"   {label:8s} {path}  {base.get(path, 0) / 2**20:.1f} → {new.get(path, 0) / 2**20:.1f} MiB")
+    return 0
+
+
 def cmd_hactool_home(args, keys) -> int:
     import os
     import re
@@ -176,7 +202,7 @@ def cmd_hactool_home(args, keys) -> int:
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("command", choices=("inventory", "exefs", "romfs-list", "hactool-home"))
+    ap.add_argument("command", choices=("inventory", "exefs", "romfs-list", "romfs-index", "hactool-home"))
     ap.add_argument("--game-dir", type=Path, default=ROOT / "Game Files")
     ap.add_argument("--keys", type=Path, default=ROOT / "Game Files" / "prod.keys")
     ap.add_argument("--work", type=Path, default=ROOT / "build" / "v130")
@@ -188,6 +214,8 @@ def main(argv=None) -> int:
         return cmd_inventory(args, keys)
     if args.command == "romfs-list":
         return cmd_romfs_list(args, keys)
+    if args.command == "romfs-index":
+        return cmd_romfs_index(args, keys)
     if args.command == "hactool-home":
         return cmd_hactool_home(args, keys)
     return cmd_exefs(args, keys)

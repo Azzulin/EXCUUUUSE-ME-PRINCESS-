@@ -74,7 +74,7 @@ perfil AoC do nxnative/MacNativeGames.**
   - c1 grande / alocado dinamicamente;
   - texturas 3D nos slots 8/9 (em aberto).
 - Back end Vulkan do Astral Chain: replay no `QueueSubmitCommands`, VMA, `VK_EXT_graphics_pipeline_library`,
-  snapshot de uniforms, thread de gravação, FSR1, ASTC por compute.
+  snapshot de uniforms, thread de gravação, FSR1. Texturas BC1–BC7 sobem como estão (o AoC não usa ASTC).
 - No Vulkan, duas coisas ficam **mais simples** que no Metal:
   - buffer textures com fetch 1D → `VkBufferView` (texel buffer), sem "row wrap";
   - sem limitação de tile/TBDR do Apple.

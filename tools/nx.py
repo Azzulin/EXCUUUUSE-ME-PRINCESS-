@@ -275,3 +275,31 @@ def romfs_files(sec: SectionReader) -> list[tuple[str, int, int]]:
     walk_dir(0, "")
     require(level_size >= 0x50, "Nível de RomFS vazio")
     return out
+
+
+def romfs_image_files(f: BinaryIO, base: int = 0) -> list[tuple[str, int, int]]:
+    """Lista de uma imagem RomFS simples (ex.: build/v130/romfs.bin): (caminho, offset absoluto, tamanho)."""
+    hdr = read_at(f, base, 0x50)
+    (hsize, _dh_off, _dh_size, dm_off, dm_size, _fh_off, _fh_size, fm_off, fm_size,
+     data_off) = struct.unpack_from("<10Q", hdr)
+    require(hsize == 0x50, "Não é uma imagem RomFS (cabeçalho inesperado)")
+    dmeta = read_at(f, base + dm_off, dm_size)
+    fmeta = read_at(f, base + fm_off, fm_size)
+    out: list[tuple[str, int, int]] = []
+    empty = 0xFFFFFFFF
+
+    def walk_dir(at: int, prefix: str) -> None:
+        _parent, _sibling, child, files, _hash, _nlen = struct.unpack_from("<IIIIII", dmeta, at)
+        cur = files
+        while cur != empty:
+            _p, sibling, off, size, _h, nlen = struct.unpack_from("<IIQQII", fmeta, cur)
+            out.append((prefix + fmeta[cur + 0x20:cur + 0x20 + nlen].decode("utf-8"), base + data_off + off, size))
+            cur = sibling
+        cur = child
+        while cur != empty:
+            _p, sibling, _c, _f, _h, nlen = struct.unpack_from("<IIIIII", dmeta, cur)
+            walk_dir(cur, prefix + dmeta[cur + 0x18:cur + 0x18 + nlen].decode("utf-8") + "/")
+            cur = sibling
+
+    walk_dir(0, "")
+    return out

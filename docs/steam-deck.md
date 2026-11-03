@@ -11,7 +11,7 @@ Alvo principal: Steam Deck (LCD ou OLED), SteamOS 3.8+, jogo instalado no **cart
 | Vulkan 1.3 + `VK_EXT_external_memory_host` | importar a memória dos pools do jogo | RADV: sim |
 | `VK_EXT_graphics_pipeline_library` | montar pipelines sem stutter | RADV: sim |
 | glibc ≥ 2.31 (jogo) | build contra o sysroot *sniper* do Steam Runtime 3 | sim |
-| ASTC nativo | texturas do Switch | **não** → decodificação por compute ou cache BC |
+| ASTC nativo | texturas do Switch | **não**, mas o AoC só usa BC1–BC7, que o RDNA2 lê nativamente |
 
 ## Disco (cartão SD de 1 TB)
 
@@ -26,12 +26,10 @@ que importa no cartão é **velocidade**: leitura sequencial de ~90–100 MB/s (
 | SPIR-V traduzido (40 726 shaders) | ~0,5–1 GB | AOT na instalação |
 | Cache de pipeline Vulkan | ~0,2–0,5 GB | |
 | Mesa shader cache | sem teto apertado | `MESA_SHADER_CACHE_DIR` ao lado do jogo, não em `~/.cache` (que fica na memória interna) |
-| Cache BC de texturas | pode ser grande | viável com 1 TB: elimina a decodificação ASTC em tempo de jogo |
 | Saves e configs | < 50 MB | |
 
-Com espaço sobrando, duas opções que antes eram caras ficam baratas:
+Com espaço sobrando, uma opção que seria cara fica barata:
 
-- **Cache BC de texturas** gerado uma vez na instalação, em vez de decodificar ASTC por compute a cada upload.
 - **Dados "quentes" descomprimidos** (por exemplo, o container de shaders e os arquivos lidos em toda batalha), se
   as medições mostrarem que a descompressão zlib pesa na CPU.
 
@@ -55,7 +53,7 @@ Ressalva: a pasta final contém o jogo (RomFS + código derivado). É para uso p
 | 60 fps experimental | ~960×600 + FSR1 | 45–60 fps fora das batalhas grandes | 15 W |
 
 Onde o tempo de frame vai pesar (em ordem de suspeita): replay NVN→Vulkan na CPU nas batalhas → uploads de pools
-escritos pela CPU (write-watch + cópias sombra) → decodificação ASTC → GPU em si.
+escritos pela CPU (write-watch + cópias sombra) → GPU em si. (Não há decodificação ASTC: o jogo só usa BCn.)
 
 Ferramentas de medição: overlay próprio (F10 / L3+R3) com frame time p50/p95/p99, tempos de replay, upload, tradução
 e montagem de pipeline; overlay de desempenho do Steam para watts e temperatura.

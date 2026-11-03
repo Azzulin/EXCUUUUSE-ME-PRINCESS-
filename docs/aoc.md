@@ -50,7 +50,7 @@ tabela de hashes e todos os blocos, e grava em `build/v130/exefs/`. `tools/inspe
 | Tamanho dos módulos (main / subsdk0 / sdk) | 43,7 / 7,1 / 12,6 MiB em memória (tabela acima) |
 | NPDM (prioridade, core, pilha, system resource) | 44, core 0, 0x100000, **0** |
 | RomFS da base 1.0.0 | **1 086 arquivos, 10,60 GiB**: dados RDB 8 280 MiB, `.file` 1 290 MiB, vídeos `.webm` 1 246 MiB, `.bin` 29 MiB, índices `.rdb` 13 MiB |
-| RomFS do update 1.3.0 | seção BKTR (patch sobre a base) — falta o passo de mesclagem |
+| RomFS 1.3.0 mesclado (`build/v130/romfs.bin`) | **1 101 arquivos, 10,91 GiB**, seis níveis IVFC verificados. Em relação à base: 18 arquivos novos (vários `.rdb.bin1..3` de patch), 3 removidos (`data/LinkData.bin`, `data/LinkInfo.bin`, `asset/AtelierToolVersion.txt`), 120 com tamanho diferente |
 | DLCs | 3001: 1 arquivo (licença); 3002: 4 arquivos, 87 MiB de dados RDB; 3003: 15 arquivos, 218 MiB; 3004 (*Guardian of Remembrance*): 186 arquivos, 1,11 GiB — 561 MiB `.rdb.bin3_*`, 389 MiB de vídeos, 184 MiB `.file` |
 | Imports do `main` | 387: `nn::audio` 88, libc 67, `nn::os` 56, `nn::hid` 40, `nn::fs` 25, `movie` 20, `nn::settings` 16, `nn::oe` 14, `nn::nfp` 14 (amiibo), `nn::time` 8, `nn::vi` 7, `nn::codec` 6, `nn::mem` 6, `nn::account` 3, `nn::aoc` 2 (DLC), `nn::util` 2, `nn::err` 1, mais `nv::InitializeGraphics`, `nv::SetGraphicsAllocator` e `nvnBootstrapLoader` |
 | Imports do `subsdk0` (vídeo) | 650: libc 275, `android` 208 (a biblioteca de vídeo é baseada em código Android), C++ 102, `nn::os` 25, `nn::audio` 19, `nn::sf` 11 |
@@ -60,4 +60,42 @@ tabela de hashes e todos os blocos, e grava em `build/v130/exefs/`. `tools/inspe
 | Nomes NVN pedidos × `nvn_procs.inc` | — (precisa rodar o jogo até `nvnBootstrapLoader`; nxnative lista 523) |
 | Funções / jump tables / instruções não suportadas | — (Fase 1, dry-run do lifter) |
 | Shaders por estágio | — *(nxnative: 40 726)* |
-| Texturas ASTC × BCn | — |
+| Formatos de textura | **nenhum ASTC** — tabela abaixo |
+
+## Conteúdo dos RDB do 1.3.0 (`tools/census_rdb.py`)
+
+994 arquivos RDB (`*.rdb.bin*` e `asset/data/*.file`), lidos só pelos cabeçalhos das entradas IDRK. "Real" é o
+tamanho descomprimido. DLCs ainda não entram (ficam nos NSPs de DLC).
+
+| Tipo (KTID) | Magic | O que é | Entradas | Guardado | Real |
+|---|---|---|---|---|---|
+| `afbec60c` | `GT1G` | texturas G1T | 40 198 | 4,4 GiB | 10,3 GiB |
+| `563bdef1` | `_M1G` | modelos G1M | 9 698 | 1,4 GiB | 2,5 GiB |
+| `7bcd279f` | `_S2G` | shaders G2S (bate com o nxnative) | 23 108 | 0,8 GiB | 2,3 GiB |
+| `0d34474d` | `TSRS` | som (KTSR) | 969 | 1,3 GiB | 1,3 GiB |
+| `786dcd84` | `_N1G` | ? (poucas entradas grandes) | 20 | 140 MiB | 775 MiB |
+| `5b2970fc` | `2FTK` | ? (provável fonte KTF2) | 23 | 188 MiB | 688 MiB |
+| `20a6a0bb` | `_DOK` | recursos de sistema do engine (inclui 151 shaders) | 5 062 | 75 MiB | 618 MiB |
+| `bbd39f2d` | `ASRS` | som (o mesmo tipo que travava a inicialização no nxnative) | 1 270 | 478 MiB | 525 MiB |
+| `6fa91671` | `_A1G`/`_A2G` | animações | 12 209 | 250 MiB | 453 MiB |
+
+O relatório completo (todos os tipos) fica em `build/v130/rdb-census.json`.
+
+### Formatos de textura
+
+| Código G1T | Formato | Texturas |
+|---|---|---|
+| `0x5f` | BC7 | 11 819 |
+| `0x59` | BC1 | 6 110 |
+| `0x5d` | BC5 | 1 941 |
+| `0x5b` | BC3 | 594 |
+| `0x5c` | BC4 | 521 |
+| `0x5e` | BC6H | 191 |
+| `0x06` / `0x08` | BC1 / BC3 (códigos antigos) | 3 |
+| `0x01`–`0x04` | não comprimidos; nas amostras, placeholders 1×1 (0x03 ainda não conferido) | 19 172 |
+
+Os códigos 0x59–0x5F vêm da Amicitia Wiki e foram conferidos aqui pela razão tamanho/pixels: BC1 e BC4 dão
+5,33 bits por pixel (4 bpp + mipmaps), BC5/BC6H/BC7 dão 10,67 (8 bpp + mipmaps).
+
+**Consequência:** o AoC não usa ASTC. Todo o conteúdo comprimido é BC1–BC7, que o RDNA2 do Steam Deck (e qualquer GPU
+de PC) amostra nativamente. Some a decodificação ASTC, o maior custo de textura do Astral Chain no Deck.

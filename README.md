@@ -38,17 +38,24 @@ Age of Calamity do [nxnative](https://github.com/seedds/nxnative).
 | [docs/referencias.md](docs/referencias.md) | repositórios de referência fixados e ordem de leitura |
 | [docs/aoc.md](docs/aoc.md) | fatos medidos no nosso dump (preenchido a partir da Fase 0) |
 
-## Primeiros passos (WSL2 / Ubuntu)
+## Compilar em qualquer máquina (Windows + WSL)
 
-```sh
-git config core.hooksPath .githooks        # ativa a guarda de conteúdo antes de cada commit
-sh tools/fetch_refs.sh                     # baixa as referências em refs/ (ignorado pelo git)
-cp config.example.toml config.local.toml   # aponte para o seu dump e as suas chaves
-python3 -m unittest discover -s tests -v   # testes sem dados do jogo
+1. Clone o repositório:
+   `git clone https://github.com/Azzulin/Blonde-Z-and-her-friends.git` (repositório privado: use o seu token).
+2. Crie a pasta `Game Files` na raiz do clone e coloque nela os NSPs da **base**, do **update 1.3.0** e dos
+   **DLCs**, e o seu **`prod.keys`**. Essa pasta é ignorada pelo git e nunca é enviada.
+3. Dê dois cliques em **`build.bat`** (na raiz). Ele:
+   - confere se o WSL abre (e diz o que fazer se não abrir);
+   - prepara o Ubuntu do WSL (clang, lld, ninja, venv Python; pede a senha do `sudo` só na primeira vez);
+   - extrai o código do jogo de `Game Files/` se ainda não foi extraído;
+   - gera o C e compila em `~/aoc-build` (disco do Linux), com o log em `build\build-wsl.log`.
 
-# depois de extrair o ExeFS/RomFS para build/v130/ :
-python3 tools/inspect_dump.py --exefs build/v130/exefs --romfs build/v130/romfs --out build/v130/inspect.json
-```
+Requisitos: Windows 10/11 com WSL2 e uma distro Ubuntu (22.04 ou 24.04) funcionando — `wsl -l -v` lista as
+distros; `wsl --install -d Ubuntu-24.04` instala uma. Detalhes e comandos manuais em
+[docs/building.md](docs/building.md).
+
+Para o RomFS mesclado (só necessário a partir da Fase 2), rode também `tools\windows\merge_romfs.bat`, que usa o
+`hactool.exe` em `toolchain\hactool-1.4.0-win\` (baixe o hactool 1.4.0 para lá; não vai no git).
 
 ## Licença
 

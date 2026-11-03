@@ -6,8 +6,9 @@ nada.
 
 ## 1. Preparar o WSL (uma vez)
 
-Atalho: clique duas vezes em `tools\windows\build_wsl.bat` — faz este passo e o passo 3 de uma vez e grava o
-log em `build\build-wsl.log`. Ou, no terminal do WSL:
+Atalho: clique duas vezes em `build.bat` na raiz (chama `tools\windows\build_wsl.bat`) — confere o WSL, faz este
+passo, extrai o ExeFS de `Game Files/` se faltar e roda o passo 3, gravando o log em `build\build-wsl.log`. Funciona em
+qualquer máquina com o repositório clonado e o dump em `Game Files/`. Ou, no terminal do WSL:
 
 ```sh
 bash "/mnt/d/Decomp/Age of Calamity/tools/setup_wsl.sh"

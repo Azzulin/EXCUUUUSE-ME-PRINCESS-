@@ -3,6 +3,7 @@
 
 Passos (cada um pula o que já está feito):
 
+0. `extract` — se build/v130/exefs não existir (máquina nova), extrai o ExeFS do NSP do update em "Game Files/".
 1. `gen`   — recomp/gen.py: ExeFS 1.3.0 → C em <work>/generated/ (~600 MB, ~3 min).
 2. `guest` — compila todo o C gerado em objetos e junta em <work>/lib/libaoc_guest.a. As ~35 funções gigantes do
              `main` (um arquivo de 1–7 MB de C cada) recebem flags que cortam os passes do LLVM que crescem de forma
@@ -59,6 +60,21 @@ def need(tool: str) -> str:
     if not path:
         sys.exit(f"ERRO: '{tool}' não encontrado no PATH (rode tools/setup_wsl.sh)")
     return path
+
+
+def step_extract(args) -> None:
+    """Numa máquina nova o ExeFS ainda não existe: extrai do NSP do update em "Game Files/" (tools/extract.py)."""
+    game, keys = ROOT / "Game Files", ROOT / "Game Files" / "prod.keys"
+    if args.exefs != ROOT / "build" / "v130" / "exefs":
+        sys.exit(f"ERRO: ExeFS não encontrado em {args.exefs}")
+    if not keys.exists() or not any(game.rglob("*.nsp")):
+        sys.exit("ERRO: o código do jogo ainda não foi extraído e não achei o dump.\n"
+                 f"  Coloque os NSPs (base, update 1.3.0 e DLCs) e o prod.keys em: {game}\n"
+                 "  (a pasta 'Game Files' fica na raiz do repositório e é ignorada pelo git)")
+    print("extract: ExeFS ausente, extraindo do update 1.3.0 em 'Game Files/'")
+    subprocess.run([sys.executable, str(ROOT / "tools" / "extract.py"), "inventory"], check=True)
+    subprocess.run([sys.executable, str(ROOT / "tools" / "extract.py"), "exefs"], check=True)
+    subprocess.run([sys.executable, str(ROOT / "tools" / "inspect_dump.py"), "--exefs", str(args.exefs)], check=True)
 
 
 def step_gen(args) -> Path:
@@ -154,7 +170,7 @@ def main(argv=None) -> int:
     args.work = args.work.expanduser().resolve()
     args.work.mkdir(parents=True, exist_ok=True)
     if not (args.exefs / "main").exists():
-        sys.exit(f"ERRO: ExeFS não encontrado em {args.exefs} (rode tools/extract.py exefs)")
+        step_extract(args)
     gen = step_gen(args) if "gen" in args.steps else args.work / "generated"
     if "guest" in args.steps:
         step_guest(args, gen)

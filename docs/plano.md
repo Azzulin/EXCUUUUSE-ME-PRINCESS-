@@ -24,7 +24,7 @@ Objetivo: saber exatamente com o que estamos lidando, sem escrever nada de runti
 - [ ] Censos (resultados em `docs/aoc.md`, sem dados do jogo, só números):
   - [x] imports dos módulos (`tools/census_imports.py`) — falta cruzar com os overrides herdados;
   - [ ] nomes NVN pedidos pelo jogo × `nvn_procs.inc`;
-  - [ ] instruções/funções/jump tables por módulo (dry-run do lifter);
+  - [x] instruções/funções/jump tables por módulo (geração completa na Fase 1);
   - [x] shaders por estágio (`tools/census_shaders.py`): 40 729 únicos, mesmas chaves do nxnative;
   - [ ] teste de tradução dos shaders (tradutor Ryujinx + `spirv-val`);
   - [x] formatos de textura nas G1T — só BCn, nenhum ASTC (`tools/census_rdb.py`);
@@ -35,11 +35,11 @@ Objetivo: saber exatamente com o que estamos lidando, sem escrever nada de runti
 
 ## Fase 1 — CPU: lifter para os três módulos · ~2 semanas
 
-- [ ] Trazer `recomp/` do Astral Chain (MIT) com atribuição; gerador com marcador.
-- [ ] `layout.py` do AoC (bases dos módulos, heap 3,2 GB, alias, pilhas).
-- [ ] Padrão de jump table de bytes indexada por `x30`.
-- [ ] Decidir `--no-callee-saved-trust` a partir do censo de exceções.
-- [ ] Testes diferenciais (Unicorn) passando: instruções, SIMD, atômicos, funções inteiras, jump tables = 0 divergências.
+- [x] Trazer `recomp/` do Astral Chain (MIT) com atribuição; gerador com marcador.
+- [x] `layout.py` do AoC: bases dos módulos sem região fixa de RomFS (heap/alias/pilhas ficam com o runtime, Fase 2).
+- [x] Padrão de jump table de bytes indexada por `x30` — `main+0x138216c` já resolve e bate com o oráculo (11 alvos).
+- [x] Decidir `--no-callee-saved-trust` a partir do censo de exceções — não precisa (sem exceções C++ nem longjmp).
+- [ ] Testes diferenciais (Unicorn): instruções ✔ (0 falhas), funções inteiras ✔ (0 falhas), flags ✔; jump tables: 2 superconjuntos a corrigir; SIMD e atômicos (sem dados do jogo) a rodar.
 - [ ] `aocrecomp --selftest` (layout, tabela de dispatch, registro de funções host) sem arquivos do jogo.
 
 **Portão B1:** 100 % das instruções dos três módulos geradas sem trap não suportado; C compila e linka no Linux.

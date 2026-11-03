@@ -303,3 +303,44 @@ def romfs_image_files(f: BinaryIO, base: int = 0) -> list[tuple[str, int, int]]:
 
     walk_dir(0, "")
     return out
+
+
+class SectionFile:
+    """Arquivo somente-leitura sobre o nível RomFS (IVFC nível 5) de uma seção de NCA: permite usar
+    romfs_image_files() e as ferramentas de censo direto no NSP, sem extrair nada."""
+
+    def __init__(self, sec: SectionReader):
+        require(sec.fs[8:12] == b"IVFC", "Seção sem IVFC")
+        self.sec = sec
+        self.base, self.size = struct.unpack_from("<QQ", sec.fs, 0x18 + 0x18 * 5)
+        self.pos = 0
+
+    def seek(self, pos: int, whence: int = 0) -> int:
+        self.pos = pos if whence == 0 else self.pos + pos if whence == 1 else self.size + pos
+        return self.pos
+
+    def tell(self) -> int:
+        return self.pos
+
+    def read(self, n: int = -1) -> bytes:
+        n = self.size - self.pos if n < 0 else min(n, self.size - self.pos)
+        if n <= 0:
+            return b""
+        data = self.sec.read(self.base + self.pos, n)
+        self.pos += n
+        return data
+
+
+def dlc_romfs(game_dir: Path, keys: dict[str, bytes], prefix: str = "01002B00111A3"):
+    """(title id, SectionFile) do RomFS de cada NSP de DLC em game_dir. O NSP fica aberto enquanto o gerador vive."""
+    for path in sorted(p for p in Path(game_dir).rglob("*.nsp")):
+        f = path.open("rb")
+        _, entries = container_entries(f, path.stat().st_size)
+        tickets = common_tickets(f, entries)
+        for nca in nca_inventory(f, entries, keys):
+            if nca.content_type != 5 or not nca.title_id.startswith(prefix):
+                continue
+            key = nca_ctr_key(nca, keys, tickets)
+            for i in nca.sections():
+                if nca.section_kind(i) == "romfs":
+                    yield nca.title_id, SectionFile(SectionReader(f, nca, i, key))

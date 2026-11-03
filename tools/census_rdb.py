@@ -124,24 +124,32 @@ def main(argv=None) -> int:
     ap.add_argument("--state", type=Path, default=ROOT / "build" / "v130" / "rdb-census-state.json")
     ap.add_argument("--budget", type=float, default=150.0)
     ap.add_argument("--report", action="store_true")
+    ap.add_argument("--dlc", action="store_true", help="também os RDB dos DLCs, lidos direto dos NSPs em --game-dir")
+    ap.add_argument("--game-dir", type=Path, default=ROOT / "Game Files")
+    ap.add_argument("--keys", type=Path, default=ROOT / "Game Files" / "prod.keys")
     args = ap.parse_args(argv)
     state = json.loads(args.state.read_text(encoding="utf-8")) if args.state.exists() else {"files": {}}
 
     if not args.report:
         deadline = time.time() + args.budget
-        with args.romfs.open("rb") as f:
-            files = [(p, o, s) for p, o, s in nx.romfs_image_files(f)
+        sources = [("", args.romfs.open("rb"))]
+        if args.dlc:
+            sources += [(f"dlc:{tid}:", sf) for tid, sf in nx.dlc_romfs(args.game_dir, nx.load_keys(args.keys))]
+        total_files = done = 0
+        for label, f in sources:
+            files = [(label + p, o, s) for p, o, s in nx.romfs_image_files(f)
                      if ".rdb.bin" in p.rsplit("/", 1)[-1] or p.endswith(".file")]
+            total_files += len(files)
             pending = [x for x in files if not state["files"].get(x[0], {}).get("done")]
             for path, off, size in sorted(pending, key=lambda x: x[2]):
                 st = state["files"].setdefault(path, {})
                 st["done"] = scan_file(f, path, off, size, deadline, st)
                 if not st["done"]:
                     break
+            done += sum(1 for p, _o, _s in files if state["files"].get(p, {}).get("done"))
         args.state.write_text(json.dumps(state) + "\n", encoding="utf-8")
-        done = sum(1 for v in state["files"].values() if v.get("done"))
-        print(f"arquivos RDB processados: {done}/{len(files)}" + ("" if done == len(files) else " (rode de novo para continuar)"))
-        if done < len(files):
+        print(f"arquivos RDB processados: {done}/{total_files}" + ("" if done == total_files else " (rode de novo para continuar)"))
+        if done < total_files:
             return 2
 
     total: dict = defaultdict(lambda: {"count": 0, "stored": 0, "length": 0, "magic": Counter(), "g1t_formats": Counter()})

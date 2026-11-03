@@ -171,7 +171,7 @@ def add(state: dict, source: str, shaders) -> None:
         e[4][source] = e[4].get(source, 0) + 1
 
 
-def scan_rdb(f, base: int, size: int, fst: dict, state: dict, deadline: float) -> bool:
+def scan_rdb(f, base: int, size: int, fst: dict, state: dict, deadline: float, prefix: str = "") -> bool:
     pos = fst.get("pos", 0)
     while pos + 0x30 <= size:
         if time.time() > deadline:
@@ -192,10 +192,11 @@ def scan_rdb(f, base: int, size: int, fst: dict, state: dict, deadline: float) -
         if kind:
             data = idrk_inflate(f, base + pos + esz - csz, base + pos + esz, flags)
             found = glslc_shaders(data)
-            state["containers"][kind] = state["containers"].get(kind, 0) + 1
+            ck = prefix + kind
+            state["containers"][ck] = state["containers"].get(ck, 0) + 1
             if found:
-                state["containers_with_shaders"][kind] = state["containers_with_shaders"].get(kind, 0) + 1
-            add(state, kind, found)
+                state["containers_with_shaders"][ck] = state["containers_with_shaders"].get(ck, 0) + 1
+            add(state, prefix + kind, found)
         pos += esz
     fst["pos"] = size
     return True
@@ -205,6 +206,9 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--work", type=Path, default=ROOT / "build" / "v130")
     ap.add_argument("--budget", type=float, default=150.0)
+    ap.add_argument("--dlc", action="store_true", help="também os shaders dos DLCs, lidos direto dos NSPs")
+    ap.add_argument("--game-dir", type=Path, default=ROOT / "Game Files")
+    ap.add_argument("--keys", type=Path, default=ROOT / "Game Files" / "prod.keys")
     args = ap.parse_args(argv)
     state_path = args.work / "shader-census-state.json"
     state = (json.loads(state_path.read_text(encoding="utf-8")) if state_path.exists() else
@@ -216,20 +220,26 @@ def main(argv=None) -> int:
         add(state, "main", glslc_shaders(load_nso(args.work / "exefs" / "main")))
         state["main_done"] = True
 
-    with (args.work / "romfs.bin").open("rb") as f:
-        files = [(p, o, s) for p, o, s in nx.romfs_image_files(f)
+    sources = [("", (args.work / "romfs.bin").open("rb"))]
+    if args.dlc:
+        sources += [(f"dlc:{tid}:", sf) for tid, sf in nx.dlc_romfs(args.game_dir, nx.load_keys(args.keys))]
+    total_files = done = 0
+    stop = False
+    for label, f in sources:
+        files = [(label + p, o, s) for p, o, s in nx.romfs_image_files(f)
                  if ".rdb.bin" in p.rsplit("/", 1)[-1] or p.endswith(".file")]
+        total_files += len(files)
         for path, off, size in sorted(files, key=lambda x: x[2]):
             fst = state["files"].setdefault(path, {})
-            if fst.get("done"):
+            if fst.get("done") or stop:
                 continue
-            fst["done"] = scan_rdb(f, off, size, fst, state, deadline)
-            if not fst["done"]:
-                break
+            fst["source"] = label.split(":")[1] if label else "v130"
+            fst["done"] = scan_rdb(f, off, size, fst, state, deadline, "DLC:" if label else "")
+            stop = not fst["done"]
+        done += sum(1 for p, _o, _s in files if state["files"].get(p, {}).get("done"))
     state_path.write_text(json.dumps(state) + "\n", encoding="utf-8")
-    done = sum(1 for v in state["files"].values() if v.get("done"))
-    if done < len(files):
-        print(f"arquivos RDB: {done}/{len(files)}; shaders únicos até agora: {len(state['keys'])} (rode de novo)")
+    if done < total_files:
+        print(f"arquivos RDB: {done}/{total_files}; shaders únicos até agora: {len(state['keys'])} (rode de novo)")
         return 2
 
     keys = state["keys"]
@@ -246,6 +256,9 @@ def main(argv=None) -> int:
         for s in sources:
             by_source[s] += 1
     total_occ = sum(occ_stage.values())
+    dlc_only = Counter(st for st, _n, _c, _l, src in keys.values() if src and all(x.startswith("DLC:") for x in src))
+    if dlc_only:
+        print(f"só nos DLCs: {sum(dlc_only.values())} únicos {dict(dlc_only)}")
     print(f"shaders: {total_occ} ocorrências, {len(keys)} únicos")
     for st in ("vs", "ps", "cs", "gs", "hs", "ds"):
         if by_stage[st]:
@@ -260,7 +273,7 @@ def main(argv=None) -> int:
     summary = {"unique": len(keys), "occurrences": total_occ, "by_stage_unique": dict(by_stage),
                "by_stage_occurrences": dict(occ_stage), "code_bytes": dict(code_stage),
                "control_sizes": dict(ctl_sizes), "unique_by_source": dict(by_source),
-               "containers": state["containers"], "containers_with_shaders": state["containers_with_shaders"]}
+               "dlc_only_by_stage": dict(dlc_only), "containers": state["containers"], "containers_with_shaders": state["containers_with_shaders"]}
     (args.work / "shader-census.json").write_text(json.dumps(summary, indent=1) + "\n", encoding="utf-8")
     print(f"inventário: {inv}")
     return 0

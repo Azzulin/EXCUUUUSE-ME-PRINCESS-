@@ -55,10 +55,11 @@ tabela de hashes e todos os blocos, e grava em `build/v130/exefs/`. `tools/inspe
 | Imports do `main` | 387: `nn::audio` 88, libc 67, `nn::os` 56, `nn::hid` 40, `nn::fs` 25, `movie` 20, `nn::settings` 16, `nn::oe` 14, `nn::nfp` 14 (amiibo), `nn::time` 8, `nn::vi` 7, `nn::codec` 6, `nn::mem` 6, `nn::account` 3, `nn::aoc` 2 (DLC), `nn::util` 2, `nn::err` 1, mais `nv::InitializeGraphics`, `nv::SetGraphicsAllocator` e `nvnBootstrapLoader` |
 | Imports do `subsdk0` (vídeo) | 650: libc 275, `android` 208 (a biblioteca de vídeo é baseada em código Android), C++ 102, `nn::os` 25, `nn::audio` 19, `nn::sf` 11 |
 | Imports do `sdk` | 13 (libc) |
+| Imports × overrides de referência | `main`: 65 de 383 já têm override no Astral Chain ou no TotK Recomp (hid 17, nfp 13, oe 10, time 7, vi 4, fs 3, account 3...). Os outros são resolvidos pelo próprio `sdk` recompilado e só viram trabalho quando chegam num serviço do sistema. Novos em relação às referências: `nn::ec::ShowShopAddOnContentList`, `nn::aoc::CountAddOnContent`, Opus multistream, cópia de segurança de saves (`nn::fs::CreateFile/DeleteFile/Commit`...) — `tools/census_overrides.py` |
 | Imports sem dono | nenhum: tudo que `main` e `subsdk0` importam é exportado pelos módulos (só sobram marcadores do linker `__rel_*` e um símbolo fraco do SDK) |
 | Exceções C++ / `longjmp` nos imports | **nenhum** → a otimização de registradores callee-saved do lifter pode ficar ligada |
 | Nomes NVN pedidos × `nvn_procs.inc` | — (precisa rodar o jogo até `nvnBootstrapLoader`; nxnative lista 523) |
-| Funções / jump tables / instruções não suportadas | — (Fase 1, dry-run do lifter) |
+| Funções / jump tables / instruções não suportadas | **101 212 funções, 0 instruções não suportadas** — seção "Fase 1" abaixo |
 | Shaders por estágio | **40 729 únicos** (37 045 pixel, 3 441 vertex, 241 compute, 2 geometry) — seção abaixo |
 | Formatos de textura | **nenhum ASTC** — tabela abaixo |
 
@@ -127,3 +128,44 @@ Consequências para o plano:
 - Só 3 441 vertex shaders para 50 mil usos: muitos materiais compartilham vertex shader, o que ajuda a montar
   pipelines por partes (graphics pipeline library).
 - Próximo passo de shader: teste de tradução com o tradutor do Ryujinx + `spirv-val` (precisa do .NET 10 no WSL).
+
+## DLCs (`census_rdb.py --dlc`, `census_shaders.py --dlc`)
+
+Lidos direto dos NSPs, sem extrair. 176 arquivos RDB nos três DLCs com conteúdo:
+
+| DLC | Arquivos RDB | Principal conteúdo (descomprimido) |
+|---|---|---|
+| `…3002` (bônus de compra) | 3 | texturas 203 MiB |
+| `…3003` (*Pulse of the Ancients*) | 14 | texturas 349 MiB, animações 26 MiB, modelos 21 MiB, fontes/UI 18 MiB, som 24 MiB |
+| `…3004` (*Guardian of Remembrance*) | 159 | texturas 673 MiB, modelos 245 MiB, som 231 MiB, fontes/UI 158 MiB, animações 34 MiB |
+
+- **Nenhum container de shader nos DLCs**: o conteúdo extra usa os 40 729 shaders do jogo base. Portar os DLCs não
+  aumenta o trabalho de tradução de shaders.
+- Texturas dos DLCs também só em BCn (o total de formatos do `rdb-census.json` já inclui os DLCs).
+
+## Fase 1 — lifter nos três módulos (`recomp/`, vindo do Astral Chain)
+
+Gerado no ambiente de nuvem da sessão (2 núcleos, 7 GB) a partir do ExeFS 1.3.0:
+
+| Módulo | Funções | Jump tables | `br` por dispatch | Fallbacks "todas as labels" | Traps (sites de SO) | Não suportadas | C gerado |
+|---|---|---|---|---|---|---|---|
+| `main` | 52 412 | 1 706 | 5 140 | 21 | 87 701 | **0** | 440 MB |
+| `subsdk0` | 13 618 | 335 | 3 970 | 1 | 16 189 | **0** | 62 MB |
+| `sdk` | 35 182 | 534 | 8 907 | 13 | 38 967 | **0** | 97 MB |
+| **total** | **101 212** | 2 575 | | | | **0** | **~600 MB** em 374 arquivos |
+
+- Geração completa em **161 s** com 2 workers. Descoberta de funções: menos de 1 s por módulo.
+- O `main` do AoC dá ~1,9× as funções do `main` do Astral Chain (27 788), não 3,5×: as funções do KTGL são maiores.
+
+Testes contra Unicorn (os mesmos do Astral Chain), todos sobre o código do nosso dump:
+
+| Teste | Resultado |
+|---|---|
+| `tests/flags_check.py` | 2 000 484 pares de operandos, 0 divergências (-O0 e -O1) |
+| `tests/diff/lift.py` (60 000 codificações sorteadas dos 3 módulos) | **179 958 casos, 0 falhas**; só 19 palavras "não suportadas", todas dado não decodificável (`?` no capstone) |
+| `tests/diff/func.py` (funções inteiras: laços, jump tables, chamadas, SIMD) | **627 funções, 4 246 casos, 0 falhas** |
+| `tests/jumptables_check.py` | `sdk`: 0 divergências. `main` e `subsdk0`: **1 divergência cada**, nos dois casos o resolvedor dá alvos a mais que o oráculo (superconjunto), porque não usa um `cmp w8,#3` / `cmp w16,#5` que limita um índice já mascarado por `ubfx`/`and`. É seguro em execução (casos a mais nunca tomados), mas o critério do plano é 0: ajustar `recomp/jumptables.py` (`main+0x1867d08`, `subsdk0+0x5da14`). 17 `br` computados não resolvidos caem no dispatch. |
+
+Compilação (clang 18, flags do Astral Chain: `-O1 -march=x86-64-v3`): amostras de 250 KB a 2,9 MB compilam sem
+erro a ~5–7 s por MB de C num núcleo. Os ~600 MB dão por volta de 1 hora-núcleo: ~30 min em 2 núcleos, alguns
+minutos num PC de 8–16 threads, ~10–15 min no Steam Deck (o que reforça compilar no PC).

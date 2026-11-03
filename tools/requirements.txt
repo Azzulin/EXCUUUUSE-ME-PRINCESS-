@@ -1,0 +1,7 @@
+# Ferramentas Python do AoC Recomp (extração, censos, gerador, testes). Versões testadas em 2026-11.
+cryptography>=42
+lz4>=4.3
+numpy>=1.26
+zstandard>=0.22
+capstone>=5.0
+unicorn>=2.1

@@ -99,9 +99,9 @@ perfil AoC do nxnative/MacNativeGames.**
 
 - Clang + LLD (o C gerado usa `__int128`, `musttail`, tipos vetoriais), Ninja, Python (uv), .NET 10 (tradutor),
   Vulkan SDK/headers, SDL3, libopus, libvpx, zstd, VMA.
-- **Build no PC, jogo no Deck**: compilar no WSL2/Ubuntu do PC contra o sysroot *sniper* do Steam Runtime
-  (glibc 2.31) e copiar só a pasta final para o cartão SD. Compilar no Deck é possível (há espaço no SD de 1 TB),
-  mas os 4 núcleos tornam cada rebuild bem mais lento que no PC.
+- **Build no PC, jogo no Deck** (decidido): compila-se no WSL2 do PC (i7-12700) e o resultado é uma pasta única
+  (`dist/aoc-deck/`) que só é copiada para o cartão SD. O Deck não compila nada. Passo a passo em
+  [building.md](building.md).
 - Testes em tempo de execução: no Deck ou em Linux nativo (o kernel do WSL2 não garante `PAGEMAP_SCAN` e a GPU no WSL
   não é RADV). Windows nativo também serve para depuração.
 

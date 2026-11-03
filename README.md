@@ -12,11 +12,13 @@ Windows).
 
 ## Status
 
-**Fase 0 — fundação e inventário.** Ainda não roda nada do jogo. O que existe:
+**Fase 1 — lifter.** Ainda não roda nada do jogo. O que existe:
 
 - levantamento técnico completo e plano por fases ([docs/](docs/));
 - guarda de conteúdo (hook + CI) que impede dados do jogo e chaves de entrarem no git;
-- `tools/inspect_dump.py`, que confere o seu dump extraído (build IDs, NPDM, tamanhos do RomFS).
+- extração direto dos NSPs e censos do jogo (código, RomFS, RDB, texturas, shaders, DLCs) — resultados em `docs/aoc.md`;
+- lifter ARM64 → C dos três módulos sem instrução não suportada, testado contra Unicorn, e `tools/build.py` para
+  compilar o código do jogo no WSL.
 
 ## Como funciona (resumo)
 
@@ -32,6 +34,7 @@ Age of Calamity do [nxnative](https://github.com/seedds/nxnative).
 | [docs/arquitetura.md](docs/arquitetura.md) | arquitetura escolhida, camada por camada |
 | [docs/plano.md](docs/plano.md) | fases, portões de aceitação, riscos |
 | [docs/steam-deck.md](docs/steam-deck.md) | requisitos, disco (SD de 1 TB) e desempenho |
+| [docs/building.md](docs/building.md) | como extrair, gerar o C e compilar no WSL do PC; pasta única para o Deck |
 | [docs/referencias.md](docs/referencias.md) | repositórios de referência fixados e ordem de leitura |
 | [docs/aoc.md](docs/aoc.md) | fatos medidos no nosso dump (preenchido a partir da Fase 0) |
 

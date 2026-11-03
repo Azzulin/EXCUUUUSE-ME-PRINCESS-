@@ -33,13 +33,31 @@ Com espaço sobrando, uma opção que seria cara fica barata:
 - **Dados "quentes" descomprimidos** (por exemplo, o container de shaders e os arquivos lidos em toda batalha), se
   as medições mostrarem que a descompressão zlib pesa na CPU.
 
-O dump original, as chaves e o C gerado continuam no **PC** (WSL2): o build é muito mais rápido lá.
+O dump original, as chaves e o C gerado continuam no **PC**. **O Deck não compila nada.**
 
-Fluxo recomendado:
+## Pasta única para o Deck
 
-1. No PC (WSL2): extrair, gerar C, compilar, traduzir shaders → pasta `dist/aoc-deck/`.
-2. Copiar `dist/aoc-deck/` para o cartão SD (rede, USB ou `rsync` pelo SSH do Deck).
-3. No Deck: primeira execução monta caches de pipeline; "Add to Steam" para o Game Mode.
+Tudo que o jogo precisa fica numa pasta só, montada no PC por `tools/build.py ... dist` (Fase 2 em diante) em
+`D:\Decomp\Age of Calamity\dist\aoc-deck\`. Copia-se a pasta inteira para o cartão SD (FTP, armazenamento na
+nuvem ou cabo) e pronto. Layout previsto:
+
+```
+aoc-deck/
+  aoc                    executável Linux x86-64 (código do jogo recompilado + runtime)
+  aoc.sh                 lançador: define MESA_SHADER_CACHE_DIR e LD_LIBRARY_PATH relativos à pasta
+  lib/                   bibliotecas que o SteamOS não garante (SDL3, ...)
+  game/exefs/            main, subsdk0, sdk, main.npdm (dados .rodata/.data que o runtime mapeia)
+  game/romfs.bin         RomFS 1.3.0 mesclado (10,9 GiB)
+  game/dlc/<title id>/   RomFS dos DLCs
+  shaders/               SPIR-V traduzido dos 40 729 shaders + cache de pipelines
+  mesa-cache/            cache do driver RADV (criado na primeira execução)
+  saves/  aoc.ini  logs/
+```
+
+- No Deck: Desktop Mode → copiar a pasta → "Add a Non-Steam Game" apontando para `aoc.sh` → jogar no Game Mode.
+- Atualizar = copiar a pasta de novo (saves e `aoc.ini` ficam; o build não os sobrescreve).
+- glibc: o binário é compilado no Ubuntu do WSL (glibc 2.35–2.39) e o SteamOS 3.8 tem uma glibc mais nova, então
+  roda sem sysroot especial. Se um dia for distribuir para outros, usar o sysroot *sniper* como o TotK Recomp.
 
 Ressalva: a pasta final contém o jogo (RomFS + código derivado). É para uso próprio — não compartilhar.
 

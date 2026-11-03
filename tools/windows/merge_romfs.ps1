@@ -65,12 +65,12 @@ $UpdNca = Get-ChildItem -LiteralPath (Join-Path $Tmp 'update') -Filter '*.nca' |
 Write-Host "NCA de programa da base:   $($BaseNca.Name)"
 Write-Host "NCA de programa do update: $($UpdNca.Name)"
 
-# Mescla: o RomFS do NCA do update e um patch BKTR sobre a base; --romfs grava a imagem RomFS final. -y verifica
-# os seis niveis IVFC.
+# Mescla: a secao 1 do NCA do update e um patch BKTR sobre a base. Para secao BKTR o hactool ignora --romfs; so
+# --section1 grava a imagem (o nivel RomFS final, sem os niveis de hash). -y verifica os seis niveis IVFC.
 $env:HOME = $HacHome
 Write-Host 'Mesclando o RomFS (base + 1.3.0) ...'
 & $Hactool -x -y --disablekeywarns --suppresskeys -k (Join-Path $HacHome '.switch\prod.keys') `
-    --basenca="$($BaseNca.FullName)" --romfs="$Out" $UpdNca.FullName *> $Log
+    --basenca="$($BaseNca.FullName)" --section1="$Out" $UpdNca.FullName *> $Log
 $code = $LASTEXITCODE
 $text = Get-Content -LiteralPath $Log -Raw
 # Sem as chaves publicas da Nintendo, o hactool sempre marca as assinaturas como FAIL: nao e erro de dados.
@@ -78,6 +78,10 @@ $checked = ($text -split "`r?`n" | Where-Object { $_ -notmatch '(Fixed-Key Signa
 $levels = (0..5 | Where-Object { $text -match "Level $_ \(GOOD\)" }).Count
 if ($code -ne 0 -or $checked -match '\(FAIL\)|\(INVALID\)|Failed to|Error:' -or $levels -ne 6) {
     Fail "a mesclagem nao verificou (codigo $code, niveis IVFC bons: $levels/6). Veja $Log"
+}
+# Os NCAs temporarios so sao apagados se a imagem existir de fato.
+if (-not (Test-Path -LiteralPath $Out) -or (Get-Item -LiteralPath $Out).Length -lt 1GB) {
+    Fail "o hactool verificou mas nao gravou $Out. NCAs mantidos em $Tmp para nova tentativa. Veja $Log"
 }
 
 # Limpa os NCAs temporarios e as chaves copiadas.

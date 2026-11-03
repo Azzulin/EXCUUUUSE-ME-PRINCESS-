@@ -1,8 +1,31 @@
 # AoC Recomp — instruções para agentes
 
 Recompilação estática de *Hyrule Warriors: Age of Calamity* 1.3.0 (Switch, ARM64) para x86-64 nativo com Vulkan.
-Alvo principal: **Steam Deck** (Linux, RADV, 4 núcleos Zen 2, 1280×800). Arquitetura em `docs/arquitetura.md`, plano
-em `docs/plano.md`, fatos do jogo em `docs/levantamento.md` e `docs/aoc.md`.
+Alvo principal: **Steam Deck** (Linux, RADV, 4 núcleos Zen 2, 1280×800). Projeto pessoal: o dono usa a própria cópia
+do jogo, extraída do próprio console.
+
+## Comece por aqui
+
+1. **[docs/handover.md](docs/handover.md)** — estado atual, decisões tomadas, máquinas e pastas, próximos passos e
+   armadilhas já encontradas. Leia antes de qualquer tarefa.
+2. [docs/plano.md](docs/plano.md) — fases com portões de aceitação (o que já está marcado e o que falta).
+3. [docs/aoc.md](docs/aoc.md) — fatos medidos no dump (números, endereços, censos). Fonte de verdade sobre o jogo.
+4. [docs/building.md](docs/building.md) — como extrair, gerar o C e compilar (`build.bat` / `tools/build.py`).
+5. [docs/arquitetura.md](docs/arquitetura.md), [docs/levantamento.md](docs/levantamento.md),
+   [docs/steam-deck.md](docs/steam-deck.md), [docs/referencias.md](docs/referencias.md) — contexto e porquês.
+6. [docs/historico.md](docs/historico.md) — o que foi feito em cada sessão, com os commits.
+
+Ao terminar uma sessão de trabalho: atualize `docs/handover.md` (estado e próximos passos), acrescente o relato em
+`docs/historico.md`, registre números novos em `docs/aoc.md` e marque o que fechou em `docs/plano.md`.
+
+## Como o projeto é montado
+
+- O dump fica em **`Game Files/`** na raiz (NSPs da base, update 1.3.0 e DLCs + `prod.keys`), ignorado pelo git.
+- Tudo compila **no PC, pelo WSL2** (`build.bat` na raiz, ou `tools/build.py --work ~/aoc-build` no WSL). O diretório
+  de trabalho fica no disco do Linux, nunca em `/mnt/c` ou `/mnt/d`.
+- O Steam Deck **não compila**: recebe uma pasta única `dist/aoc-deck/` copiada pelo dono (layout em
+  `docs/steam-deck.md`).
+- Referências clonadas no PC do dono em `D:\Gits para projetos\` (ou em `refs/` via `tools/fetch_refs.sh`).
 
 ## Prioridades
 
@@ -17,8 +40,9 @@ em `docs/plano.md`, fatos do jogo em `docs/levantamento.md` e `docs/aoc.md`.
 
 Este repositório pode ficar público. Dados do jogo vivem fora dele e tudo derivado fica em pastas ignoradas.
 
-- Caminhos do dump e das chaves ficam em `config.local.toml` (ignorado). As ferramentas recebem o caminho do arquivo
-  de chaves e leem sozinhas. **Valores de chave nunca aparecem em saída, log, comando ou arquivo.**
+- O dump e as chaves ficam em `Game Files/` (ignorado; as ferramentas usam esse caminho por padrão). As ferramentas
+  recebem o caminho do arquivo de chaves e leem sozinhas. **Valores de chave nunca aparecem em saída, log, comando
+  ou arquivo.** Tokens do GitHub também não: nunca em arquivo nem em `.git/config`.
 - Tudo extraído ou gerado vai para `build/` ou `generated/`; a pasta para o Deck vai para `dist/`.
 - Todo arquivo emitido pelo gerador leva `GENERATED_MARKER` (definido em `tools/check_content.py`).
 - Rodar `python3 tools/check_content.py --staged` antes de propor commit (é o mesmo check do CI e do hook).

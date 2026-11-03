@@ -30,6 +30,8 @@ Age of Calamity do [nxnative](https://github.com/seedds/nxnative).
 
 | Documento | Conteúdo |
 |---|---|
+| [docs/handover.md](docs/handover.md) | **estado atual e próximos passos** (para quem continua o trabalho, pessoa ou agente) |
+| [docs/historico.md](docs/historico.md) | relato do que foi feito em cada sessão |
 | [docs/levantamento.md](docs/levantamento.md) | o jogo por dentro, projetos de referência, abordagens, hardware-alvo |
 | [docs/arquitetura.md](docs/arquitetura.md) | arquitetura escolhida, camada por camada |
 | [docs/plano.md](docs/plano.md) | fases, portões de aceitação, riscos |

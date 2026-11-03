@@ -59,7 +59,7 @@ tabela de hashes e todos os blocos, e grava em `build/v130/exefs/`. `tools/inspe
 | Exceções C++ / `longjmp` nos imports | **nenhum** → a otimização de registradores callee-saved do lifter pode ficar ligada |
 | Nomes NVN pedidos × `nvn_procs.inc` | — (precisa rodar o jogo até `nvnBootstrapLoader`; nxnative lista 523) |
 | Funções / jump tables / instruções não suportadas | — (Fase 1, dry-run do lifter) |
-| Shaders por estágio | — *(nxnative: 40 726)* |
+| Shaders por estágio | **40 729 únicos** (37 045 pixel, 3 441 vertex, 241 compute, 2 geometry) — seção abaixo |
 | Formatos de textura | **nenhum ASTC** — tabela abaixo |
 
 ## Conteúdo dos RDB do 1.3.0 (`tools/census_rdb.py`)
@@ -99,3 +99,31 @@ Os códigos 0x59–0x5F vêm da Amicitia Wiki e foram conferidos aqui pela razã
 
 **Consequência:** o AoC não usa ASTC. Todo o conteúdo comprimido é BC1–BC7, que o RDNA2 do Steam Deck (e qualquer GPU
 de PC) amostra nativamente. Some a decodificação ASTC, o maior custo de textura do Astral Chain no Deck.
+
+## Shaders (`tools/census_shaders.py`)
+
+Levantamento estático, sem rodar o jogo: lê as saídas do compilador GLSLC dentro dos containers G2S e `_DOK` dos RDB
+do 1.3.0 e no `main`. Roda em ~30 s.
+
+| Estágio | Únicos | Ocorrências | Código Maxwell |
+|---|---|---|---|
+| pixel | 37 045 | 52 854 | 576 MiB |
+| vertex | 3 441 | 50 378 | 23 MiB |
+| compute | 241 | 262 | 2,8 MiB |
+| geometry | 2 | 2 | — |
+| **total** | **40 729** | **103 496** | **~602 MiB** |
+
+- Origem dos únicos: 40 485 nos 23 108 containers G2S, 127 em 2 dos 5 062 containers `_DOK`, 117 no `main`.
+- Controles: 27 300 de 0x880 bytes, 13 426 de 0x850 e 3 de 0x7d1 (o formato antigo que o nxnative trata à parte).
+- **As 40 729 chaves batem uma a uma com o `shader_map.tsv` do nxnative**, inclusive o estágio de cada uma (e com
+  as "40 729 chaves extraídas" do MacNativeGames). Ou seja: as tabelas do nxnative para este jogo
+  (`shader_facts.tsv`, `shader_pairs.tsv`) valem para o nosso dump sem ajuste.
+- Inventário completo (chave, estágio, ocorrências, bytes) em `build/v130/shader-inventory.tsv`, fora do git.
+
+Consequências para o plano:
+
+- Pixel shaders dominam: quase 600 MiB de código para traduzir. A tradução AOT tem que ser em paralelo e com cache
+  por chave; no PC é o passo mais longo da instalação.
+- Só 3 441 vertex shaders para 50 mil usos: muitos materiais compartilham vertex shader, o que ajuda a montar
+  pipelines por partes (graphics pipeline library).
+- Próximo passo de shader: teste de tradução com o tradutor do Ryujinx + `spirv-val` (precisa do .NET 10 no WSL).

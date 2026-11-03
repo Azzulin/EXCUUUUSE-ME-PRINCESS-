@@ -25,7 +25,8 @@ Objetivo: saber exatamente com o que estamos lidando, sem escrever nada de runti
   - [x] imports dos módulos (`tools/census_imports.py`) — falta cruzar com os overrides herdados;
   - [ ] nomes NVN pedidos pelo jogo × `nvn_procs.inc`;
   - [ ] instruções/funções/jump tables por módulo (dry-run do lifter);
-  - [ ] shaders (contagem por estágio, tamanhos de controle) — portar `shader_split.py`;
+  - [x] shaders por estágio (`tools/census_shaders.py`): 40 729 únicos, mesmas chaves do nxnative;
+  - [ ] teste de tradução dos shaders (tradutor Ryujinx + `spirv-val`);
   - [x] formatos de textura nas G1T — só BCn, nenhum ASTC (`tools/census_rdb.py`);
   - [x] tamanho do RomFS da base, do 1.3.0 mesclado e dos DLCs;
   - [x] tipos de dados nos RDB (`tools/census_rdb.py`);

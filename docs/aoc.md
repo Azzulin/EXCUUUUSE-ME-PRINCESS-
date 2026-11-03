@@ -164,8 +164,13 @@ Testes contra Unicorn (os mesmos do Astral Chain), todos sobre o código do noss
 | `tests/flags_check.py` | 2 000 484 pares de operandos, 0 divergências (-O0 e -O1) |
 | `tests/diff/lift.py` (60 000 codificações sorteadas dos 3 módulos) | **179 958 casos, 0 falhas**; só 19 palavras "não suportadas", todas dado não decodificável (`?` no capstone) |
 | `tests/diff/func.py` (funções inteiras: laços, jump tables, chamadas, SIMD) | **627 funções, 4 246 casos, 0 falhas** |
-| `tests/jumptables_check.py` | `sdk`: 0 divergências. `main` e `subsdk0`: **1 divergência cada**, nos dois casos o resolvedor dá alvos a mais que o oráculo (superconjunto), porque não usa um `cmp w8,#3` / `cmp w16,#5` que limita um índice já mascarado por `ubfx`/`and`. É seguro em execução (casos a mais nunca tomados), mas o critério do plano é 0: ajustar `recomp/jumptables.py` (`main+0x1867d08`, `subsdk0+0x5da14`). 17 `br` computados não resolvidos caem no dispatch. |
+| `tests/jumptables_check.py` | `main` e `sdk`: **0 divergências**. `subsdk0`: 1 divergência (`subsdk0+0x5da14`), o resolvedor dá 7 alvos e o oráculo 6 — superconjunto seguro: o limite `cmp w16,#5` fica nos predecessores e os "facts" de entrada de bloco não usam condições de aresta. A divergência do `main` (`main+0x1867d08`) foi corrigida em `recomp/jumptables.py` `_bounds`: um `cmp wN` agora limita também o índice de 64 bits quando ele cabe em 32 bits por construção. 17 `br` computados não resolvidos caem no dispatch. |
 
-Compilação (clang 18, flags do Astral Chain: `-O1 -march=x86-64-v3`): amostras de 250 KB a 2,9 MB compilam sem
-erro a ~5–7 s por MB de C num núcleo. Os ~600 MB dão por volta de 1 hora-núcleo: ~30 min em 2 núcleos, alguns
-minutos num PC de 8–16 threads, ~10–15 min no Steam Deck (o que reforça compilar no PC).
+Compilação (clang 18, flags do Astral Chain: `-O1 -march=x86-64-v3`), sem nenhum erro nos 44 arquivos compilados:
+
+- Arquivos comuns (250 KB a 3 MB, centenas de funções): ~5–7 s por MB de C num núcleo.
+- **35 funções gigantes no `main`** (cada uma num arquivo próprio, 1–7 MB de C, 69 MiB no total) são o problema:
+  `main_0041.c` (3 MB, 1 função) levou ~15 min e `main_0039.c` (5 MB) ~19 min a -O1, com até 1,8 GB de RAM cada;
+  a -O0 a de 3 MB passou de 7 GB e foi morta. É o principal risco de tempo de build (e o pior para compilar no Deck).
+- Próximo passo: medir o resto e atacar as gigantes no gerador (quebrar a função em blocos que se chamam com
+  `musttail`, ou desligar passes caros só nesses arquivos), antes de montar o build completo.

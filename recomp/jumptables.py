@@ -950,7 +950,14 @@ def _bounds(st):
         n = b[1]
         vals = range(n + 1) if c == LS else range(n) if c == LO else (n,) if c == 0 else None
         if vals is not None and 0 < len(vals) <= MAX_COUNT:
-            out.append((lo(a) if a[0] in ('zx', 'sx') else a, vals))
+            a = lo(a) if a[0] in ('zx', 'sx') else a
+            out.append((a, vals))
+            # AoC: um `cmp wN` limita lo(x); quando x cabe em 32 bits por construção (ubfx/and de poucos bits), o
+            # mesmo limite vale para o x de 64 bits que indexa a tabela (main+0x1867d08: ubfx x8 de 4 bits, cmp w8, #3).
+            if a[0] == 'lo':
+                d = _domain(a[1])
+                if d is not None and max(d, default=0) <= M32:
+                    out.append((a[1], vals))
     return out
 
 

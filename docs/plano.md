@@ -39,7 +39,7 @@ Objetivo: saber exatamente com o que estamos lidando, sem escrever nada de runti
 - [x] `layout.py` do AoC: bases dos módulos sem região fixa de RomFS (heap/alias/pilhas ficam com o runtime, Fase 2).
 - [x] Padrão de jump table de bytes indexada por `x30` — `main+0x138216c` já resolve e bate com o oráculo (11 alvos).
 - [x] Decidir `--no-callee-saved-trust` a partir do censo de exceções — não precisa (sem exceções C++ nem longjmp).
-- [ ] Testes diferenciais (Unicorn): instruções ✔ (0 falhas), funções inteiras ✔ (0 falhas), flags ✔; jump tables: 2 superconjuntos a corrigir; SIMD e atômicos (sem dados do jogo) a rodar.
+- [ ] Testes diferenciais (Unicorn): instruções ✔ (0 falhas), funções inteiras ✔ (0 falhas), flags ✔; jump tables: `main` corrigido, 1 superconjunto seguro no `subsdk0`; SIMD e atômicos (sem dados do jogo) a rodar.
 - [ ] `aocrecomp --selftest` (layout, tabela de dispatch, registro de funções host) sem arquivos do jogo.
 
 **Portão B1:** 100 % das instruções dos três módulos geradas sem trap não suportado; C compila e linka no Linux.
@@ -118,5 +118,6 @@ de shader após a instalação; 1 h de sessão sem crash.
 | Leitura aleatória lenta do cartão SD | Travadas ao carregar áreas | Ler RDB em blocos grandes, pré-carregar por área, cache de leitura; medir no Deck |
 | Semântica NVN não documentada que o AoC usa e o nxnative não cobriu | Bugs visuais longos | Comparação com emulador; plano B = GPU LLE (HWDER) |
 | Timers em ticks de 60 Hz quebrando 40/60 fps | Gameplay acelerado | "Original 30" como padrão; 60/40 só após teste de cutscene e batalha contra relógio real |
+| 35 funções gigantes no `main` (1–7 MB de C cada) levam 15–20 min cada para compilar | Build longo, inviável no Deck | Quebrar as funções no gerador ou compilar esses arquivos com menos otimização |
 | Kernel do WSL2 sem `PAGEMAP_SCAN` | Testes locais limitados | Testar no Deck / Linux nativo; build no WSL só compila |
 | Mudança nas referências (projetos ativos, commits diários) | Referência some ou muda | Revisões fixadas em `tools/fetch_refs.sh`; cópia só com atribuição |

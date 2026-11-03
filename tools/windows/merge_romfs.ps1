@@ -42,7 +42,12 @@ New-Item -ItemType Directory -Force -Path $In | Out-Null
 foreach ($pair in @(@($BaseNsp, 'base.nsp'), @($UpdNsp, 'update.nsp'))) {
     $link = Join-Path $In $pair[1]
     if (-not (Test-Path -LiteralPath $link)) {
-        New-Item -ItemType HardLink -Path $link -Target $pair[0].FullName | Out-Null
+        # mklink em vez de New-Item: o -Target do New-Item trata [ ] dos nomes como curinga.
+        cmd /c mklink /H "$link" "$($pair[0].FullName)" | Out-Null
+        if (-not (Test-Path -LiteralPath $link)) {
+            Write-Host "Hardlink falhou; copiando $($pair[1]) (pode demorar) ..."
+            Copy-Item -LiteralPath $pair[0].FullName -Destination $link
+        }
     }
 }
 

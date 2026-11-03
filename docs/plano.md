@@ -15,18 +15,19 @@ de título em poucas semanas partindo de um pipeline pronto). São ordens de gra
 
 Objetivo: saber exatamente com o que estamos lidando, sem escrever nada de runtime.
 
-- [ ] Repositório git com regras de conteúdo, hook e CI (`tools/check_content.py`). **← feito neste commit inicial**
-- [ ] `tools/fetch_refs.sh` clona as referências em `refs/` nas revisões fixadas. **← feito**
+- [x] Repositório git com regras de conteúdo, hook e CI (`tools/check_content.py`).
+- [x] `tools/fetch_refs.sh` clona as referências em `refs/` nas revisões fixadas.
 - [ ] Ambiente no WSL2/Ubuntu: clang/lld 18+, ninja, uv, .NET 10, Vulkan headers, SDL3, opus, libvpx, zstd.
-- [ ] Extrair base + 1.3.0 + DLCs com hactool (BKTR) para `build/` — portar `tools/extract.py` do Astral Chain.
-- [ ] `tools/inspect_dump.py` confere build IDs, NPDM e tamanhos. **← primeira versão feita**
+- [x] `tools/extract.py`: inventário dos pacotes, ExeFS do 1.3.0 e listagem do RomFS da base e dos DLCs, direto do NSP.
+- [ ] Mesclar o RomFS da base com o patch BKTR do 1.3.0 (em Python, sem hactool).
+- [x] `tools/inspect_dump.py` confere build IDs, NPDM e tamanhos — **build IDs 1.3.0 conferidos**.
 - [ ] Censos (resultados em `docs/aoc.md`, sem dados do jogo, só números):
-  - [ ] imports `nn::*` do `main`/`subsdk0` × overrides existentes (`import_census.py`);
+  - [x] imports dos módulos (`tools/census_imports.py`) — falta cruzar com os overrides herdados;
   - [ ] nomes NVN pedidos pelo jogo × `nvn_procs.inc`;
   - [ ] instruções/funções/jump tables por módulo (dry-run do lifter);
   - [ ] shaders (contagem por estágio, tamanhos de controle) — portar `shader_split.py`;
   - [ ] formatos de textura (ASTC × BCn) nas G1T;
-  - [ ] tamanho do RomFS mesclado e dos DLCs.
+  - [x] tamanho do RomFS da base e dos DLCs (falta o mesclado com o 1.3.0).
 
 **Portão A:** build IDs batem com 1.3.0; censos registrados; decisão sobre ASTC (compute × cache BC) tomada.
 

@@ -419,7 +419,7 @@ static void test_pad_attach(void) {
     d.type = SDL_JOYSTICK_TYPE_GAMEPAD;
     d.naxes = SDL_GAMEPAD_AXIS_COUNT;
     d.nbuttons = SDL_GAMEPAD_BUTTON_COUNT;
-    d.name = "Astral Chain test gamepad";
+    d.name = RT_PORT_NAME " test gamepad";
     SDL_JoystickID id = SDL_AttachVirtualJoystick(&d);
     joy = id ? SDL_OpenJoystick(id) : NULL;
     if (!joy) {

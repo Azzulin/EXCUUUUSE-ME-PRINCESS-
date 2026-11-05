@@ -16,6 +16,7 @@
 #include "flight.h"
 #include "fs.h"
 #include "gfx.h"
+#include "host.h"
 #include "gfx_wsys.h"
 #include "input.h"
 #include "input_win.h"
@@ -288,7 +289,7 @@ static void window_main(void *arg) {
                                           GetSystemMetrics(SM_CYICON), LR_SHARED),
                       .hIconSm = LoadImageW(inst, MAKEINTRESOURCEW(1), IMAGE_ICON, GetSystemMetrics(SM_CXSMICON),
                                             GetSystemMetrics(SM_CYSMICON), LR_SHARED),
-                      .hCursor = LoadCursorW(NULL, (LPCWSTR)IDC_ARROW), .lpszClassName = L"Astral ChainRecompWindow"};
+                      .hCursor = LoadCursorW(NULL, (LPCWSTR)IDC_ARROW), .lpszClassName = L"AgeOfCalamityRecompWindow"};
     RegisterClassExW(&wc);
     int cw, ch, ow, oh;
     cfg_window_size(&cw, &ch);
@@ -299,7 +300,7 @@ static void window_main(void *arg) {
     // button flashes until it is brought up, and AOC_FULLSCREEN waits for that first activation.
     // AOC_BACKGROUND_WINDOW=1 (test runs): no flashing, never fullscreen at start, and F11 keeps the window's place.
     int background = g_background = cfg_get("AOC_BACKGROUND_WINDOW") && atoi(cfg_get("AOC_BACKGROUND_WINDOW"));
-    g_hwnd = CreateWindowExW(0, wc.lpszClassName, L"Astral Chain Recomp", WND_STYLE, CW_USEDEFAULT, CW_USEDEFAULT, ow, oh, NULL,
+    g_hwnd = CreateWindowExW(0, wc.lpszClassName, RT_PORT_NAME_W, WND_STYLE, CW_USEDEFAULT, CW_USEDEFAULT, ow, oh, NULL,
                              NULL, inst, NULL);
     if (!g_hwnd) {
         rt_log("gfx: CreateWindowEx failed (%lu)", GetLastError());

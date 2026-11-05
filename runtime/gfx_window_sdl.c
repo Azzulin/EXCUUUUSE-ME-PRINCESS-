@@ -20,6 +20,7 @@
 
 #include "cfg.h"
 #include "gfx.h"
+#include "host.h"
 #include "gfx_wsys.h"
 #include "input.h"
 #include "input_sdl.h"
@@ -255,7 +256,7 @@ static void open_window(void *arg) {
     (void)arg;
     int w, h;
     gfx_cfg_window_size(&w, &h);
-    g_win = SDL_CreateWindow("TotK Recomp", w, h, SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
+    g_win = SDL_CreateWindow(RT_PORT_NAME, w, h, SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
     if (!g_win) {
         rt_log("gfx: SDL_CreateWindow failed (%s)", SDL_GetError());
         return;

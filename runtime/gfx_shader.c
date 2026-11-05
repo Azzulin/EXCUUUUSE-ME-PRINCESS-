@@ -1,5 +1,5 @@
 // Shader service client: turns an NVN program (control section, code, c1 constants and the
-// translator's answers) into SPIR-V plus reflection through `totk_xlate.exe --serve` children, started lazily with
+// translator's answers) into SPIR-V plus reflection through `aoc_xlate.exe --serve` children, started lazily with
 // pipes and kept for the life of the process (a pool: AOC_XLATE_PROCS at run time, more for the boot prewarm).
 // Results are cached in memory and on disk (shader-cache/<key>.spv and <key>.res.json next to aoc), so a shader
 // is translated once per machine and translator.
@@ -13,7 +13,7 @@
 // key is sha256 over "TKSK", KEY_VERSION, the translator identity and the input id. A code hash without a known mask is
 // translated under a provisional key ("TKSP", full answers); its files are renamed to the cache key and the mask stored.
 //
-// Translator identity: build/xlate/totk_xlate.id, sha256 hex that tools/build_xlate.py writes over the sources it
+// Translator identity: build/xlate/aoc_xlate.id, sha256 hex that tools/build_xlate.py writes over the sources it
 // builds from (Program.cs, the csproj, the patches, the vendor tree); without it the sha256 of the exe. AOC_XLATE_ID
 // (64 hex digits) overrides it. A translator change therefore changes every cache key without a hand-made KEY_VERSION
 // bump; KEY_VERSION is for changes on this side (key layout, how the output is used).
@@ -31,7 +31,7 @@
 // Reflection: every shader that enters the cache has its .res.json parsed into GfxShaderRes arrays and its SPIR-V
 // scanned for interface Locations and the workgroup size (gfx.h accessors at the end of the file).
 //
-// Provenance: the c2 handle ranges of handle_slot are those of MacNativeGames' totk_xlate Service.cs (MIT).
+// Provenance: the c2 handle ranges of handle_slot are those of MacNativeGames' aoc_xlate Service.cs (MIT).
 // The code layout the translator sees (graphics: code[0x30..], compute: code[0..]; c1 = code[c1..length]
 // with c1 and length at control+0x700) follows tools/shader_census.py, itself MacNativeGames' totk shader tooling (MIT).
 #include <ctype.h>
@@ -262,10 +262,10 @@ static void xlate_identity(void) {
         strcat(p, ".id");
         uint64_t size = 0;
         char *f = (char *)read_file(p, &size);
-        how = "totk_xlate.id";
+        how = "aoc_xlate.id";
         if (!f || !hex32(f, xlate_id)) {
             uint8_t *exe = read_file(xlate_exe, &size);
-            how = exe ? "sha256 of the exe; tools/build_xlate.py writes totk_xlate.id" : "none: no translator";
+            how = exe ? "sha256 of the exe; tools/build_xlate.py writes aoc_xlate.id" : "none: no translator";
             if (exe) rt_sha256(exe, (size_t)size, xlate_id);
             free(exe);
         }
@@ -275,7 +275,7 @@ static void xlate_identity(void) {
            xlate_id[3], xlate_id[4], xlate_id[5], xlate_id[6], xlate_id[7], how);
 }
 
-// The repository root is the nearest parent of aoc that holds build/xlate/totk_xlate.exe. The shader cache lives
+// The repository root is the nearest parent of aoc that holds build/xlate/aoc_xlate.exe. The shader cache lives
 // next to aoc, so every build dir has its own (as the pipeline cache, vk_pipeline.c cache_path_init).
 static void use_preload_start(void);
 
@@ -288,7 +288,7 @@ static void init_paths(void *param) {
         for (char *cut = plat_last_sep(exe); cut; cut = plat_last_sep(exe)) {
             *cut = 0;
             char probe[PATH_CAP + 32];
-            snprintf(probe, sizeof probe, "%s/build/xlate/ac_xlate" PLAT_EXE_SUFFIX, exe);
+            snprintf(probe, sizeof probe, "%s/build/xlate/aoc_xlate" PLAT_EXE_SUFFIX, exe);
             if (file_exists(probe)) {
                 strcpy(root, exe);
                 break;
@@ -297,10 +297,10 @@ static void init_paths(void *param) {
     }
     const char *xlate_cfg = cfg_get("AOC_XLATE"), *cache_cfg = cfg_get("AOC_SHADER_CACHE");
     char beside[PATH_CAP + 32];   // a packaged folder (tools/package_build.py) keeps the translator next to aoc
-    if (exe_dir[0]) snprintf(beside, sizeof beside, "%s/ac_xlate" PLAT_EXE_SUFFIX, exe_dir);
+    if (exe_dir[0]) snprintf(beside, sizeof beside, "%s/aoc_xlate" PLAT_EXE_SUFFIX, exe_dir);
     if (xlate_cfg && *xlate_cfg && strlen(xlate_cfg) < sizeof xlate_exe) strcpy(xlate_exe, xlate_cfg);
     else if (exe_dir[0] && file_exists(beside)) strcpy(xlate_exe, beside);
-    else if (root[0]) snprintf(xlate_exe, sizeof xlate_exe, "%s/build/xlate/ac_xlate" PLAT_EXE_SUFFIX, root);
+    else if (root[0]) snprintf(xlate_exe, sizeof xlate_exe, "%s/build/xlate/aoc_xlate" PLAT_EXE_SUFFIX, root);
     if (cache_cfg && *cache_cfg && strlen(cache_cfg) < sizeof cache_dir) strcpy(cache_dir, cache_cfg);
     else if (exe_dir[0]) snprintf(cache_dir, sizeof cache_dir, "%s/shader-cache", exe_dir);
     xlate_identity();
@@ -667,7 +667,7 @@ static int fmt_code(const char *name) {
     return 0;
 }
 
-// c2 slot of a texture or image handle (Service.cs of MNG's totk_xlate: combined handles at 0x20, 32 slots; images at
+// c2 slot of a texture or image handle (Service.cs of MNG's aoc_xlate: combined handles at 0x20, 32 slots; images at
 // 0x120; separate textures at 0x168), -1 outside those ranges or for a handle in another constant buffer.
 static int handle_slot(int kind, int cbuf_slot, int handle, int separate) {
     if (cbuf_slot >= 0 && cbuf_slot != 2) return -1;

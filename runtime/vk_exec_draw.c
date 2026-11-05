@@ -910,7 +910,7 @@ static VkDescriptorBufferInfo ubo_info(VkExec *ex, int st, int slot) {
 // (cbuf_slot 0, handle = word offset): 16-byte entries at byte 0x110 (vertex), 0x510 (fragment) and 0x310 (compute).
 // A compute address at c0 0x210..0x30f is uniform block (offset - 0x210) / 16 read as storage: *ubo is set. -1: the
 // address is not in c0 (the shader loads it from a user uniform block: ubo_ptr) or the stage has no known table.
-// Mapping: MacNativeGames games/totk/tools/ac_xlate/Service.cs:206-222 @ b75be8cf (MIT, Copyright (c) 2026 jhaizhou).
+// Mapping: MacNativeGames games/totk/tools/aoc_xlate/Service.cs:206-222 @ b75be8cf (MIT, Copyright (c) 2026 jhaizhou).
 static int ssbo_slot(const GfxShaderRes *r, int st, int *ubo) {
     *ubo = 0;
     if (r->cbuf_slot != 0) return -1;
@@ -2066,8 +2066,26 @@ static int pipe_memo_on(void) {
 }
 
 // Pass, shaders, pipeline, fixed state and resources for a draw. 0: the draw is skipped.
+// AOC_SKIP_LOG=<n>: the first n draws prepare_draw skips are logged with the reason, the frame, the vertex count and
+// the pass targets (a diagnosis aid: AOC_TRACE=gfx counts skips per frame but says not why).
+static int skip_log_left = -1;
+static void skip_note(VkExec *ex, const char *why, int32_t count) {
+    if (skip_log_left < 0) {
+        const char *e = cfg_get("AOC_SKIP_LOG");
+        skip_log_left = e ? atoi(e) : 0;
+    }
+    if (!skip_log_left) return;
+    skip_log_left--;
+    char tg[512];
+    vk_exec_targets_describe(ex, tg, sizeof tg);
+    rt_log("vk_exec: frame %llu: draw skipped (%s): %d vertices, pass %ux%u, program %llu, %s",
+           (unsigned long long)__atomic_load_n(&gfx_counters.frames, __ATOMIC_RELAXED) + 1, why, (int)count, ex->pass_w,
+           ex->pass_h, ex->prog ? (unsigned long long)ex->prog->serial : 0ull, tg);
+}
+#define SKIP(why_) do { skip_note(ex, (why_), count); return 0; } while (0)
+
 static int prepare_draw(VkExec *ex, int prim, int32_t count, int restart) {
-    if (ex->render_disabled) return 0;
+    if (ex->render_disabled) SKIP("rendering disabled");
     cb_res(ex);
     dummies_init();
     if (ex->pass_noatt) {   // no attachment: the pass covers this draw's viewport or scissor, reopened when it needs more
@@ -2079,8 +2097,8 @@ static int prepare_draw(VkExec *ex, int prim, int32_t count, int restart) {
     if (!ex->in_pass) ex->dirty |= VK_EXEC_DIRTY_VIEWPORT | VK_EXEC_DIRTY_SCISSOR;
     vk_exec_pass_begin(ex);
     VkRect2D sc = vk_exec_scissor(ex);
-    if (!sc.extent.width || !sc.extent.height) return 0;
-    if (!ex->prog) return warn_once(W_PROGRAM, "a draw without a bound program is skipped"), 0;
+    if (!sc.extent.width || !sc.extent.height) SKIP("empty scissor");
+    if (!ex->prog) { warn_once(W_PROGRAM, "a draw without a bound program is skipped"); SKIP("no program"); }
     int has_vs, has_fs, vs_wait = 0, fs_wait = 0, memo = shader_memo_on();
     const GfxShader *vs, *fs;
     uint32_t gen = memo ? vk_texture_slots_gen() : 0;   // before shader_for, whose lookups may bump it
@@ -2099,19 +2117,19 @@ static int prepare_draw(VkExec *ex, int prim, int32_t count, int restart) {
         if (memo && vs && !vs_wait && !fs_wait && (!has_fs || fs))
             memo_key(ex, gen, &SM.k), SM.vs = vs, SM.fs = fs, SM.has_fs = has_fs, SM.valid = 1;
     }
-    if (!has_vs) return warn_once(W_NO_VS, "a draw with a program that has no vertex stage is skipped"), 0;
+    if (!has_vs) { warn_once(W_NO_VS, "a draw with a program that has no vertex stage is skipped"); SKIP("no vertex stage"); }
     // A draw into a target the previous frame did not render (or into none) waits for a pending shader or pipeline:
     // one-shot draws (volumes and LUTs generated once, later only sampled) would leave their target empty for the
     // session. A draw into per-frame targets is skipped until they are ready and comes back next frame.
     int oneshot = -1, skip = pipe_skip_mode();   // -1: not looked up
     if (vs_wait || fs_wait) {
-        if (!(oneshot = !vk_exec_targets_recent(ex, skip >= 1))) return perf_count(PERF_CNT_SHADER_SKIP), 0;   // skipped until ready
+        if (!(oneshot = !vk_exec_targets_recent(ex, skip >= 1))) { perf_count(PERF_CNT_SHADER_SKIP); SKIP("shader translating"); }   // skipped until ready
         perf_count(PERF_CNT_ONESHOT_WAIT);
         if (vs_wait) vs = shader_for(ex, NVN_STAGE_VS, &has_vs, NULL, 1);
         if (fs_wait) fs = shader_for(ex, NVN_STAGE_FS, &has_fs, NULL, 1);
     }
-    if (!vs || (has_fs && !fs)) return 0;
-    if (vk_dlaa_skip_draw(ex, fs)) return 0;   // the game's FXAA off, or its scaling replaced by DLSS (vk_dlaa.c)
+    if (!vs || (has_fs && !fs)) SKIP(!vs ? "vertex shader failed" : "fragment shader failed");
+    if (vk_dlaa_skip_draw(ex, fs)) SKIP("dlaa");   // the game's FXAA off, or its scaling replaced by DLSS (vk_dlaa.c)
     uint32_t fbl = feedback_prepare(ex, fs);
     VkPipeState s = ex->pipe;
     s.vs = vs, s.fs = fs;
@@ -2174,8 +2192,8 @@ static int prepare_draw(VkExec *ex, int prim, int32_t count, int restart) {
                (unsigned long long)__atomic_load_n(&gfx_counters.frames, __ATOMIC_RELAXED) + 1, waited / 1e6, why,
                pending ? ", skipped after all" : "", count, ex->pass_w, ex->pass_h, tg);
     }
-    if (pending) return 0;   // a background worker is building it: the draw is skipped until it is ready
-    if (!p || !info) return warn_once(W_PIPELINE, "a graphics pipeline could not be created: draws with it are skipped"), 0;
+    if (pending) SKIP(why ? why : "pipeline building");   // a background worker is building it: the draw is skipped until it is ready
+    if (!p || !info) { warn_once(W_PIPELINE, "a graphics pipeline could not be created: draws with it are skipped"); SKIP("no pipeline"); }
     bind_pipeline(ex, VK_PIPELINE_BIND_POINT_GRAPHICS, p);
     if (!B.st_valid || memcmp(&B.st, &s, sizeof s)) {
         vk_pipeline_set_dynamic(ex->cb, &s);
@@ -2194,6 +2212,7 @@ static int prepare_draw(VkExec *ex, int prim, int32_t count, int restart) {
     vk_exec_oq_draw(ex);
     return 1;
 }
+#undef SKIP
 
 static void bind_index(VkExec *ex, const void *data, uint64_t bytes, VkIndexType type) {
     VkBuffer b;
@@ -2408,13 +2427,21 @@ void vk_exec_op_draw(VkExec *ex, uint32_t op, const void *payload) {
     switch (op) {
     case OP_BIND_PROGRAM: {
         const p_bind_program *b = payload;
-        ex->prog = b->prog, ex->prog_stages = b->stages;
+        ex->prog_stages = b->stages;
         // Astral Chain binds a vertex program and a fragment program separately, each with its stage bit; the
         // last program alone therefore has no vertex stage. Keep the program of every stage the mask names.
         uint32_t mask = (uint32_t)b->stages;
         if (!mask || mask == NVN_SHADER_STAGE_BITS_LARGE) mask = 0x3f;
         for (int i = 0; i < 6; i++)
             if (mask & (1u << i)) ex->prog_stage[i] = b->prog;
+        // A null program unbinds only the stages its mask names. Age of Calamity unbinds compute after its
+        // dispatches (BindProgram(NULL, COMPUTE)) with its graphics program still bound; taking the null as "no
+        // program" dropped every draw after a dispatch, the intro movie's NV12 -> RGB pass and the final composite
+        // among them, so the screen stayed black (nxnative dm/games/01002B00111A2000/README.md, Rendering). The last
+        // bound program is then the one a stage still holds, graphics first.
+        ex->prog = b->prog ? b->prog
+                 : ex->prog_stage[NVN_STAGE_VS] ? ex->prog_stage[NVN_STAGE_VS]
+                 : ex->prog_stage[NVN_STAGE_CS];
         bind_gen++;
         break;
     }

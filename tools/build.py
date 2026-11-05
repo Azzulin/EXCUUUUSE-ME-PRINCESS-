@@ -467,7 +467,16 @@ def step_dist(args, gen: Path, lib: Path) -> Path:
     if need_glibc > GLIBC_MAX:
         sys.exit(f"ERRO: {exe} pede GLIBC_{need_glibc[0]}.{need_glibc[1]}, acima da {GLIBC_MAX} do sniper")
     print(f"dist: executável pronto em {time.time() - t0:.0f} s, pede no máximo GLIBC_{need_glibc[0]}.{need_glibc[1]}")
-    return assemble_dist(args, exe, sysroot, host)
+    # O tradutor de shaders (Ryujinx 1.3.2, NativeAOT), também contra o sniper: o runtime o procura ao lado do aoc
+    # (gfx_shader.c init_paths). tools/build_xlate.py refaz a identidade a cada build; aqui só se faltar.
+    xl = args.work / "xlate"
+    if not (xl / "aoc_xlate").is_file() or args.xlate:
+        subprocess.run([sys.executable, str(ROOT / "tools" / "build_xlate.py"), "--out", str(xl),
+                        "--sysroot", str(sysroot)], check=True)
+    need_glibc = glibc_needed(xl / "aoc_xlate")
+    if need_glibc > GLIBC_MAX:
+        sys.exit(f"ERRO: aoc_xlate pede GLIBC_{need_glibc[0]}.{need_glibc[1]}")
+    return assemble_dist(args, exe, sysroot, host, xl)
 
 
 LAUNCHER = """#!/bin/sh
@@ -479,6 +488,7 @@ export MESA_SHADER_CACHE_MAX_SIZE=4G
 mkdir -p "$here/mesa-cache" "$here/logs"
 # o FTP a partir do Windows não leva o bit de execução: garante que o executável roda
 [ -x "$here/aoc" ] || chmod +x "$here/aoc" 2>/dev/null
+[ -x "$here/aoc_xlate" ] || chmod +x "$here/aoc_xlate" 2>/dev/null
 cd "$here"
 exec "$here/aoc" "$@"
 """
@@ -538,7 +548,7 @@ INSTALL_SH = """#!/bin/sh
 #   sh instalar-atalho.sh
 # Depois: Steam > Jogos > "Adicionar um jogo que não é da Steam" > marque "Hyrule Warriors: Age of Calamity".
 here="$(cd "$(dirname "$0")" && pwd)"
-chmod +x "$here/aoc" "$here/aoc.sh"
+chmod +x "$here/aoc" "$here/aoc.sh" "$here/aoc_xlate"
 mkdir -p "$HOME/.local/share/applications"
 f="$HOME/.local/share/applications/aoc-recomp.desktop"
 printf '%s\\n' '[Desktop Entry]' 'Type=Application' 'Name=Hyrule Warriors: Age of Calamity (AoC Recomp)' \\
@@ -551,7 +561,7 @@ echo "Agora: Steam > Jogos > Adicionar um jogo que nao e da Steam > marque Hyrul
 """
 
 
-def assemble_dist(args, exe: Path, sysroot: Path, host: Path) -> Path:
+def assemble_dist(args, exe: Path, sysroot: Path, host: Path, xl: Path) -> Path:
     """dist/aoc-deck/: aoc, aoc.sh, lib/libSDL3.so.0, exefs/, romfs-index.bin e romfs/ (o romfs.bin de 10,9 GiB só é
     copiado com --with-romfs: no Deck basta copiá-lo uma vez). Saves, aoc.ini, logs/ e mesa-cache/ nunca são tocados."""
     dist = Path(args.dist).expanduser().resolve()
@@ -566,6 +576,9 @@ def assemble_dist(args, exe: Path, sysroot: Path, host: Path) -> Path:
 
     copy(exe, dist / "aoc")
     (dist / "aoc").chmod(0o755)
+    copy(xl / "aoc_xlate", dist / "aoc_xlate")
+    (dist / "aoc_xlate").chmod(0o755)
+    shutil.copy2(xl / "aoc_xlate.id", dist / "aoc_xlate.id")
     copy((sysroot / "usr/lib/x86_64-linux-gnu/libSDL3.so.0").resolve(), dist / "lib" / "libSDL3.so.0")
     for f in ("main", "subsdk0", "sdk", "main.npdm"):
         copy(args.exefs / f, dist / "exefs" / f)
@@ -603,6 +616,7 @@ def main(argv=None) -> int:
     ap.add_argument("--ninja-only", action="store_true", help="só escreve o guest.ninja, sem compilar")
     ap.add_argument("--runtime-only", action="store_true", help="host: só compila o runtime, sem linkar")
     ap.add_argument("--dist", default=str(ROOT / "dist" / "aoc-deck"), help="dist: pasta de saída para o Deck")
+    ap.add_argument("--xlate", action="store_true", help="dist: recompila o tradutor de shaders")
     ap.add_argument("--with-romfs", action="store_true", help="dist: põe também o romfs.bin (hardlink no mesmo disco, senão cópia)")
     ap.add_argument("steps", nargs="*", help="gen, guest, host, dist (padrão: gen, guest, host)")
     args = ap.parse_args(argv)

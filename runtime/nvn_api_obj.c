@@ -729,6 +729,7 @@ NVN_API(nvnQueuePresentTexture) {
     movie_tick(c);   // ov_movie.c: hand over decoded movie frames that are due; needs the core, so before the wait
     ov_operation_mode_test_tick();   // ov_system.c: AOC_TEST_OPMODE (test hook; one load when unset)
     ov_peek_tick();                  // ov_system.c: AOC_PEEK (diagnosis; one load when unset)
+    ov_scan_tick();                  // ov_system.c: AOC_SCAN_F32 (diagnosis; one load when unset)
     kern_watch_present();            // kernel.c: the hang watchdog sees the game is still presenting
     NVN_BLOCKING();
     if (o->magic != NVN_WIN_MAGIC || idx < 0 || idx >= o->ntex || idx >= 4 || !o->tex[idx])

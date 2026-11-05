@@ -20,6 +20,7 @@ void rec_end(void);                   // waits for the recorder; no-op when rec_
 // The end of part cb: the breadcrumb crumb (0: none, vk_crumbs.c), then vkEndCommandBuffer, both made by the recorder
 // when it records cb, and the wait for it (1); otherwise rec_end and the breadcrumb, and the caller ends cb (0).
 int rec_end_cb(VkCommandBuffer cb, int crumb, uint64_t n);
+int rec_records(VkCommandBuffer cb); // the recorder records cb now: calls into it must go through rec_* / the macros
 void rec_drain(void);                 // waits until the recorder made every call queued so far
 void rec_stats_log(void);             // AOC_TRACE=perf: packets, bytes, drains and waits since the last call
 

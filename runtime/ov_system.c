@@ -14,6 +14,7 @@
 //   AOC_SHARED_FONTS=<dir>            nn::pl shared fonts (tools/extract_fonts.py output), default
 //                                      <romfs>/../../firmware/shared-fonts
 #include <ctype.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -219,6 +220,69 @@ void ov_peek_tick(void) {
             o += snprintf(line + o, sizeof line - (size_t)o, " %08x", ((const volatile uint32_t *)(uintptr_t)a)[i]);
         rt_log("%s", line);
     }
+}
+
+// Diagnosis, at every present: AOC_SCAN_F32=<value>[,<value>...] with AOC_SCAN_FRAME=<n> (default 4400) walks the
+// guest's readable regions once at that present and logs where each float lies (within 1e-4 relative), with the 16
+// words around it: the CPU-side struct a GPU constant was copied from.
+static float scan_want[8];
+static int scan_nwant;
+static void scan_main(void *arg);
+
+void ov_scan_tick(void) {
+    static int state = -1;
+    static uint64_t frames, at;
+    float *want = scan_want;
+    int nwant = scan_nwant;
+    if (state < 0) {
+        const char *e = cfg_get("AOC_SCAN_F32"), *f = cfg_get("AOC_SCAN_FRAME");
+        state = e && *e;
+        at = f && *f ? strtoull(f, NULL, 10) : 4400;
+        for (const char *p = e; state && p && *p && nwant < 8; p = strchr(p, ','), p = p ? p + 1 : NULL)
+            want[nwant++] = strtof(p, NULL);
+        scan_nwant = nwant;
+    }
+    if (state != 1 || ++frames != at) return;
+    state = 2;
+    plat_thread_spawn(scan_main, (void *)(uintptr_t)frames, "aoc scan", 0);   // off the presenting thread
+}
+
+static void scan_main(void *arg) {
+    uint64_t frames = (uint64_t)(uintptr_t)arg;
+    int hits = 0;
+    uint64_t scanned = 0;
+    for (uint64_t a = 0; a < RT_ADDRESS_LIMIT && hits < 48;) {
+        RtMemoryInfo mi;
+        mem_query(a, &mi);
+        uint64_t end = mi.base + mi.size;
+        if (end <= a) break;
+        if (mi.state == 5 && (mi.perm & 1) && mi.size < (16ull << 30)) {   // normal memory (the heap), not stacks
+            for (uint64_t pg = mi.base; pg < end && hits < 48; pg += 0x1000) {
+                if (!plat_mem_readable(pg, 0x1000)) continue;
+                scanned += 0x1000;
+                const float *w = (const float *)(uintptr_t)pg;
+                for (int i = 0; i < 1024; i++) {
+                    float v = w[i];
+                    for (int k = 0; k < scan_nwant; k++)
+                        if (v == v && fabsf(v - scan_want[k]) <= 1e-4f * fabsf(scan_want[k])) {
+                            uint64_t h = pg + 4ull * i, s0 = h - 32;
+                            char line[400];
+                            int o = snprintf(line, sizeof line, "scan: %g at %#llx (state %#x):", scan_want[k],
+                                             (unsigned long long)h, mi.state);
+                            if (plat_mem_readable(s0, 64))
+                                for (int j = 0; j < 16; j++)
+                                    o += snprintf(line + o, sizeof line - (size_t)o, " %g",
+                                                  ((const volatile float *)(uintptr_t)s0)[j]);
+                            rt_log("%s", line);
+                            hits++;
+                        }
+                }
+            }
+        }
+        a = end;
+    }
+    rt_log("scan: done at present %llu, %llu MiB scanned, %d hits", (unsigned long long)frames,
+           (unsigned long long)(scanned >> 20), hits);
 }
 
 // Test hook, at every present (nvn_api_obj.c): AOC_TEST_OPMODE=<seconds>:<docked|handheld> makes the change the quick

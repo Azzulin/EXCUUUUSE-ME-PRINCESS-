@@ -12,6 +12,7 @@
 #include "quad_indirect_spv.h"
 #include "vk.h"
 #include "vk_exec.h"
+#include "vk_rec.h"
 
 #define MAX_QUADS 65536u   // indices for this many quads: 1.5 MiB of uint32
 #define RING 16384u        // converted commands kept
@@ -101,7 +102,9 @@ int vk_quad_ind_convert(VkCommandBuffer cb, const VkMemSpan *src, VkBuffer *cmd,
          .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .pBufferInfo = &out}};
     uint32_t pc[4] = {(uint32_t)((src->offset - base) / 4), 0, MAX_QUADS, 0};
     vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_COMPUTE, Q.pipe);
-    Q.push(cb, VK_PIPELINE_BIND_POINT_COMPUTE, Q.layout, 0, 2, w);
+    // Through the recorder (vk_rec.h): a push descriptor made at once from the replay thread would land in the command
+    // buffer while the recorder thread still records the calls before it, which lost the device at the first battle.
+    rec_push(Q.push, cb, VK_PIPELINE_BIND_POINT_COMPUTE, Q.layout, 0, 2, w);
     vkCmdPushConstants(cb, Q.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof pc, pc);
     vkCmdDispatch(cb, 1, 1, 1);
     *cmd = Q.ring, *cmd_off = (VkDeviceSize)slot * CMD_BYTES, *index = Q.index;

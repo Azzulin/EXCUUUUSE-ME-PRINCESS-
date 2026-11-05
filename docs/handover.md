@@ -117,7 +117,22 @@ partir de 100 s, `AOC_TRACE=perf`, vigia de travada).
 0. **Levar as correções da sessão 3 ao Deck** (offline desde a tarde de 2026-11-05; o dono acha que travou numa
    corrida longa). Ao voltar: `journalctl -k -b -1` (o que aconteceu), `tools/build.py dist` no WSL (o guest não
    mudou; só o runtime) e `tools/deck/deploy.sh`. Esperado: sem a travada ~frame 570 e sem o "ring gfx timeout".
-1. **Imagem lavada na batalha** (o bloqueio atual da imagem). A perda do dispositivo já foi resolvida (memória
+1. **Cor supersaturada/escura na janela do PC — PRÓXIMA CORREÇÃO (prioridade do dono).** A janela não mostra os bytes
+   que o jogo escreveu. Medido no mesmo frame (`AOC_PRESENT_SHOT=<frame>:<png>` grava a imagem final do swapchain):
+   grama do campo = `163, 203, 155` na imagem do jogo (dump/`--shot`) e `92, 162, 81` na janela — exatamente a
+   decodificação sRGB→linear (163 → 0,37·255 = 94). O jogo termina num alvo `RGBA8_SRGB` (NVN 0x38, pass 91/94) e
+   codifica uma vez só (o tonemap sai linear: `c5[1].y = 0` pula o `pow(1/2,2)` dele, `c5[7].x = 1`, `c5[8].z = 1`);
+   o Switch mostra esses bytes como estão. Nossa apresentação (`gfx_present.c` `present_image`) escolhe um swapchain
+   **UNORM** e lê a imagem do jogo pelo formato dela (sRGB): o `vkCmdBlitImage` e o FSR (`vk_fsr.c`, "EASU reads the
+   source through a view of its own format") decodificam para linear e gravam linear num destino que não recodifica.
+   **Correção planejada:** ler a fonte por uma **view UNORM** (as imagens de cor são `MUTABLE_FORMAT`, `vk_texture.c`)
+   no FSR e no ajuste de cor (`vk_color.c`), e no caminho do blit trocar o `vkCmdBlitImage` direto por uma cópia de
+   uma view UNORM (ou um swapchain `B8G8R8A8_SRGB` quando a fonte é sRGB, que faz decode+encode e preserva os bytes).
+   Conferir com `AOC_PRESENT_SHOT` que a janela fica igual ao `--shot` (grama `163, 203, 155`). Atenção: com isso a
+   janela fica mais clara/lavada — é a imagem verdadeira do jogo; o véu claro (item 2) passa a ser o que sobra.
+   O **retângulo branco fixo no centro** que o dono vê na janela só aparece onde há cor; depois desta correção, procurar
+   de novo com `AOC_PRESENT_SHOT` (não aparece na imagem do jogo — é desenhado depois dela, ou depende da sessão do dono).
+2. **Imagem lavada na batalha** (o bloqueio atual da imagem). A perda do dispositivo já foi resolvida (memória
    compartilhada, `KEY_VERSION` 5). O que se sabe do véu claro, medido nos dumps do frame 4400 (`C:\aoc-win\dump*`):
    - **Não é** exposição: a do jogo vai de `2^-6,6` = 0,0103 a `2^-5,9` (c5 do pass 89: medidor travado entre
      luminância 9,85 e 16); a nossa fica no mínimo porque a cena média passa de 16. Não é a leitura r32ui da exposição
@@ -144,6 +159,16 @@ partir de 100 s, `AOC_TRACE=perf`, vigia de travada).
      para leitura (dumps, `AOC_SHOTS` a cada 1 s); nenhuma em mais de dez corridas normais e nenhuma com
      `AOC_VK_RECORDER=0` (inclusive com captura a cada 1 s). Suspeita: corrida entre o gravador e as cópias de
      leitura (as mesmas do print do menu e das miniaturas do flight recorder). No Deck (RADV) o gravador vem desligado.
+   - **Gravador × chamadas diretas (corrigido):** `vk_quad_ind.c` chamava `vkCmdPushDescriptorSetKHR` por ponteiro direto
+     no buffer do replay; com o gravador ligado o push entrava fora de ordem enquanto a thread do gravador ainda
+     gravava → perdas de dispositivo na entrada da batalha. Agora vai por `rec_push`; 3 de 3 corridas limpas com o
+     gravador ligado. `rec_records(cb)` (vk_rec.h) diz se o gravador grava aquele buffer; os breadcrumbs por draw
+     (`AOC_CRUMB_DRAWS`) se recusam a rodar com ele.
+   - **Rastros (linhas brancas):** vêm dos efeitos guiados pela GPU (quads indiretos convertidos por `vk_quad_ind.c`):
+     com `AOC_SKIP_DRAW_IND=1` (só diagnóstico) caem de 11 para 2 em 200 frames (detector `C:\aoc-win\streaks.py`,
+     capturas a cada 0,1 s). Duram um frame; os draws são os mesmos de todo frame (o problema está nos dados). Não é
+     corrida de tempo (replay assíncrono não aumenta). Parâmetros de vértice/instância conferidos (VertexId absoluto,
+     InstanceId = índice − base da GPU). Próximo: dump do frame com linha e olhar os vértices dos draws de quad indireto.
    - **Rastros:** na rota, as linhas longas no céu aparecem junto da fala "Fire the cannons" (frames ~4480–4540 numa
      corrida com capturas) — podem ser os rastros das balas de canhão. O momento varia entre corridas; para pegar o
      frame, disparar o dump pelo shader do efeito (ou `AOC_DUMP_LOG` numa janela) em vez do número do frame.

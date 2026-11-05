@@ -257,6 +257,19 @@ static void write_images(const Job *j) {
         snprintf(path, sizeof path, "%s/%s%s.png", dir, j->name, pass ? "_tm" : "");
         rt_write_png(path, out, pw, ph);
     }
+    // AOC_DUMP_RAW=1: float images also as <name>.f32, the decoded RGBA float32 texels row by row (pw x ph as the PNG),
+    // for measuring HDR values the 8-bit PNGs clamp (the _tm one saturates near 250).
+    static int raw = -1;
+    if (raw < 0) {
+        const char *e = cfg_get("AOC_DUMP_RAW");
+        raw = e && *e && strcmp(e, "0");
+    }
+    if (raw && mode == M_FLOAT) {
+        char path[600];
+        snprintf(path, sizeof path, "%s/%s.f32", dir, j->name);
+        FILE *rf = fopen(path, "wb");
+        if (rf) fwrite(px, sizeof(float) * 4, n, rf), fclose(rf);
+    }
     uint64_t all = distinct(j, 0, j->h), top = distinct(j, 0, j->h / 4 ? j->h / 4 : 1);
     plat_mutex_lock(&img_lock);
     if (images_f) {
@@ -290,7 +303,15 @@ static const char *copy_region(VkExec *ex, VkImage image, VkFormat vf, VkImageAs
                                const char *name) {
     const Fmt *f = fmt_of(vf);
     if (!f) return "format not decoded";
-    if (__atomic_load_n(&gfx_counters.frames, __ATOMIC_RELAXED) + 1 != dump_frame && (uint64_t)w * h * d > 65536)
+    // AOC_DUMP_LOG_VKFMT=<VkFormat>: in the logged frames, large images of that one format are copied too (the main
+    // HDR target, to find the pass where a one-frame artefact appears).
+    static int log_vkfmt = -1;
+    if (log_vkfmt < 0) {
+        const char *e = cfg_get("AOC_DUMP_LOG_VKFMT");
+        log_vkfmt = e && *e ? atoi(e) : 0;
+    }
+    if (__atomic_load_n(&gfx_counters.frames, __ATOMIC_RELAXED) + 1 != dump_frame && (uint64_t)w * h * d > 65536 &&
+        !(log_vkfmt && (int)vf == log_vkfmt && !(aspect & VK_IMAGE_ASPECT_DEPTH_BIT)))
         return "logged frame, large image";
     if (aspect & VK_IMAGE_ASPECT_DEPTH_BIT) aspect = VK_IMAGE_ASPECT_DEPTH_BIT;
     else if (aspect != VK_IMAGE_ASPECT_COLOR_BIT) return "stencil only";
@@ -696,6 +717,15 @@ void vk_dump_draw(VkExec *ex, const VkPipeState *s, VkPipeline p, const VkPipeIn
     Str b = {0};
     sp(&b, "vs %016llx fs %016llx prog %llu prim %d\n", (unsigned long long)shader_hash(s->vs),
        (unsigned long long)shader_hash(s->fs), (unsigned long long)(ex->prog ? ex->prog->serial : 0), s->prim);
+    // Depth/stencil and blend state of the entry's first draw: NVN enums (compare 1 never .. 8 always; stencil op
+    // 1 keep, 2 zero, 3 replace, ...), stencil ref/compare/write masks per face, blend enables and target 0's factors.
+    const ds_st *d = &s->ds;
+    sp(&b, "      ds: depth test %d write %d func %d | stencil %d func f%d b%d ops f(fail %d zfail %d zpass %d) "
+           "ref %u/%u vmask %#x/%#x wmask %#x/%#x | blend en %#x t0 src %d dst %d eq %d | chmask %#x\n",
+       (int)d->dt, (int)d->dw, (int)d->df, (int)d->st, (int)d->sf_f, (int)d->sf_b, (int)d->fail_f, (int)d->zfail_f,
+       (int)d->zpass_f, ex->st_ref[0], ex->st_ref[1], ex->st_vmask[0], ex->st_vmask[1], ex->st_wmask[0],
+       ex->st_wmask[1], (unsigned)s->color.blend_en, (int)s->blend[0].src_rgb, (int)s->blend[0].dst_rgb,
+       (int)s->blend[0].eq_rgb, s->chmask.mask);
     describe_bindings(&b, ex, info);
     ents[nents++] = (Ent){p, th, 1, b.s};
 out:

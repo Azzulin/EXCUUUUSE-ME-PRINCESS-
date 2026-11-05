@@ -600,6 +600,29 @@ static void present_image(VkImage src, VkImageLayout layout, VkFormat fmt, int w
                      g_sc_ext.height, cw, ch, g_scaler};
     int overlay = g_sc_view[idx] &&
                   menu_overlay_frame(__atomic_load_n(&gfx_counters.frames, __ATOMIC_RELAXED), &mt, &menu_shot);
+    // AOC_PRESENT_SHOT=<frame>[:<path>]: the swapchain image of that present as a PNG (what the window shows: colour
+    // adjustment, upscale and the menu overlay included), default present_shot.png beside the executable's cwd.
+    static int ps_state = -1;
+    static uint64_t ps_frame;
+    static char ps_path[512] = "present_shot.png";
+    if (ps_state < 0) {
+        const char *e = cfg_get("AOC_PRESENT_SHOT");
+        ps_state = e && *e;
+        if (ps_state) {
+            ps_frame = strtoull(e, NULL, 10);
+            const char *colon = strchr(e, ':');
+            if (colon && colon[1] && colon[2] != 0 && strlen(colon + 1) < sizeof ps_path) {
+                // a drive letter ("C:/...") is part of the path, not the separator
+                const char *after = colon + 1;
+                if (after[1] == ':' && colon - e > 0) strcpy(ps_path, after);
+                else strcpy(ps_path, after);
+            }
+        }
+    }
+    if (ps_state == 1 && __atomic_load_n(&gfx_counters.frames, __ATOMIC_RELAXED) >= ps_frame && !menu_shot) {
+        ps_state = 2;
+        menu_shot = ps_path;
+    }
     int cap = (g_capture || menu_shot) && ensure_capture_buffer();
     int thumb = g_th_n && ensure_thumbs();
 

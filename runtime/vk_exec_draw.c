@@ -29,6 +29,7 @@
 #include "tex.h"
 #include "vk.h"
 #include "vk_exec.h"
+#include "vk_rec.h"
 #include "platform/platform.h"
 #include "vk_dlaa.h"
 
@@ -1597,6 +1598,12 @@ static void crumb_mark(VkExec *ex, const GfxShader *a, const GfxShader *b) {
         if (crumb_on) rt_log("vk: a GPU breadcrumb before every draw and dispatch (AOC_CRUMB_DRAWS)");
     }
     if (!crumb_on) return;
+    if (rec_records(ex->cb)) {   // vk_crumb writes straight into the command buffer: not with the recorder thread on it
+        static int said;
+        if (!said++) rt_log("vk: AOC_CRUMB_DRAWS needs AOC_VK_RECORDER=0; no draw breadcrumbs");
+        crumb_on = 0;
+        return;
+    }
     uint32_t n = ++crumb_seq & 0x0fffffff;
     CrumbRec *r = &crumb_ring[n % CRUMB_RING];
     char ka[9], kb[9];
@@ -2651,6 +2658,12 @@ static void op_draw_idx_ind(VkExec *ex, const p_draw_idx_ind *d) {
 // behind a barrier on each side. Line loops would need the count on the CPU: skipped, logged once.
 int vk_quad_ind_convert(VkCommandBuffer cb, const VkMemSpan *src, VkBuffer *cmd, VkDeviceSize *cmd_off, VkBuffer *index);
 static void op_draw_ind(VkExec *ex, const p_draw_ind *d) {
+    static int skip = -1;   // AOC_SKIP_DRAW_IND=1 (diagnosis only: hides the game's GPU-driven effects)
+    if (skip < 0) {
+        const char *e = cfg_get("AOC_SKIP_DRAW_IND");
+        skip = e && *e && strcmp(e, "0");
+    }
+    if (skip) return;
     c0_binst = 0;
     VkMemSpan ip;
     if (!vk_mem_resolve(d->ind, sizeof(VkDrawIndirectCommand), &ip) || ip.offset % 4)

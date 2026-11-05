@@ -176,3 +176,18 @@ O Deck saiu da rede numa corrida longa; o dono pediu para seguir testando no not
 - Desempenho: a batalha não satura a CPU no notebook (thread principal 51% dormindo, núcleos 1,09 de 3); o replay
   na thread do jogo custava 21% dela e foi para uma thread própria no perfil do Deck (`REPLAY_ASYNC=1`).
 - Som do vídeo de abertura: o `.webm` não tem áudio; o silêncio é do motor de som do jogo durante o vídeo.
+
+### Cor, rastros e estabilidade (mesmo dia, madrugada)
+
+- Referência do dono (outra batalha no Switch) e relato: na janela do PC a cor está **supersaturada** e há um retângulo
+  branco fixo no centro. Medição com `AOC_PRESENT_SHOT` (novo): a janela mostra os bytes do jogo decodificados de sRGB
+  para linear (grama 163,203,155 → 92,162,81). O jogo codifica uma vez só (tonemap ARRI LogC + LUT 3D filmica, sem
+  gamma próprio); o erro é da nossa apresentação (swapchain UNORM lendo a fonte sRGB pelo formato dela). Correção
+  planejada no handover §6.1.
+- Investigação do véu: iluminação por classes de stencil (ref 1/2/82/0), contraste ~4:1 preservado até o bloom; o
+  tonemap satura em 1,0 porque a cena chega ~10× acima da faixa do medidor de exposição do jogo (9,85–16). `libm`
+  do jogo testada contra o host (`--probe-libm`, 25/25 certas); valores da CPU conferidos na memória (`AOC_SCAN_F32`).
+- Rastros: vêm dos quads indiretos (efeitos da GPU); detector automático de linhas de um frame.
+- Estabilidade: perda de dispositivo com o gravador ligado vinha do push direto no conversor de quads; corrigido.
+- Ferramentas novas: `AOC_PRESENT_SHOT`, `AOC_DUMP_RAW` (.f32), `AOC_DUMP_LOG_VKFMT`, estado de depth/stencil/blend no
+  dump, `AOC_SCAN_F32`/`AOC_SCAN_FRAME`, `--probe-libm`, `AOC_SKIP_DRAW_IND` (diagnóstico).

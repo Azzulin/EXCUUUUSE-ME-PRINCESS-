@@ -256,6 +256,7 @@ void movie_tick(Cpu *c);                                   // at every present, 
                                                            // decoded movie frames over when due, signals their events
 void ov_operation_mode_test_tick(void);                    // ov_system.c: AOC_TEST_OPMODE, at every present
 void ov_peek_tick(void);                                   // ov_system.c: AOC_PEEK diagnosis, at every present
+void ov_scan_tick(void);                                   // ov_system.c: AOC_SCAN_F32 (diagnosis)
 
 // ---- camera speed (camera_speed.c): AOC_STICK_SENS
 float cam_speed_wanted(void);                              // the factor AOC_STICK_SENS asks for, 0.1 to 3
@@ -319,7 +320,7 @@ void rt_boot(void);                                        // boot.c
 int probe_cfg(void);                                       // cfg_probe.c
 int probe_dpi(void);                                       // dpi_probe_win.c (Windows only)
 int probe_mods(void);                                      // mods_probe.c
-int probe_loader(void), probe_kernel(void), probe_ipc(void), probe_services(void), probe_fs(void);
+int probe_loader(void), probe_kernel(void), probe_ipc(void), probe_services(void), probe_fs(void), probe_libm(void);
 int probe_gfx_abi(void);                                   // gfx_abi_probe.c
 int probe_vkdevice(void);                                 // vk_device.c
 int probe_nvn(void), probe_nvn_tex(void);                  // nvn_probe.c, nvn_tex_probe.c

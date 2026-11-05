@@ -165,3 +165,14 @@ O Deck saiu da rede numa corrida longa; o dono pediu para seguir testando no not
   apostas em `handover.md` §6. Testes feitos: tabela de materiais, snapshot de uniformes e exposição descartados.
 - Mudança experimental: views de storage no formato que o shader declara (`storage_view_format`, R32F lido como
   r32ui pela auto-exposição). Não mudou a imagem; depois dela 2 de 8 corridas perderam o dispositivo — em medição.
+
+### Continuação no notebook (mesmo dia, noite; commits 2963245, a406770, 754f80d)
+
+- Nome da janela: "Age of Calamity Recomp" (era "Astral Chain Recomp" no Windows e "TotK Recomp" no Linux).
+- Imagem lavada: o véu vem da luz ambiente do cubo de ambiente (shader `7da82f37`, filtro do cubo na carga da
+  batalha). Descartados com medição: exposição (o jogo a limita a 0,0103–0,017 de propósito), leitura r32ui,
+  leitura pela CPU, snapshot de uniformes, tabela de materiais, BRDF, céu, views inteiras, denormais do índice.
+  Ferramentas por shader (`AOC_TEXEL_ZERO_FS`, `AOC_TEXEL_LOG_FS`). Causa ainda aberta.
+- Desempenho: a batalha não satura a CPU no notebook (thread principal 51% dormindo, núcleos 1,09 de 3); o replay
+  na thread do jogo custava 21% dela e foi para uma thread própria no perfil do Deck (`REPLAY_ASYNC=1`).
+- Som do vídeo de abertura: o `.webm` não tem áudio; o silêncio é do motor de som do jogo durante o vídeo.

@@ -142,22 +142,28 @@ partir de 100 s, `AOC_TRACE=perf`, vigia de travada).
      conta sobre `shader-cache/*.spv`. GLSL com `spirv-cross --vulkan-semantics`.
    - **Perda de dispositivo residual:** só apareceu em corridas com dump ou com o slot 16 zerado (nenhuma em mais de
      dez corridas normais); com `AOC_VK_RECORDER=0` não apareceu. Fica para depois.
+   - O cubo de origem do filtro é outra imagem (`0x1d5646600`, mips dos passes 141–146); o destino (`0x19e7ac800`)
+     tem o nível 0 = captura nítida e 1–6 filtrados — sem leitura de si mesmo. Como, sem o cubo, as sombras ficam
+     pretas e, com ele, quase tão claras quanto o sol, a aposta seguinte é o **peso** que a iluminação dá ao ambiente
+     (c3 do pass 40: `[9] = (100, 100, 100, 0,95)`, contra `(0, 0, 0, 0,95)` no pass 53).
    - **Denormais:** a RTX 3050 informa `shaderDenormPreserveFloat32 = false`; o SPIR-V do Ryujinx carrega inteiros
      em variáveis float (ex.: o índice do laço do filtro do cubo começa como a constante float 2,8e-45). Não explicou
      o véu, mas é um risco real; no Deck (RADV) dá para pedir `DenormPreserve`.
-2. **Desempenho na batalha.** No notebook (i5-11400H) a batalha fica em 30 fps, mas sem folga: GPU 6,7 ms, replay
-   7,8 ms, e a thread do jogo ocupa os 33 ms (`bound: cpu`). No Deck eram 16–21 fps. Medir onde a CPU do guest gasta
-   (`AOC_PROFILE` no Windows, `prof_win.c`) antes de mexer. E **shaders antecipados**: a entrada da batalha ainda
+2. **Desempenho na batalha.** No notebook (i5-11400H) a batalha fica em 30 fps com folga: `AOC_TRACE=sched` mostra a
+   thread principal 51% dormindo (`SleepThread(1 ms)` à espera do próximo frame) e os núcleos virtuais ocupados 1,09
+   de 3; o maior custo dela era o replay (`nvnQueueSubmitCommands`, 21%). O perfil do Deck agora liga
+   `REPLAY_ASYNC` (host 21% → 1%, mesma imagem). No Deck eram 16–21 fps antes da correção do yield — **medir de novo
+   lá** antes de mexer em mais nada. E **shaders antecipados**: a entrada da batalha ainda
    trava 20 s com o cache frio (pipeline 13,6 s, tradução 4 s; 13,5 s no Deck). O repositório do dono `Deck Zelda/totk-recomp-main` (TotK no Deck) resolve
    isso com um pacote de todos os programas VS+FS dos arquivos do jogo (`tools/shader_pack.py`) e um warm-up uma vez
    (`tools/linux/warmup.sh`, todos os núcleos menos um, retomável) — fazer o equivalente com o `census_shaders.py` e
    o `shader_pairs.tsv` do nxnative, no formato de semente do runtime (`--prepare-shaders`). Lá também: memory guard
    do GTT (o Deck deles congelou duas vezes com o GTT cheio) e pools de imagens.
-3. **Som do vídeo de abertura** (silêncio enquanto o VP9 toca): a faixa de áudio do `.webm` passa pela biblioteca
-   `movie` do `subsdk0`; o `ov_movie.c` só troca o decodificador de vídeo. Ver qual decodificador de áudio ela abre
-   (`AOC_TRACE=ipc,audio`) e se cai no caminho Android/NvMM que não existe aqui. Roteiro de entrada usado:
-   A em @6000, @8000, @10000, @12000, @14000, @16000 ms (`AOC_INPUT_SCRIPT`, formato em `runtime/input.c`).
-   Sem entrada o jogo fica parado nas telas do primeiro boot, em silêncio — não é travamento.
+3. **Som do vídeo de abertura** (silêncio enquanto o VP9 toca; medido com `AOC_TRACE=audio`: rms 0,0000 durante os
+   ~80 s do `movie/Movie001.webm`, música normal antes). O `.webm` **não tem faixa de áudio** (só `V_VP9`; os 97
+   vídeos estão em `movie/` e `movie_logo/`) e o jogo não cria `movie::Decoder` de áudio; o som vem de um stream do
+   motor de som do KTGL dentro dos RDB. Saída exatamente zero (nem efeitos) sugere que o motor espera um sinal de
+   sincronia do player de vídeo (relógio/timestamps do nosso decodificador VP9 do host) — começar por aí.
 3. **Fase 3 — shaders**: .NET 10 no WSL, tradutor Ryujinx 1.3.2 do Astral Chain (`tools/build_xlate.py`,
    `tools/xlate/`, `tools/vendor/ryujinx`) e extração KTGL (`nxnative dm/gfx/tools/shader_split.py`); `spirv-val`.
 4. Correções de NVN do AoC (lista em `docs/plano.md`, Fase 3) quando houver imagem.

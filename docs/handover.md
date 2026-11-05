@@ -109,10 +109,13 @@ Detalhes em `docs/building.md`, incluindo os testes do lifter.
    `vk_texture_buffer_by_id_locked` + `texel_view` (views sobre o pool), resposta `GFX_TEX_BUFFER` em
    `type_of_handle`, patch 0012 do tradutor (TLD.LL em buffer) e `TexSlot` do `Program.cs` com as três tabelas c2
    (o AoC usa texturas combinadas em `0x20 + 8r`; o tradutor só conhecia as separadas em `0x168`). Com isso as views
-   passaram a existir, mas a GPU **travou** (ring gfx timeout aos ~48 s). Hipótese aplicada, **ainda não testada**: o
-   tradutor declara todo sampler como FP32 e a view era R32_UINT; agora views inteiras de 32 bits viram floats de
-   mesma largura (`texel_view`). O teste seguinte não voltou: o Deck parou de responder (dormiu, desligou ou travou).
-   Antes de qualquer teste: confirmar com o dono que o Deck está livre e acordado.
+   passaram a existir, mas a GPU **travou** (ring gfx timeout aos ~48 s). Hipótese testada e **descartada**: views
+   inteiras de 32 bits como floats de mesma largura (`texel_view`, mantido por ser o certo para um sampler FP32) — a
+   GPU travou igual (`device lost`, 1 ring timeout). O Deck não travou junto (uptime intacto; só a rede caiu ao
+   dormir). Próximo passo: **bisseção** com chaves temporárias — (a) só as texel views (zero view de volta), (b) só
+   o `TexSlot` de imagens do `Program.cs` (formatos de imagem agora chegam ao tradutor e mudam shaders de compute),
+   (c) só o patch 0012 — e `AOC_DUMP_LOG` para achar o pass que trava. Antes de qualquer teste: confirmar com o dono
+   que o Deck está livre, acordado e na tomada.
    Ferramentas: `tools/deck/` (deploy, execução remota com captura, folha de contato), `AOC_DUMP=<frame>`,
    `AOC_SKIP_LOG=<n>`, `journalctl -k` no Deck para timeouts do amdgpu.
 2. **Desempenho na batalha** (16–21 fps; replay de CPU 15–20 ms por frame) e **shaders antecipados** (13,5 s

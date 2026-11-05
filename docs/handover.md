@@ -146,6 +146,20 @@ partir de 100 s, `AOC_TRACE=perf`, vigia de travada).
      tem o nível 0 = captura nítida e 1–6 filtrados — sem leitura de si mesmo. Como, sem o cubo, as sombras ficam
      pretas e, com ele, quase tão claras quanto o sol, a aposta seguinte é o **peso** que a iluminação dá ao ambiente
      (c3 do pass 40: `[9] = (100, 100, 100, 0,95)`, contra `(0, 0, 0, 0,95)` no pass 53).
+   - **Sessão 3, noite (com referência do dono: outra batalha no Switch — cores saturadas, sombras verde-escuras,
+     sem véu):** na iluminação principal (pass 40) o cubo pesa zero (`c3[34] = c3[35] = 0`) e o ambiente é o plano
+     `c3[9] = 100`. O ambiente de imagem vem do pass do shader `719f2567` (cache `34f8538c`): difuso
+     `cubo(lod 6) · c3[23]` (`(1,05; 1,36; 1,5)`) e especular `cubo(lod) · c3[24]`. O nível 6 do cubo filtrado fica em
+     150–200 em toda direção → ambiente ~200 contra sol ~720 (30–40%); a referência sugere bem menos. O cubo de origem
+     é um **céu procedural** (shader `e28482c2`, LUTs de atmosfera 64×256 e 3D de nuvens BC7) renderizado em cubo na
+     carga; o céu dele dá 200–370, o mesmo céu na vista principal (shader `e4d463d9`) dá ~40–130: **~3× de diferença**
+     — é a aposta principal. Os dois shaders usam layouts de c3 diferentes (o do cubo deslocado uma linha) e unidades
+     diferentes (Rayleigh `2,03e-8` no cubo × `2,03e-18` na vista, mesma proporção 1 : 2,34 : 5,7). Dumps em
+     `C:\aoc-win\dumps` (carga, com `AOC_DUMP_UBO=24`) e `C:\aoc-win\dumpf` (frame 4400 sem pular passes).
+   - **Riscos/rastros** (o dono vê linhas atravessando a imagem): intermitentes; nas capturas aparecem linhas finas
+     longas e cunhas brancas translúcidas saindo do chão — perfil de geometria de efeito com vértice jogado longe.
+     Não estão no frame 4400. Próximo passo: capturas frequentes (`AOC_SHOTS=w100-175:1`), achar um frame com linha e
+     fazer o dump dele; os passes de efeito ficam entre o 61 e o 82 do dump completo (inclusive o de meia resolução).
    - **Denormais:** a RTX 3050 informa `shaderDenormPreserveFloat32 = false`; o SPIR-V do Ryujinx carrega inteiros
      em variáveis float (ex.: o índice do laço do filtro do cubo começa como a constante float 2,8e-45). Não explicou
      o véu, mas é um risco real; no Deck (RADV) dá para pedir `DenormPreserve`.

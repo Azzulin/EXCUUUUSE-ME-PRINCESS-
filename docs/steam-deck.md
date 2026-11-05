@@ -10,7 +10,7 @@ Alvo principal: Steam Deck (LCD ou OLED), SteamOS 3.8+, jogo instalado no **cart
 | Linux ≥ 6.7 | write-watch com `userfaultfd` WP + `PAGEMAP_SCAN` | SteamOS 3.8 usa kernel 6.16 |
 | Vulkan 1.3 + `VK_EXT_external_memory_host` | importar a memória dos pools do jogo | RADV: sim |
 | `VK_EXT_graphics_pipeline_library` | montar pipelines sem stutter | RADV: sim |
-| glibc ≥ 2.31 (jogo) | build contra o sysroot *sniper* do Steam Runtime 3 | sim |
+| glibc ≥ 2.29 (jogo) | build contra o sysroot *sniper* do Steam Runtime 3 (o executável pede no máximo 2.29) | sim |
 | ASTC nativo | texturas do Switch | **não**, mas o AoC só usa BC1–BC7, que o RDNA2 lê nativamente |
 
 ## Disco (cartão SD de 1 TB)
@@ -37,27 +37,51 @@ O dump original, as chaves e o C gerado continuam no **PC**. **O Deck não compi
 
 ## Pasta única para o Deck
 
-Tudo que o jogo precisa fica numa pasta só, montada no PC por `tools/build.py ... dist` (Fase 2 em diante) em
-`D:\Decomp\Age of Calamity\dist\aoc-deck\`. Copia-se a pasta inteira para o cartão SD (FTP, armazenamento na
-nuvem ou cabo) e pronto. Layout previsto:
+Tudo que o jogo precisa fica numa pasta só, montada no PC por `tools/build.py --work ~/aoc-build dist` em
+`<repositório>/dist/aoc-deck/` ([building.md](building.md), seção 5). Copia-se a pasta inteira para o cartão SD
+(FTP, armazenamento na nuvem ou cabo). Layout atual:
 
 ```
 aoc-deck/
-  aoc                    executável Linux x86-64 (código do jogo recompilado + runtime)
-  aoc.sh                 lançador: define MESA_SHADER_CACHE_DIR e LD_LIBRARY_PATH relativos à pasta
-  lib/                   bibliotecas que o SteamOS não garante (SDL3, ...)
-  game/exefs/            main, subsdk0, sdk, main.npdm (dados .rodata/.data que o runtime mapeia)
-  game/romfs.bin         RomFS 1.3.0 mesclado (10,9 GiB)
-  game/dlc/<title id>/   RomFS dos DLCs
-  shaders/               SPIR-V traduzido dos 40 729 shaders + cache de pipelines
-  mesa-cache/            cache do driver RADV (criado na primeira execução)
-  saves/  aoc.ini  logs/
+  aoc                    executável Linux x86-64 (código do jogo recompilado + runtime), linkado contra o sniper
+  aoc.sh                 lançador: MESA_SHADER_CACHE_DIR ao lado do jogo, cria logs/ e mesa-cache/
+  lib/libSDL3.so.0       a SDL 3.4.18 do sniper (o executável procura em $ORIGIN/lib primeiro)
+  exefs/                 main, subsdk0, sdk, main.npdm (o runtime mapeia .rodata/.data daqui e confere os SHA-256)
+  romfs-index.bin        índice do RomFS (conferido contra o romfs.bin)
+  romfs/romfs.bin        RomFS 1.3.0 mesclado (10,9 GiB); `dist --with-romfs` põe um hardlink (não ocupa disco no PC)
+  LEIA-ME.txt            instalação por FTP, Steam e controles, em português
+  aoc.ini                criado só na primeira vez (menu em pt-BR); depois é do jogador
+  profile/               saves e conta local, criado ao lado do executável na primeira execução
+  logs/  mesa-cache/     criados pelo aoc.sh
+  (depois) shaders/      SPIR-V traduzido dos 40 729 shaders + cache de pipelines
+  (depois) dlc/          RomFS dos DLCs
 ```
 
+- O executável pede no máximo **GLIBC_2.29**; Vulkan, áudio (ALSA/PulseAudio/PipeWire), X11/Wayland e as demais
+  bibliotecas que a SDL3 usa vêm do próprio SteamOS. Opus, libvpx e zstd estão dentro do executável.
 - No Deck: Desktop Mode → copiar a pasta → "Add a Non-Steam Game" apontando para `aoc.sh` → jogar no Game Mode.
-- Atualizar = copiar a pasta de novo (saves e `aoc.ini` ficam; o build não os sobrescreve).
-- glibc: o binário é compilado no Ubuntu do WSL (glibc 2.35–2.39) e o SteamOS 3.8 tem uma glibc mais nova, então
-  roda sem sysroot especial. Se um dia for distribuir para outros, usar o sysroot *sniper* como o TotK Recomp.
+- Primeiro teste no Deck (Desktop Mode, Konsole, dentro da pasta): `./aoc --selftest` e depois
+  `AOC_GPU=null AOC_TRACE=perf ./aoc.sh` — deve mostrar linhas `fps: ... (30.0 fps)`. Sem `AOC_GPU=null` ele abre a
+  janela Vulkan (Fase 3: os shaders ainda não são traduzidos).
+- Atualizar = rodar `dist` de novo e copiar `aoc` (o resto só muda quando muda o jogo); saves e `aoc.ini` ficam.
+- O runtime tem um perfil "deck" (`cfg.c`, `AOC_DEVICE_PROFILE=auto|desktop|deck`, detectado pelo DMI: Valve
+  Jupiter/Galileo): tela cheia 1280×800, vsync, **30 fps** e **modo portátil** (a resolução de render mais leve do
+  próprio jogo), para poupar o Deck.
+- O FTP a partir do Windows não leva o bit de execução: o LEIA-ME manda dar `chmod +x aoc aoc.sh` uma vez, e o
+  `aoc.sh` ainda tenta marcar o `aoc` sozinho.
+
+## Menu rápido (L3+R3 segurado)
+
+Segurar L3+R3 por ~1,5 s (`AOC_QUICK_HOLD_MS`) abre um painel pequeno; tocar L3+R3 continua alternando o overlay de
+FPS, e Menos+Mais abre o menu completo. B fecha.
+
+| Linha | Valores | Observação |
+|---|---|---|
+| Taxa de quadros | **30** (padrão); 60 aparece desativado | 30 é a taxa do jogo: ele anda um passo fixo por quadro, então menos de 30 deixaria o jogo lento. 60 depende do patch de frame-step (Fase 6) |
+| Resolução interna | **Portátil** (padrão no Deck) / TV | É o modo de operação do Switch: o jogo escolhe a própria resolução de render. A troca é ao vivo, com as mensagens `OperationModeChanged`/`PerformanceModeChanged` do `oe`, como ao tirar o Switch do dock — medido: o jogo relê o modo logo depois (`main+0x8cec30`). O ganho real de GPU só se mede com Vulkan, no Deck |
+| Overlay de desempenho | desligado / FPS / completo | o mesmo do toque em L3+R3 |
+
+Para gastar ainda menos, o menu de desempenho do próprio Steam (botão "...") limita TDP e taxa de atualização.
 
 Ressalva: a pasta final contém o jogo (RomFS + código derivado). É para uso próprio — não compartilhar.
 

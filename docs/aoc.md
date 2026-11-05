@@ -164,6 +164,8 @@ Testes contra Unicorn (os mesmos do Astral Chain), todos sobre o código do noss
 | `tests/flags_check.py` | 2 000 484 pares de operandos, 0 divergências (-O0 e -O1) |
 | `tests/diff/lift.py` (60 000 codificações sorteadas dos 3 módulos) | **179 958 casos, 0 falhas**; só 19 palavras "não suportadas", todas dado não decodificável (`?` no capstone) |
 | `tests/diff/func.py` (funções inteiras: laços, jump tables, chamadas, SIMD) | **627 funções, 4 246 casos, 0 falhas** |
+| `tests/diff/simd.py` (sem dados do jogo; 2026-11-04) | 1 048 640 codificações checadas (lifter e Unicorn concordam na validade de todas), **159 976 casos, 0 falhas** |
+| `tests/diff/atomic.py` (sem dados do jogo; 2026-11-04) | 198 testes, **12 672 casos, 0 falhas** |
 | `tests/jumptables_check.py` | `main` e `sdk`: **0 divergências**. `subsdk0`: 1 divergência (`subsdk0+0x5da14`), o resolvedor dá 7 alvos e o oráculo 6 — superconjunto seguro: o limite `cmp w16,#5` fica nos predecessores e os "facts" de entrada de bloco não usam condições de aresta. A divergência do `main` (`main+0x1867d08`) foi corrigida em `recomp/jumptables.py` `_bounds`: um `cmp wN` agora limita também o índice de 64 bits quando ele cabe em 32 bits por construção. 17 `br` computados não resolvidos caem no dispatch. |
 
 Compilação (clang 18, flags do Astral Chain: `-O1 -march=x86-64-v3`), sem nenhum erro nos 44 arquivos compilados:
@@ -174,3 +176,65 @@ Compilação (clang 18, flags do Astral Chain: `-O1 -march=x86-64-v3`), sem nenh
   a -O0 a de 3 MB passou de 7 GB e foi morta. É o principal risco de tempo de build (e o pior para compilar no Deck).
 - Próximo passo: medir o resto e atacar as gigantes no gerador (quebrar a função em blocos que se chamam com
   `musttail`, ou desligar passes caros só nesses arquivos), antes de montar o build completo.
+
+### Build completo — medido em 2026-11-04 (notebook, i5-11400H 6c/12t, WSL Arch com 11 GB, clang 23.1.4)
+
+| Passo | Tempo | Pico de RAM |
+|---|---|---|
+| `gen` (101 212 funções, 374 arquivos, ~600 MB de C, 5 workers) | 2 min 46 s (1 min 05 s regenerando só o que mudou) | 0,55 GB |
+| `guest` (377 arquivos → `libaoc_guest.a` de 259 MiB, `-j10`) | **~48 min** de relógio no total | 1,6 GB num clang |
+| `host` (runtime + link de `aoc`, 222 MB) | ~1 min o runtime, 2 s o link | — |
+| `dist` (runtime contra o sniper + link + pasta) | 28 s (mais ~1 min na primeira vez: sysroot e zstd) | — |
+
+- **40** arquivos de função gigante (limite de 900 KB de C). As 4 maiores (5–7 MB) levaram ~45 min rodando de 2 em 2;
+  as 36 restantes (≤ 3,3 MB, ~1,2 GB de RAM cada) levaram 8 min rodando de 4 em 4 (`--big-jobs 4`). Com 11 GB, 4 ao
+  mesmo tempo cabem com folga. Nenhuma falha de compilação.
+- **Spin waits** (`tools/spin_waits.py`): **1 112** — `main` 1 090, `subsdk0` 12, `sdk` 10 (o TotK 1.4.3 tem 857, o
+  Astral Chain 32). Tabela em `recomp/patches-v130.txt`; regenerar com ela mudou 67 arquivos de C, nenhum gigante.
+- O executável de desenvolvimento (Arch, glibc 2.44) **não serve para o Deck**: o `dist` linka contra o sysroot
+  sniper e o resultado pede no máximo **GLIBC_2.29**.
+
+## Fase 2 — boot (2026-11-04, `AOC_GPU=null`, WSL)
+
+| Marco | Resultado |
+|---|---|
+| `aoc --selftest` | passa: 3 módulos, 101 212 funções na tabela de dispatch (63,4 MiB, montada em 24 ms), 19 ns por busca |
+| Carga | `main` 142 157 relocações / 387 imports, `subsdk0` 19 177 / 650, `sdk` 31 396 / 13; todos resolvidos |
+| `nn::init::Start` → construtores | `main` 25, `subsdk0` 44, `sdk` 109 entradas de `init_array`, sem erro |
+| RomFS | índice de 1 101 arquivos; metadados 0xe1c4 bytes em 0x2ba8463e8 do `romfs.bin`; `MountRom` pelo cache montado no host |
+| `--boot` (até o 1º NVN) | passa: `nvnBootstrapLoader("nvnDeviceGetProcAddress")` de `main+0x9f80`, 79 SVCs, 2 threads, 39 chamadas ao host |
+| Laço principal | **30,0 fps estáveis, intervalo de present 2, relógio do jogo 0,999–1,000× o real**; thread principal em `main+0xfdec50` (chamada de `nnMain+0x37c`), dormindo 1 ms entre frames |
+| Threads | 64 (a maioria trabalhadoras KTGL esperando fila), mais `audren` |
+| NVN | **8 756 `ProgramSetShaders`** no início (o nxnative registra ~8 705 programas no primeiro frame), ~490 texturas, 9 pools |
+| Save | `save:` montado no perfil do host; primeiro commit grava 1 arquivo de 1,0 MiB (`svdt`) |
+| Áudio | `audren` REV8, 48 kHz × 240, 132 mix buffers, 138 vozes, 16 efeitos, 19 submixes, 85/1 800 splitters (bate com o nxnative). Sem entrada o jogo fica nas telas do primeiro boot, em silêncio; com A em 6, 8, 10, 12, 14 e 16 s o PCM sai **não-silencioso** (rms 0,12, pico 0,71). Nenhum decodificador `hwopus` foi aberto até aqui |
+| Vídeo de abertura | `movie/Movie001.webm` aos ~28 s (com os A): VP9 1280×720, 4 buffers de entrada de 2 MiB, 8 frames de saída; decodificado pelo libvpx do host a **1,3–1,55 ms por frame** (máx. 13,8 ms), 2 400 frames sem erro. **Som do vídeo em silêncio** (a investigar) |
+
+Pontos que o boot do AoC expôs no runtime herdado (corrigidos):
+
+- `fsp-srv` vira **domínio CMIF** no SDK 9.6 (`IsEnabledAccessLog` → `GetFileSystemProxyServiceObject`): o
+  `DomainInHeader` vem antes do cabeçalho `SFCI`; o `ipc.c` do Astral Chain lia na ordem inversa e nunca serviu
+  domínio de verdade. Agora: `ConvertToDomain` devolve o objeto 1, pedidos vão ao objeto pelo ID, subinterfaces viram
+  IDs depois dos dados, tipo 2 fecha o objeto.
+- `nn::hid::GetTouchScreenState<1>` (o AoC lê a de 1 toque) abortava o SDK com 2202-0041 (`0x52ca`); a de 16 toques
+  do runtime escrevia só 4 bytes do estado. Agora o estado inteiro é zerado e o número da amostra avança.
+- `nn::oe` copyright framebuffer (3 funções) e `nn::aoc::CountAddOnContent` não tinham tratamento.
+- `nvnCommandBufferSetCopyImageStride` (no vídeo de abertura) não existia no front end NVN: agora é o passo de
+  camada das cópias buffer↔textura, como no nxnative (`bufferImageHeight` no Vulkan).
+- `mem_used` de 72 MB do nxnative **não se aplica**: este runtime calcula a memória usada pelo tamanho real dos módulos
+  (`memory.c image_bytes`), e o problema só existia porque o nxnative fixava 64 MB.
+- API NVN: o SDK 9.6 pede 53.313, o mesmo valor que o runtime do Astral Chain já informa (nxnative `hle_nvn.c`).
+- Vulkan no WSL: só o Dozen (Vulkan 1.2 sobre D3D12, RTX 3050 e Intel UHD), sem `VK_EXT_external_memory_host` —
+  o back end Vulkan precisa do Deck (RADV), de Linux nativo ou de um build Windows.
+
+## Primeira execução no Steam Deck (2026-11-05, pelo dono; log lido por SSH)
+
+| Item | Medido |
+|---|---|
+| Sistema | SteamOS 3.9.5, kernel 7.2.7-valve2, jogo no cartão SD (`/run/media/deck/<uuid>/Games/aoc-deck`) |
+| GPU | `AMD Custom GPU 0405 (RADV VANGOGH)`, Mesa 26.2.0-devel, Vulkan 1.4.350; graphics pipeline library e fast-link sim; memória UMA (pools importados) |
+| Perfil | "Steam Deck" detectado sozinho (DMI): 30 fps, modo portátil, tela cheia; SDL 3.4.18 com driver x11 |
+| Execução | 1 391 frames em 46,5 s, **29,9 fps de média**, 1 % low 23,8 fps; pior frame 156,6 ms (124,5 ms de espera de present); sem crash, encerrado pelo jogador fechando a janela |
+| Áudio | `Audio Coprocessor Speaker`, 48 kHz estéreo float |
+| Imagem | **tela preta**: nenhum tradutor de shaders (`translator not found`, 19 626 vezes; 9 804 traduções falhadas) — Fase 3 |
+| Steam | o atalho "não Steam" nunca foi criado (`shortcuts.vdf` sem entrada); resolvido com `instalar-atalho.sh` (entrada `.desktop`, que a janela do Steam lista) |

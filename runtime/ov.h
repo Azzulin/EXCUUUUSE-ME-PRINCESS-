@@ -1,0 +1,37 @@
+// Shared by the system overrides: runtime/ov_system.c, ov_input.c, ov_media.c and ov_gfx.c, and their probe.
+// oe_push_message, oe_set_focus and ov_nv_state are in gfx.h (the window posts focus messages, the NVN layer
+// allocates through the recorded callbacks).
+#pragma once
+#include <stddef.h>
+#include <stdint.h>
+
+#include "gfx.h"
+#include "ipc.h"
+
+// ---- ov_system.c
+int ov_handheld(void);                     // AOC_OPERATION_MODE=handheld (default docked); fatal on another value
+void ov_operation_mode_changed(void);      // the setting changed while the game runs: report it, notify the game
+void ov_operation_mode_test_tick(void);    // AOC_TEST_OPMODE test hook, at every present
+const char *ov_language(void);             // the game's language, a Switch language code ("en-US", "zh-Hans", ...)
+
+// ---- ov_settings.c
+void settings_server_handler(IpcSession *s, const IpcRequest *rq, IpcResponse *rs);   // "set" (settings:u)
+
+// ---- ov_hwopus.c
+void hwopus_server_handler(IpcSession *s, const IpcRequest *rq, IpcResponse *rs);   // "hwopus"
+
+// ---- ov_nifm.c
+void nifm_user_manager_handler(IpcSession *s, const IpcRequest *rq, IpcResponse *rs);   // "nifm:u"
+
+// ---- ov_audout.c
+void audout_manager_handler(IpcSession *s, const IpcRequest *rq, IpcResponse *rs);   // "audout:u"
+
+// ---- ov_prepo.c
+void prepo_manager_handler(IpcSession *s, const IpcRequest *rq, IpcResponse *rs);    // "prepo:u"
+
+// ---- ov_fsp.c
+void fsp_srv_handler(IpcSession *s, const IpcRequest *rq, IpcResponse *rs);          // "fsp-srv"
+// ---- ov_hid.c
+void hid_server_handler(IpcSession *s, const IpcRequest *rq, IpcResponse *rs);   // "hid" (IHidServer)
+const char *ov_shared_font_dir(char *buf, size_t n);   // AOC_SHARED_FONTS, else <romfs>/../../firmware/shared-fonts
+uint64_t ov_bfttf_size(const uint8_t *p, uint64_t len); // decoded font size of a BFTTF image, 0 if it is not one

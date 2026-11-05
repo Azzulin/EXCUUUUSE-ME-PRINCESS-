@@ -51,3 +51,78 @@ Relato do que foi feito, em ordem, com o porquê de cada passo. Para o estado at
   (`ext4.vhdx`) sumido. O dono foi orientado a recuperar ou reinstalar.
 - `build.bat` na raiz para rodar em qualquer máquina com o repositório clonado e o dump em `Game Files/`. — `dacaabf`
 - Escritos este histórico e o `docs/handover.md` para os agentes de outras máquinas.
+
+## Sessão 2 — 2026-11-04 (notebook)
+
+Horários de 2026-11-04 (UTC−3). O dono passou a trabalhar só no notebook (i5-11400H, 15,7 GB, WSL **Arch**), sem o
+disco D e sem as referências locais.
+
+### Ambiente e build completo
+
+- Arch do WSL estava vazio (pacman nunca sincronizado). `tools/setup_wsl.sh` passou a aceitar pacman (e root sem
+  sudo) e a instalar também as bibliotecas do runtime. Referências clonadas em `refs/` pelo Git Bash.
+- Geração do C: 2 min 46 s, números idênticos aos da sessão 1 (101 212 funções, 0 não suportadas).
+- Primeiro `guest` falhou inteiro: o caminho do repositório tem espaços e o `tools/build.py` passava `-I` com o
+  escape `$ ` do ninja, que o shell quebra. Corrigido com aspas do shell (`shell_arg`).
+- Build completo do código do jogo: **~48 min**, 0 falhas, `libaoc_guest.a` de 259 MiB. As 4 maiores gigantes foram
+  de 2 em 2; o resto foi relançado com `--big-jobs 4` (8 min).
+- `tools/spin_waits.py` (do Astral Chain) achou **1 112 spin waits**; tabela em `recomp/patches-v130.txt`, que o
+  `build.py` agora sempre passa ao gerador (67 arquivos de C mudaram).
+
+### Runtime (Fase 2)
+
+- `runtime/` = runtime do Astral Chain (casa com o nosso `recomp/`) + porta Linux do TotK (`platform/linux.c`, SDL3,
+  vídeos VP9). `AC_*`/`TOTK_*` → `AOC_*`. Compilou no Linux com 16 erros em 4 arquivos (seções ELF do `hostfn.c`,
+  `movie_tick`, `gfx_window_sdl_run`), resolvidos com o código do TotK; o link pediu `plat_mem_read_fault_hook`
+  (só para o RomFS em endereço fixo do Astral Chain): implementado no `linux.c` e desligado quando `ROMFS_SIZE` é 0.
+- Novo passo `host` em `tools/build.py` (runtime + `modules.c` + link) e `tools/romfs_index.py` (índice do RomFS
+  lido direto das tabelas do `romfs.bin`). **`aoc --selftest` passa.**
+- Boot com `AOC_GPU=null`, em ordem de paradas:
+  1. `fsp-srv` como domínio CMIF (SDK 9.6): o `ipc.c` lia o `DomainInHeader` depois do cabeçalho CMIF. Domínios
+     implementados de verdade (objetos por ID, subinterfaces como IDs, fechamento). `--boot` passa (1º NVN).
+  2. Abort em `nn::hid::GetTouchScreenState<1>` (resultado 2202-0041): só a versão de 16 toques tinha tratamento, e
+     escrevia 4 bytes. Corrigido.
+  3. **O jogo chegou ao laço principal**: 30,0 fps estáveis (intervalo 2), relógio 1×, 64 threads, 8 756 programas
+     NVN no início (o nxnative registra ~8 705), save criado. Áudio aberto mas em silêncio.
+- Correções do AoC vindas do nxnative: copyright framebuffer (no-op), `CountAddOnContent`, Opus **multistream** no
+  serviço `hwopus` (libopus `OpusMSDecoder`; o Astral Chain recusava esses comandos). O `mem_used` de 72 MB não se
+  aplica a este runtime (ele mede os módulos).
+- Vulkan no WSL é só o Dozen (1.2, sem `VK_EXT_external_memory_host`): gráficos só no Deck ou fora do WSL.
+
+### Pasta do Deck
+
+- Passo `dist`: runtime compilado e linkado contra o sysroot **sniper** (snapshot e hash do TotK), zstd 1.5.7
+  estática, Opus/libvpx estáticos do sysroot, SDL3 em `lib/`. O executável pede no máximo **GLIBC_2.29**. Testado no
+  WSL: selftest passa e o jogo roda a 30 fps pela `aoc.sh`.
+- `THIRD_PARTY_NOTICES.md` ganhou as linhas do runtime (e as que o runtime do Astral Chain herdou).
+
+### Fim da Fase 2
+
+- O "silêncio" era o jogo parado nas telas do primeiro boot esperando A. Com `AOC_INPUT_SCRIPT` (A a cada 2 s, como o
+  roteiro do nxnative) o som sai (rms 0,12, pico 0,71) e o vídeo de abertura começa — **Portão B2 cumprido**.
+- O vídeo parou em `nvnCommandBufferSetCopyImageStride` (front end NVN sem ele); implementado como o passo de camada
+  das cópias buffer↔textura (nxnative). Depois disso o vídeo toca inteiro (VP9 pelo libvpx, ~1,3 ms/frame), ainda sem
+  som.
+- `tests/diff/simd.py` (159 976 casos) e `tests/diff/atomic.py` (12 672 casos): 0 falhas.
+
+### Pasta única e menu rápido (pedido do dono: não forçar o Deck)
+
+- **Menu rápido**: segurar L3+R3 (~1,5 s) abre um painel com taxa de quadros (30; 60 desativado até o patch),
+  resolução interna (modo portátil/TV do Switch, trocado ao vivo pelas mensagens do `oe`) e overlay; o toque curto
+  continua no overlay. Textos nas quatro línguas do menu; prova nova em `--probe-services` ("quick gate", 8 casos).
+- Padrões: 30 fps para todos (era 60) e, no perfil do Deck, modo portátil. Medido no WSL com `AOC_TEST_OPMODE`: o
+  jogo relê o modo logo após o aviso (`main+0x8cec30`) e segue a 30 fps.
+- `dist --with-romfs`: hardlink do `romfs.bin`, `LEIA-ME.txt`, `aoc.ini` inicial (menu pt-BR) e, numa pasta portátil,
+  `profile/` ao lado do executável (antes caía no caminho do PC). Teste de ponta a ponta da pasta: selftest, 30 fps,
+  som (rms 0,13), vídeo, saves na pasta, sem fatal.
+- `--probe-cfg` volta a passar (prefixo antigo `astralchain_` na prova; checagem de arquivo somente leitura pulada
+  quando roda como root).
+
+## Sessão 3 — 2026-11-05 (primeiro teste no Deck)
+
+- O dono copiou a pasta por FTP e rodou o jogo; não conseguiu jogar nem pôr no Game Mode. Log lido por SSH: o jogo
+  roda no Deck (RADV VANGOGH, 29,9 fps de média em 46,5 s, áudio no alto-falante, sem crash), mas a **tela fica
+  preta** porque ainda não há tradutor de shaders (Fase 3). O atalho "não Steam" nunca tinha sido criado: a janela do
+  Steam lista aplicativos `.desktop`, não um script solto no cartão SD.
+- `dist` ganhou `instalar-atalho.sh` (cria `~/.local/share/applications/aoc-recomp.desktop` com o caminho da pasta);
+  rodado e validado no Deck (`desktop-file-validate`). LEIA-ME atualizado.

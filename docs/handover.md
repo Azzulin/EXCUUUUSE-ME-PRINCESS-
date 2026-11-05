@@ -1,7 +1,7 @@
 # Handover — estado do projeto para o próximo agente
 
-Leia isto primeiro, depois `AGENTS.md` (regras) e `docs/plano.md` (fases). Escrito em 2026-11-03, no commit seguinte
-a `dacaabf`. Tudo aqui foi medido no dump do próprio dono do projeto; nada é estimativa salvo onde está dito.
+Leia isto primeiro, depois `AGENTS.md` (regras) e `docs/plano.md` (fases). Atualizado em 2026-11-04 (sessão 2, no
+notebook). Tudo aqui foi medido no dump do próprio dono do projeto; nada é estimativa salvo onde está dito.
 
 ## 0. Em uma frase
 
@@ -14,10 +14,11 @@ por isso não serve direto para x86).
 
 | Fase | Estado |
 |---|---|
-| 0 — inventário | **Quase fechada.** Falta: teste de tradução dos shaders (Ryujinx + `spirv-val`, precisa .NET 10). A lista de nomes NVN só sai com o jogo rodando (Fase 2). |
-| 1 — lifter | **Geração e testes OK; build completo ainda não rodou.** 101 212 funções, 0 instruções não suportadas, testes Unicorn sem falha. Falta: build completo no WSL (`build.bat`), 1 jump table superconjunto no `subsdk0`, `simd.py`/`atomic.py`, funções gigantes. |
-| 2 — host/boot | Não começada. Próximo grande bloco. |
-| 3+ | Não começadas. |
+| 0 — inventário | **Quase fechada.** Falta: teste de tradução dos shaders (Ryujinx + `spirv-val`, precisa .NET 10). |
+| 1 — lifter | **Fechada na prática.** Build completo rodou (~48 min no notebook, 0 falhas), `aoc --selftest` passa, tabela de 1 112 spin waits (`recomp/patches-v130.txt`). Pendentes menores: 1 jump table superconjunto no `subsdk0`, funções gigantes no gerador. |
+| 2 — host/boot | **Portão B2 cumprido.** Runtime do Astral Chain + porta Linux do TotK em `runtime/`. Com `AOC_GPU=null`: laço principal a 30 fps (relógio 1×), 8 756 programas NVN, RomFS e save, **som não-silencioso** depois das telas do primeiro boot (A por `AOC_INPUT_SCRIPT`) e **vídeo de abertura decodificado** (VP9, ~1,3 ms/frame). |
+| 3 — gráficos | Não começada. Não dá para testar Vulkan no WSL (só Dozen, Vulkan 1.2): precisa do Deck, Linux nativo ou build Windows. |
+| 5 — Deck | `tools/build.py dist --with-romfs` monta a pasta única `dist/aoc-deck/` (sysroot sniper, GLIBC_2.29, romfs por hardlink, LEIA-ME, `aoc.ini`, saves em `profile/` ao lado do executável), testada de ponta a ponta no WSL. **Menu rápido** (L3+R3 segurado): 30 fps, resolução interna portátil/TV ao vivo, overlay. Falta rodar no Deck. |
 
 Números-chave (detalhes em `docs/aoc.md`):
 
@@ -41,9 +42,11 @@ Números-chave (detalhes em `docs/aoc.md`):
 
 1. **Arquitetura A** (lifter + NVN HLE + Vulkan, linha Astral Chain). Plano B documentado: GPU LLE como o HWDER.
 2. **Versão única 1.3.0** (+ DLCs). Outros builds são recusados.
-3. **Compila-se no PC** (Windows + WSL2, i7-12700); o Deck **não compila nada**. O resultado será **uma pasta única**
-   `dist/aoc-deck/` que o dono copia para o cartão SD de **1 TB** do Deck (FTP, nuvem ou cabo). Layout em
-   `docs/steam-deck.md`.
+3. **Compila-se no Windows pelo WSL2** (hoje no notebook, seção 3); o Deck **não compila nada**. O resultado é **uma
+   pasta única** `dist/aoc-deck/` (`tools/build.py dist`, contra o sysroot sniper) que o dono copia para o cartão SD
+   de **1 TB** do Deck (FTP, nuvem ou cabo). Layout em `docs/steam-deck.md`.
+7. **Runtime = Astral Chain + porta Linux do TotK** (2026-11-04): o `recomp/` é o do Astral Chain e o runtime dele casa
+   com o gerador; o TotK traz `platform/linux.c` e a SDL3. Variáveis `AOC_*`, arquivo `aoc.ini`.
 4. Ritmo padrão "Original 30"; 60 fps é opcional e vem depois (três stubs de frame-step do nxnative).
 5. Documentação em pt-BR.
 6. O dump fica em `Game Files/` na raiz do repositório (ignorado pelo git). Saídas em `build/`, `generated/`,
@@ -51,39 +54,43 @@ Números-chave (detalhes em `docs/aoc.md`):
 
 ## 3. Máquinas e lugares
 
+Há duas máquinas Windows. **Desde 2026-11-04 o trabalho é no notebook** (decisão do dono).
+
+| O quê | Notebook (atual) | PC principal (sessão 1) |
+|---|---|---|
+| Repositório | `C:\Users\gabri\Downloads\Age of Calamity\Age of Calamity` | `D:\Decomp\Age of Calamity` |
+| CPU / RAM | i5-11400H 6c/12t, 15,7 GB (WSL limitado a 11 GB + 12 GB swap por `%USERPROFILE%\.wslconfig`) | i7-12700 |
+| GPU | RTX 3050 Laptop + Intel UHD (no WSL só Dozen, Vulkan 1.2) | — |
+| WSL | **Arch Linux** (`archlinux`, root, sem sudo); `~/aoc-build` com tudo gerado | Ubuntu quebrado (`ext4.vhdx` sumiu) |
+| Referências | `refs/` (via `tools/fetch_refs.sh`) | `D:\Gits para projetos\switch-recomp\` |
+
+Comum às duas:
+
 | O quê | Onde |
 |---|---|
-| Repositório (privado) | https://github.com/Azzulin/Blonde-Z-and-her-friends — clone local principal em `D:\Decomp\Age of Calamity` |
+| Repositório remoto (privado) | https://github.com/Azzulin/Blonde-Z-and-her-friends |
 | Dump do jogo | `<repo>\Game Files\` (NSPs + `prod.keys` + `title.keys`) — nunca no git |
-| RomFS mesclado e ExeFS extraído | `<repo>\build\v130\` (`romfs.bin`, `exefs\`, relatórios dos censos) |
-| hactool | `<repo>\toolchain\hactool-1.4.0-win\hactool.exe` (baixado à mão; fonte em `toolchain\hactool-1.4.0\`) |
-| Repositórios de referência | `D:\Gits para projetos\switch-recomp\` (7 repos, tag `aoc-ref-2026-11-03`) e `aoc-dados\` (dados/formatos do AoC); `atualizar.sh` atualiza todos |
-| Build | WSL2 Ubuntu, diretório `~/aoc-build` (no disco do Linux, não em `/mnt/d`) |
+| RomFS mesclado e ExeFS extraído | `<repo>\build\v130\` (`romfs.bin` + `romfs.bin.sha256`, `exefs\`, relatórios dos censos) |
+| hactool | `<repo>\toolchain\hactool-1.4.0-win\hactool.exe` |
+| Trabalho do build (no WSL) | `~/aoc-build/`: `generated/`, `obj/`, `lib/libaoc_guest.a`, `host/aoc` (dev), `dist/aoc` (Deck), `toolchain/sniper`, `deps/`, `dl/` |
+| Pasta do Deck | `<repo>\dist\aoc-deck\` (ignorada pelo git) |
 | Alvo | Steam Deck, SteamOS 3.8 (kernel 6.16), cartão SD de 1 TB |
-
-**Estado do WSL no PC principal (2026-11-03):** a distro padrão `Ubuntu` está **quebrada** — o `ext4.vhdx` dela
-sumiu (`Wsl/Service/CreateInstance/MountDisk/HCS/ERROR_PATH_NOT_FOUND`). O dono foi orientado a procurar o disco
-(`Get-ChildItem C:\, D:\ -Recurse -Filter ext4.vhdx`) e, se não achar, `wsl --unregister Ubuntu` +
-`wsl --install -d Ubuntu-24.04 --location D:\WSL\Ubuntu`. Por isso o build completo ainda não rodou.
 
 ## 4. Como reproduzir tudo
 
 ```sh
-# Windows: clique em build.bat (setup do WSL + extração do ExeFS + geração + compilação; log em build\build-wsl.log)
-# ou, dentro do WSL:
+# Windows: clique em build.bat (setup do WSL + extração do ExeFS + gen + guest + host; log em build\build-wsl.log)
+# ou, dentro do WSL (Ubuntu ou Arch):
 bash tools/setup_wsl.sh && source ~/.venvs/aoc/bin/activate
-python3 tools/extract.py inventory                 # identifica base/update/DLCs pelo conteúdo dos NCAs
-python3 tools/extract.py exefs                     # build/v130/exefs/ (lê o NSP no lugar, verifica hashes)
-python3 tools/inspect_dump.py --exefs build/v130/exefs
-python3 tools/census_imports.py --exefs build/v130/exefs --out build/v130/imports.json
+python3 tools/extract.py inventory && python3 tools/extract.py exefs
 # RomFS mesclado (Windows): python tools/extract.py hactool-home && tools\windows\merge_romfs.bat
-python3 tools/extract.py romfs-index               # lista build/v130/romfs.bin e compara com a base
-python3 tools/census_rdb.py --dlc                  # tipos nos RDB, formatos de textura
-python3 tools/census_shaders.py --dlc              # inventário de shaders
-python3 tools/build.py --work ~/aoc-build          # gera o C e compila (libaoc_guest.a)
+python3 tools/build.py --work ~/aoc-build --jobs 10 --big-jobs 4    # gen + guest + host (~50 min na 1ª vez)
+~/aoc-build/host/aoc --selftest
+AOC_GPU=null AOC_TRACE=perf ~/aoc-build/host/aoc                     # jogo sem GPU; matar com pkill -9 -x aoc
+python3 tools/build.py --work ~/aoc-build dist                       # dist/aoc-deck/ (sysroot sniper)
 ```
 
-Testes do lifter: ver o fim de `docs/building.md`.
+Detalhes em `docs/building.md`, incluindo os testes do lifter.
 
 ## 5. Mapa do repositório
 
@@ -91,27 +98,47 @@ Testes do lifter: ver o fim de `docs/building.md`.
 |---|---|
 | `docs/` | `levantamento.md` (o jogo e as referências), `arquitetura.md`, `plano.md` (fases e portões), `aoc.md` (fatos medidos), `steam-deck.md`, `building.md`, `referencias.md`, este `handover.md`, `historico.md` |
 | `recomp/` | lifter e gerador vindos do Astral Chain (MIT); só `layout.py` mudou; `jumptables.py` tem uma correção nossa em `_bounds` |
-| `runtime/` | por enquanto só os cabeçalhos de CPU do código gerado (`cpu.h`, `simd.h`, `simd_fp.h`, `fma.c`) |
+| `runtime/` | runtime do Astral Chain + porta Linux do TotK, adaptado ao AoC (ver `runtime/README.md`) |
 | `tests/` | `test_tools.py` (sintético, roda no CI) e os testes diferenciais do Astral Chain (precisam do ExeFS) |
-| `tools/` | `nx.py` (NSP/NCA/ticket/ExeFS/RomFS em Python), `extract.py`, `inspect_dump.py`, `census_*.py`, `build.py`, `setup_wsl.sh`, `check_content.py`, `fetch_refs.sh`, `windows/*.bat/.ps1` |
+| `tools/` | `nx.py` (NSP/NCA/ticket/ExeFS/RomFS em Python), `extract.py`, `inspect_dump.py`, `census_*.py`, `build.py` (gen/guest/host/dist), `romfs_index.py`, `spin_waits.py`, `setup_wsl.sh`, `check_content.py`, `fetch_refs.sh`, `windows/*.bat/.ps1` |
 
 ## 6. Próximos passos (em ordem)
 
-1. **Fazer o build completo rodar** no WSL do PC (`build.bat`) e registrar tempo e memória em `docs/aoc.md`.
-2. **Funções gigantes**: medir quais dominam; atacar no gerador (quebrar em partes encadeadas por `musttail`) ou
-   aceitar com as flags atuais se o tempo total no i7 for razoável.
-3. **Jump table do `subsdk0+0x5da14`** (superconjunto seguro: 7 alvos contra 6): os "facts" de entrada de bloco em
-   `recomp/jumptables.py` não usam a condição da aresta (`cmp w16,#5` nos predecessores).
-4. Rodar `tests/diff/simd.py` e `tests/diff/atomic.py` (não usam dados do jogo).
-5. **Fase 2**: trazer o runtime do Astral Chain/TotK (loader, kernel de 3 cores, SVCs, IPC, `nn::*`), com a porta
-   Linux do TotK (`runtime/platform/linux.c`), até `nnMain` chegar ao laço principal com `gfx_null`. Aplicar as
-   correções do AoC do nxnative: `mem_used` 72 MB, work buffer do áudio = tamanho do serviço (0x61d000),
-   copyright framebuffer no-op, Opus multistream, "save do BotW existe?" → não.
-6. **Teste de tradução dos shaders** (precisa .NET 10 no WSL): tradutor Ryujinx 1.3.2 do Astral Chain
-   (`tools/vendor/ryujinx`, `tools/xlate/`) sobre o inventário + `spirv-val`. Usar `shader_facts.tsv` e
-   `shader_pairs.tsv` do nxnative.
+1. **Tradutor de shaders (Fase 3) — é o que impede jogar.** No Deck (2026-11-05) o jogo roda a 29,9 fps com o
+   Vulkan do RADV, mas a tela fica preta: nenhum shader é traduzido. Trazer o tradutor Ryujinx 1.3.2 do Astral Chain
+   (`tools/build_xlate.py`, `tools/xlate/`, `tools/vendor/ryujinx`, .NET 10 com NativeAOT) para Linux, empacotá-lo em
+   `dist/aoc-deck/` e montar a extração KTGL. O Deck é acessível por SSH (`deck@192.168.100.130`, nome `steamdeck`,
+   chave `~/.ssh/id_ed25519_deck` no notebook): ler `logs/aoc.log` lá.
+2. **Som do vídeo de abertura** (silêncio enquanto o VP9 toca): a faixa de áudio do `.webm` passa pela biblioteca
+   `movie` do `subsdk0`; o `ov_movie.c` só troca o decodificador de vídeo. Ver qual decodificador de áudio ela abre
+   (`AOC_TRACE=ipc,audio`) e se cai no caminho Android/NvMM que não existe aqui. Roteiro de entrada usado:
+   A em @6000, @8000, @10000, @12000, @14000, @16000 ms (`AOC_INPUT_SCRIPT`, formato em `runtime/input.c`).
+   Sem entrada o jogo fica parado nas telas do primeiro boot, em silêncio — não é travamento.
+3. **Fase 3 — shaders**: .NET 10 no WSL, tradutor Ryujinx 1.3.2 do Astral Chain (`tools/build_xlate.py`,
+   `tools/xlate/`, `tools/vendor/ryujinx`) e extração KTGL (`nxnative dm/gfx/tools/shader_split.py`); `spirv-val`.
+4. Correções de NVN do AoC (lista em `docs/plano.md`, Fase 3) quando houver imagem.
+5. Jump table do `subsdk0+0x5da14` (superconjunto seguro) e funções gigantes no gerador (`musttail`), se o tempo de
+   build incomodar (hoje ~48 min do zero; incremental leva 1–2 min).
+6. DLC: `nn::aoc` hoje responde "nenhum DLC" (`ov_system.c`); montar os RomFS dos DLCs fica para a Fase 6.
 
 ## 7. Armadilhas já encontradas
+
+- **Caminhos com espaço** ("Age of Calamity"): valores de variável do ninja vão ao shell como texto; usar
+  `shell_arg` (aspas do shell) em `tools/build.py`, nunca o escape `$ ` do ninja (corrigido: o 1º build falhava todo).
+- **glibc**: o executável do WSL (glibc 2.44 no Arch) não roda no Deck; só o do `dist` (sniper, no máx. 2.29). A SDL3
+  do sniper liga direto em ALSA, PulseAudio, X11, Wayland, xkbcommon e libdecor — o SteamOS tem; para testar o binário
+  do `dist` no WSL foi preciso instalar `alsa-lib libpulse libxi libxrandr libxss libxtst fribidi libxkbcommon libdecor`.
+- **Log do runtime**: `logs/aoc.log` só é gravado quando a saída do processo **não** é um arquivo (rodando pelo
+  Steam); com `> arquivo` tudo vai para o arquivo redirecionado.
+- **Ambiente vence `cfg_set`**: uma variável `AOC_*` no ambiente, mesmo vazia, ganha das mudanças do menu.
+- **`timeout` não mata o `aoc`** (SIGTERM não encerra o jogo): usar `pkill -9 -x aoc`.
+- **gdb no `aoc`**: `handle SIGSEGV nostop noprint pass` (o write-watch usa SIGSEGV). Pilha guest: `c->x[29]`/`x[30]`
+  no frame `rt_svc` e a cadeia de frames lida de `/proc/<pid>/mem` (endereço guest = endereço host).
+- **curl e o repositório da Valve**: o download de 1,2 GB do sniper cai por HTTP/2 (erro 92); usar `--http1.1 -C -`.
+- **Git Bash → wsl**: aspas e `$` se perdem em `wsl.exe ... bash -c '...'` com scripts longos; gravar o script num
+  arquivo e rodar com `wsl -d archlinux -- bash /mnt/c/...` pelo PowerShell. Caminhos `/tmp/...` passados pelo Git
+  Bash viram `C:/.../Temp` (usar `MSYS_NO_PATHCONV=1`).
+- **Escapes em heredoc**: `\b` num literal Python dentro de heredoc vira backspace; conferir com `grep -P '\x08'`.
 
 - **hactool e BKTR**: para a seção BKTR do update, `--romfs=` é ignorado; só `--section1=` grava (o nível RomFS
   final). E o hactool só abre NCAs soltos, não dentro do NSP.

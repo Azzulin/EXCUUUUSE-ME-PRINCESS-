@@ -17,7 +17,7 @@ Objetivo: saber exatamente com o que estamos lidando, sem escrever nada de runti
 
 - [x] Repositório git com regras de conteúdo, hook e CI (`tools/check_content.py`).
 - [x] `tools/fetch_refs.sh` clona as referências em `refs/` nas revisões fixadas.
-- [x] Script de ambiente do WSL2 (`tools/setup_wsl.sh`: clang, lld, ninja, venv Python). Faltam depois: .NET 10, Vulkan headers, SDL3, opus, libvpx, zstd.
+- [x] Script de ambiente do WSL2 (`tools/setup_wsl.sh`: Ubuntu ou Arch; clang, lld, ninja, venv Python, SDL3, opus, libvpx, zstd, Vulkan). Falta: .NET 10 (tradutor de shaders).
 - [x] `tools/extract.py`: inventário dos pacotes, ExeFS do 1.3.0 e listagem do RomFS da base e dos DLCs, direto do NSP.
 - [x] Mesclar o RomFS da base com o patch BKTR do 1.3.0 (`tools/windows/merge_romfs.bat` + hactool.exe) → `build/v130/romfs.bin`.
 - [x] `tools/inspect_dump.py` confere build IDs, NPDM e tamanhos — **build IDs 1.3.0 conferidos**.
@@ -39,25 +39,32 @@ Objetivo: saber exatamente com o que estamos lidando, sem escrever nada de runti
 - [x] `layout.py` do AoC: bases dos módulos sem região fixa de RomFS (heap/alias/pilhas ficam com o runtime, Fase 2).
 - [x] Padrão de jump table de bytes indexada por `x30` — `main+0x138216c` já resolve e bate com o oráculo (11 alvos).
 - [x] Decidir `--no-callee-saved-trust` a partir do censo de exceções — não precisa (sem exceções C++ nem longjmp).
-- [ ] Testes diferenciais (Unicorn): instruções ✔ (0 falhas), funções inteiras ✔ (0 falhas), flags ✔; jump tables: `main` corrigido, 1 superconjunto seguro no `subsdk0`; SIMD e atômicos (sem dados do jogo) a rodar.
+- [x] Testes diferenciais (Unicorn): instruções ✔, funções inteiras ✔, flags ✔, **SIMD ✔ (159 976 casos) e atômicos ✔ (12 672 casos), 0 falhas**; jump tables: `main` corrigido, 1 superconjunto seguro no `subsdk0` (pendente).
 - [x] `tools/build.py`: gera o C e compila com ninja (`libaoc_guest.a`), funções gigantes primeiro e com flags próprias.
-- [ ] Build completo no WSL do PC (primeira medição real do tempo de build).
-- [ ] `aocrecomp --selftest` (layout, tabela de dispatch, registro de funções host) sem arquivos do jogo.
+- [x] Build completo no WSL (notebook i5-11400H, 2026-11-04): ~48 min, 40 gigantes, nenhuma falha — `docs/aoc.md`.
+- [x] `aoc --selftest` (layout, tabela de dispatch, registro de funções host): passa, 0 falhas.
 
 **Portão B1:** 100 % das instruções dos três módulos geradas sem trap não suportado; C compila e linka no Linux.
 
 ## Fase 2 — Host e boot · ~2–3 semanas
 
-- [ ] Loader, ligação dinâmica, TLS, construtores, `nnMain`.
-- [ ] Kernel de 3 cores (porta Linux: preempção por sinal) e SVCs.
+- [x] Loader, ligação dinâmica, TLS, construtores, `nnMain` (runtime do Astral Chain + porta Linux do TotK, `runtime/`).
+- [x] Kernel de 3 cores (porta Linux: preempção por sinal) e SVCs — 64 threads guest no laço principal, sem fatal.
 - [ ] Overrides `nn::*` que faltarem para o SDK 9.6.0 (do censo).
-- [ ] Correções conhecidas do AoC: `mem_used` 72 MB, `sys_resource` do NPDM, work buffer de áudio do serviço,
-      copyright framebuffer no-op, Opus multistream, saves de outros jogos = não.
-- [ ] RomFS via `MountRom` com cache montado pelo host; leitura dos RDB direto do arquivo mesclado (sem descomprimir).
-- [ ] Back end gráfico nulo (`gfx_null`) para rodar sem GPU.
+- [ ] Correções conhecidas do AoC: ~~`mem_used` 72 MB~~ (não se aplica: o runtime mede os módulos), `sys_resource`
+      do NPDM, work buffer de áudio do serviço, Opus multistream (serviço `hwopus` feito, falta ver o jogo usar),
+      copyright framebuffer no-op ✔, domínios CMIF no `fsp-srv` ✔, toque `GetTouchScreenState<1>` ✔, saves de outros
+      jogos = não (conferir quando o jogo perguntar).
+- [x] RomFS via `MountRom` com cache montado pelo host; leitura dos RDB direto do arquivo mesclado (`tools/romfs_index.py`).
+- [x] Back end gráfico nulo (`AOC_GPU=null`): o jogo roda a 30 fps no WSL sem GPU.
 
 **Portão B2:** `nnMain` chega ao laço principal sem fatal; renderer de áudio produz PCM não-silencioso; o jogo pede
 os primeiros shaders/programas NVN.
+
+> **Portão B2 cumprido em 2026-11-04** (WSL, `AOC_GPU=null`): laço principal a 30 fps com relógio 1×; 8 756
+> `ProgramSetShaders`; **PCM não-silencioso** (rms 0,12, pico 0,71) depois de passar as telas do primeiro boot com A
+> (`AOC_INPUT_SCRIPT`); o vídeo de abertura (`movie/Movie001.webm`, VP9 1280×720) toca inteiro pelo libvpx do host.
+> Sem entrada o jogo fica parado nessas telas, em silêncio, o que parecia um travamento.
 
 ## Fase 3 — Gráficos · ~4–6 semanas (a fase mais longa)
 
@@ -65,7 +72,7 @@ os primeiros shaders/programas NVN.
 - [ ] Correções do AoC: compute com binding próprio, `RegisterImage`, indiretos, cache de views por textura,
       `tex_flush_upload`, c1 dinâmico, texel buffers para listas de luz/decal, entradas inteiras de Half2/Short2.
 - [ ] Extração KTGL (G2S, `_DOK`, GLSLC do `main`) + tradução AOT de todos os shaders + `spirv-val`.
-- [ ] Vídeos VP9 (intro, cutscenes pré-renderizadas).
+- [ ] Vídeos VP9 (intro, cutscenes pré-renderizadas): decodificação ✔ (`ov_movie.c`, ~1,3 ms/frame); falta imagem (Vulkan) e o **som dos vídeos** (silêncio durante o vídeo de abertura).
 - [ ] Pipelines: lista de chaves gravada em jogo, pré-montagem com graphics pipeline library.
 
 **Portão C:** vídeo de abertura, título e menus corretos; **primeira batalha (Hyrule Field) com soldados, skinning,
@@ -84,7 +91,7 @@ classificadas.
 
 ## Fase 5 — Steam Deck · ~2–3 semanas
 
-- [ ] Build Linux contra o sysroot *sniper*; binário roda no SteamOS 3.8 em Desktop e Game Mode.
+- [ ] Build Linux contra o sysroot *sniper* ✔ (`tools/build.py dist`, pede no máximo GLIBC_2.29); falta rodar no SteamOS 3.8 em Desktop e Game Mode.
 - [ ] Write-watch por `userfaultfd` + `PAGEMAP_SCAN`; pools sombra.
 - [ ] Texturas: BC1–BC7 direto no RDNA2 (o AoC não usa ASTC); conferir deswizzle block-linear e sRGB.
 - [ ] Perfil `deck`: 1280×800, render scale + FSR1, limitador 30 fps, vsync.

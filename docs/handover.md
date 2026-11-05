@@ -140,8 +140,13 @@ partir de 100 s, `AOC_TRACE=perf`, vigia de travada).
      shader, com o frame), `AOC_TEXEL_TWIN=0`, `AOC_DUMP_LOG=<de>` para pegar frames de carga, `AOC_DUMP_TEX=WxH`,
      `AOC_TRACE=gfx` registra leituras de textura pequena. Hash do dump (FNV-1a do SPIR-V) → chave do cache: mesma
      conta sobre `shader-cache/*.spv`. GLSL com `spirv-cross --vulkan-semantics`.
-   - **Perda de dispositivo residual:** só apareceu em corridas com dump ou com o slot 16 zerado (nenhuma em mais de
-     dez corridas normais); com `AOC_VK_RECORDER=0` não apareceu. Fica para depois.
+   - **Perda de dispositivo residual:** aparece com o gravador (`vk_rec.c`, padrão na NVIDIA) **e** cópias de imagem
+     para leitura (dumps, `AOC_SHOTS` a cada 1 s); nenhuma em mais de dez corridas normais e nenhuma com
+     `AOC_VK_RECORDER=0` (inclusive com captura a cada 1 s). Suspeita: corrida entre o gravador e as cópias de
+     leitura (as mesmas do print do menu e das miniaturas do flight recorder). No Deck (RADV) o gravador vem desligado.
+   - **Rastros:** na rota, as linhas longas no céu aparecem junto da fala "Fire the cannons" (frames ~4480–4540 numa
+     corrida com capturas) — podem ser os rastros das balas de canhão. O momento varia entre corridas; para pegar o
+     frame, disparar o dump pelo shader do efeito (ou `AOC_DUMP_LOG` numa janela) em vez do número do frame.
    - O cubo de origem do filtro é outra imagem (`0x1d5646600`, mips dos passes 141–146); o destino (`0x19e7ac800`)
      tem o nível 0 = captura nítida e 1–6 filtrados — sem leitura de si mesmo. Como, sem o cubo, as sombras ficam
      pretas e, com ele, quase tão claras quanto o sol, a aposta seguinte é o **peso** que a iluminação dá ao ambiente

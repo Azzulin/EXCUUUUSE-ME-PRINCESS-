@@ -331,6 +331,35 @@ static const VkFormat tex_format[40] = {
     VK_FORMAT_A2B10G10R10_UNORM_PACK32, VK_FORMAT_A2B10G10R10_UINT_PACK32, VK_FORMAT_B10G11R11_UFLOAT_PACK32};
 static struct { int used, di; VkFormat fmt; VkImage image; VmaAllocation alloc; VkImageView view, sview; } SD[48];
 
+// Bytes per texel of tex_format[code] (Ryujinx TextureFormat order), 0 for an unknown code.
+static int code_bytes(int code) {
+    return code <= 0 || code >= 40 ? 0 : code <= 4 ? 1 : code <= 9 ? 2 : code <= 12 ? 4 : code <= 16 ? 2 : code <= 21 ? 4
+         : code <= 24 ? 8 : code <= 28 ? 4 : code <= 33 ? 8 : code <= 36 ? 16 : 4;
+}
+
+// The format a storage view of img takes for a shader that declares format `code`: the declared one when it differs
+// from the image's but has the same texel size (one compatibility class; colour images are created MUTABLE_FORMAT,
+// vk_texture.c), else the image's. Vulkan leaves a storage read through a view of another format than the declared one
+// undefined: Age of Calamity's auto-exposure (1.3.0 compute a41ca747) reads last frame's exposure from its R32F 2x1
+// image as r32ui raw bits and writes it back as float; through the R32F view NVIDIA converted instead of
+// reinterpreting, the exposure never adapted and the frame washed out to white.
+static VkFormat storage_view_format(const VkTexImage *img, int code) {
+    VkFormat want = code > 0 && code < 40 ? tex_format[code] : VK_FORMAT_UNDEFINED;
+    if (!want || want == img->format || (img->aspect & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT)) ||
+        img->block_views)
+        return img->format;
+    static int8_t storable[40];   // the declared format can be a storage image here: 1 yes, -1 no, 0 not asked yet
+    if (!storable[code]) {
+        VkFormatProperties fp;
+        vkGetPhysicalDeviceFormatProperties(vk_ctx()->phys, want, &fp);
+        storable[code] = fp.optimalTilingFeatures & VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT ? 1 : -1;
+    }
+    if (storable[code] < 0) return img->format;
+    for (int i = 1; i < 40; i++)
+        if (tex_format[i] == img->format) return code_bytes(i) == code_bytes(code) ? want : img->format;
+    return img->format;
+}
+
 static VkImageView storage_dummy(int di, int code) {
     VkFormat fmt = code > 0 && code < 40 ? tex_format[code] : VK_FORMAT_R8G8B8A8_UNORM;
     if (fmt == VK_FORMAT_R8G8B8A8_UNORM || dinfo[di].s != VK_SAMPLE_COUNT_1_BIT) return Z.img[di].sview;
@@ -472,7 +501,8 @@ static nvn_hmap views_by_image;          // VkImage -> its first ViewNode
 
 // An image view of a registered texture for a shader resource of type `rtype` (GfxShaderRes.type); VK_NULL_HANDLE when
 // the image cannot serve it (the caller binds a stand-in). Texture lock held.
-static VkImageView get_view(VkExec *ex, const VkTexImage *img, const view_t *v, int hv, uint16_t rtype, int storage) {
+static VkImageView get_view(VkExec *ex, const VkTexImage *img, const view_t *v, int hv, uint16_t rtype, int storage,
+                            int fmt_code) {
     VkImageViewType vt = res_view_type(rtype);
     int ms = (rtype & 0x200) != 0;
     if ((img->samples > 1) != ms || (storage && ms)) return VK_NULL_HANDLE;
@@ -520,12 +550,13 @@ static VkImageView get_view(VkExec *ex, const VkTexImage *img, const view_t *v, 
             }
     }
     uint32_t swz = (uint32_t)sw[0] | (uint32_t)sw[1] << 8 | (uint32_t)sw[2] << 16 | (uint32_t)sw[3] << 24;
-    ViewKey k = {img->image, img->format, vt, aspect, l0, nl, y0, ny, swz};
+    VkFormat vf = storage ? storage_view_format(img, fmt_code) : img->format;
+    ViewKey k = {img->image, vf, vt, aspect, l0, nl, y0, ny, swz};
     if (!view_of.klen) nvn_hm_init(&view_of, sizeof(ViewKey)), nvn_hm_init(&views_by_image, sizeof(VkImage));
     VkImageView found = (VkImageView)nvn_hm_get(&view_of, &k);
     if (found) return found;
     VkImageViewCreateInfo ci = {.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO, .image = img->image, .viewType = vt,
-                                .format = img->format,
+                                .format = vf,
                                 .components = {swz_of(sw[0]), swz_of(sw[1]), swz_of(sw[2]), swz_of(sw[3])},
                                 .subresourceRange = {aspect, l0, nl, y0, ny}};
     VkImageViewUsageCreateInfo use = {.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_USAGE_CREATE_INFO,
@@ -1219,7 +1250,7 @@ static void tex_info_full(VkExec *ex, const GfxShaderRes *r, uint64_t h, int sto
         view_t v;
         int hv;
         const VkTexImage *img = vk_texture_by_id_locked((int)(h & 0xfffff), &v, &hv);
-        if (img) view = get_view(ex, img, &v, hv, r->type, storage), *image = img->image;
+        if (img) view = get_view(ex, img, &v, hv, r->type, storage, r->format), *image = img->image;
         if (img && storage) vk_texture_storage_bound_locked(img);
         if (img && !storage && ex->nfbl && in_fbl(ex, img->image)) layout = VK_IMAGE_LAYOUT_ATTACHMENT_FEEDBACK_LOOP_OPTIMAL_EXT;
         if (!storage && !separate) {
@@ -1408,6 +1439,24 @@ static Twin *twin_update(VkExec *ex, const VkTexImage *img) {
 typedef struct { VkBuffer buf; VkDeviceSize off, range; VkFormat fmt; VkBufferView view; } TexelView;
 static TexelView tviews[TVIEWS];
 static int tview_warned;
+
+// AOC_TEXEL_ZERO=<slot>[,<slot>...] (diagnosis): those sampled buffer-texture slots of draws read the zero view, to
+// tell which of a shader's lists changes the image.
+static int texel_zero_slot(int slot, int storage) {
+    static uint64_t mask[2];
+    static int init;
+    if (!init) {
+        init = 1;
+        const char *e = cfg_get("AOC_TEXEL_ZERO");
+        for (const char *p = e; p && *p;) {
+            int k = atoi(p);
+            if (k >= 0 && k < 128) mask[k >> 6] |= 1ull << (k & 63);
+            p = strchr(p, ',');
+            if (p) p++;
+        }
+    }
+    return !storage && !twin_dispatch && slot >= 0 && slot < 128 && (mask[slot >> 6] >> (slot & 63) & 1);
+}
 
 static VkBufferView texel_view(uint64_t h, int storage) {
     uint64_t addr, n;
@@ -1957,7 +2006,7 @@ static void bind_resources(VkExec *ex, const VkPipeInfo *info) {
                     int slot = r->slot + (int)k;
                     uint64_t h = img ? (slot >= 0 && slot < 32 ? ex->img[st][slot] : 0)
                                      : (slot >= 0 && slot < 128 ? ex->tex[st][slot] : 0);
-                    VkBufferView v = texel_view(h, img);
+                    VkBufferView v = texel_zero_slot(slot, img) ? Z.zview : texel_view(h, img);
                     o[k].w[0] = 0, o[k].w[1] = 0, o[k].w[2] = 0;
                     o[k].view = v;
                     if (need_w) bv[nd + k] = v;

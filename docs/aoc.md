@@ -238,3 +238,21 @@ Pontos que o boot do AoC expôs no runtime herdado (corrigidos):
 | Áudio | `Audio Coprocessor Speaker`, 48 kHz estéreo float |
 | Imagem | **tela preta**: nenhum tradutor de shaders (`translator not found`, 19 626 vezes; 9 804 traduções falhadas) — Fase 3 |
 | Steam | o atalho "não Steam" nunca foi criado (`shortcuts.vdf` sem entrada); resolvido com `instalar-atalho.sh` (entrada `.desktop`, que a janela do Steam lista) |
+
+## Primeira batalha na RTX 3050 (2026-11-05, build nativo do Windows)
+
+- **Seção de controle NVN de compute**: +0x748 = tamanho do grupo (3 × u32), **+0x754 = memória compartilhada em
+  bytes** (0x130 a 0x1230 nos compute do AoC; o `fbb562b2` de colisão usa 0x1230 = 4 656), +0x758 parece ser memória
+  local por thread (0x10, 0xd0), +0x760 = 0x600 em todos.
+- **Spinlock com yield** em `main+0x157ab64`: `while (*lock) nn::os::YieldThread()` (PLT `main+0x1b51c00`;
+  `YieldThread` = `sdk+0xd4b20`, `svcSleepThread(-1)`). Três workers de prioridade 44 o rodam ao mesmo tempo.
+- **Batalha (frame 4400, resolução interna 1440×810 com resolução dinâmica)**: 96 passes; G-buffer no pass 9 (945
+  draws), grade de froxels/luzes no pass 39 (dispatch 23×13×16, blocos de 64 px × 16 fatias), sol no pass 40, luzes
+  locais no pass 53, bloom 73–86, histograma de luminância 87–89 (64 bins R32UI lidos como buffer texture), tonemap
+  90, HUD 94–95. Exposição em 2×1 R32F: 0,0103 e 97,0 (o inverso).
+- **Buffer textures da iluminação** (fs): slot 16 R32UI 1 009 568 elementos (cabeçalhos + índices por célula: contagem
+  de pontuais em `>>16`, de spots em `&0xffff`), 17 RGBA32F 256 (posição + raio), 18 RGBA32F 768 (3 por luz: cor…),
+  19 R32UI 768 (3 por luz: tipo 2, máscara 0xff, 0), 20 RGBA32F 160 (5 por spot), 21 R32UI 96, 25 R32UI 12 (tabela
+  de materiais; bits 16–23 escolhem a linha da rampa 256×8).
+- **Custo na batalha** (i5-11400H + RTX 3050): 30 fps estáveis; GPU 6,7 ms, replay 7,8 ms, thread do jogo ocupando os
+  33 ms (`bound: cpu`). Entrada da batalha com cache frio: frame de 20,6 s (pipelines 13,6 s, tradução 4 s).

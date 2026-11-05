@@ -1,7 +1,8 @@
 # Handover — estado do projeto para o próximo agente
 
-Leia isto primeiro, depois `AGENTS.md` (regras) e `docs/plano.md` (fases). Atualizado em 2026-11-04 (sessão 2, no
-notebook). Tudo aqui foi medido no dump do próprio dono do projeto; nada é estimativa salvo onde está dito.
+Leia isto primeiro, depois `AGENTS.md` (regras) e `docs/plano.md` (fases). Atualizado em 2026-11-05 (sessão 3, no
+notebook, build nativo do Windows na RTX 3050). Tudo aqui foi medido no dump do próprio dono do projeto; nada é
+estimativa salvo onde está dito.
 
 ## 0. Em uma frase
 
@@ -17,7 +18,7 @@ por isso não serve direto para x86).
 | 0 — inventário | **Quase fechada.** Falta: teste de tradução dos shaders (Ryujinx + `spirv-val`, precisa .NET 10). |
 | 1 — lifter | **Fechada na prática.** Build completo rodou (~48 min no notebook, 0 falhas), `aoc --selftest` passa, tabela de 1 112 spin waits (`recomp/patches-v130.txt`). Pendentes menores: 1 jump table superconjunto no `subsdk0`, funções gigantes no gerador. |
 | 2 — host/boot | **Portão B2 cumprido.** Runtime do Astral Chain + porta Linux do TotK em `runtime/`. Com `AOC_GPU=null`: laço principal a 30 fps (relógio 1×), 8 756 programas NVN, RomFS e save, **som não-silencioso** depois das telas do primeiro boot (A por `AOC_INPUT_SCRIPT`) e **vídeo de abertura decodificado** (VP9, ~1,3 ms/frame). |
-| 3 — gráficos | **Em andamento, testado no próprio Deck por SSH.** Tradutor `aoc_xlate` (Ryujinx 1.3.2 + 12 patches) na pasta do Deck. Funcionam: telas do primeiro boot, vídeo de abertura, cenas com legenda, castelo, **primeira batalha com HUD** (~16–21 fps). Problema aberto: na batalha o chão e os soldados saem **estourados em branco** (iluminação diferida lê as listas de luz/decal das buffer textures). |
+| 3 — gráficos | **Em andamento.** Deck (SSH) e, desde a sessão 3, **build nativo do Windows** (RTX 3050). A primeira batalha roda **175 s inteiros a 30 fps sem travar** no notebook (antes: travada de CPU ~frame 570 e perda do dispositivo na entrada da batalha; as duas corrigidas, seção 6). Problema aberto: a imagem da batalha sai **lavada** (véu claro somado pelo passe de luzes locais, pass 53 do dump). |
 | 5 — Deck | `tools/build.py dist --with-romfs` monta a pasta única `dist/aoc-deck/` (sysroot sniper, GLIBC_2.29, romfs por hardlink, LEIA-ME, `aoc.ini`, saves em `profile/` ao lado do executável), testada de ponta a ponta no WSL. **Menu rápido** (L3+R3 segurado): 30 fps, resolução interna portátil/TV ao vivo, overlay. Falta rodar no Deck. |
 
 Números-chave (detalhes em `docs/aoc.md`):
@@ -73,6 +74,7 @@ Comum às duas:
 | RomFS mesclado e ExeFS extraído | `<repo>\build\v130\` (`romfs.bin` + `romfs.bin.sha256`, `exefs\`, relatórios dos censos) |
 | hactool | `<repo>\toolchain\hactool-1.4.0-win\hactool.exe` |
 | Trabalho do build (no WSL) | `~/aoc-build/`: `generated/`, `obj/`, `lib/libaoc_guest.a`, `host/aoc` (dev), `dist/aoc` (Deck), `toolchain/sniper`, `deps/`, `dl/` |
+| Build nativo do Windows (notebook) | `C:\aoc-win\`: `generated/` (cópia do WSL), `lib/`, `host/aoc.exe` + `aoc_xlate.exe` + `SDL3.dll` + `libopus-0.dll`; scripts `build.sh`, `host.sh`, `battle.sh`, `hang.sh`. MSYS2 em `C:\msys64` (UCRT64: clang, lld, ninja, sdl3, opus, libvpx, zstd, vulkan, VMA, python + cryptography/lz4, gdb, spirv-tools, spirv-cross) |
 | Pasta do Deck | `<repo>\dist\aoc-deck\` (ignorada pelo git) |
 | Alvo | Steam Deck, SteamOS 3.8 (kernel 6.16), cartão SD de 1 TB |
 
@@ -92,6 +94,14 @@ python3 tools/build.py --work ~/aoc-build dist                       # dist/aoc-
 
 Detalhes em `docs/building.md`, incluindo os testes do lifter.
 
+Windows nativo (para testar numa GPU de PC; o Deck continua usando o `dist` do WSL): copiar `~/aoc-build/generated`
+para `C:\aoc-win\generated` e, no shell UCRT64 do MSYS2,
+`python3 tools/build.py --work /c/aoc-win --big-jobs 2 guest host` (~30 min do zero com 12 threads; o host sozinho
+leva segundos). O tradutor sai do WSL: `dotnet publish ... -r win-x64 --self-contained -p:PublishAot=false
+-p:PublishSingleFile=true` sobre `~/aoc-build/xlate` (script `C:\aoc-win\xlate_win.sh`), mais o `aoc_xlate.id`.
+Rota até a batalha: `bash /c/aoc-win/battle.sh [VAR=valor ...]` (175 s, `tools/deck/input-route1.txt`, capturas a
+partir de 100 s, `AOC_TRACE=perf`, vigia de travada).
+
 ## 5. Mapa do repositório
 
 | Pasta | Conteúdo |
@@ -104,22 +114,38 @@ Detalhes em `docs/building.md`, incluindo os testes do lifter.
 
 ## 6. Próximos passos (em ordem)
 
-1. **Branco estourado na batalha** (o bloqueio atual da imagem). Achado: as listas de luz e decal do KTGL são
-   buffer textures (`tgt=10`, 1 035 delas) lidas com `TLD.LL`; elas viravam imagem 2D de zeros. Feito nesta sessão:
-   `vk_texture_buffer_by_id_locked` + `texel_view` (views sobre o pool), resposta `GFX_TEX_BUFFER` em
-   `type_of_handle`, patch 0012 do tradutor (TLD.LL em buffer) e `TexSlot` do `Program.cs` com as três tabelas c2
-   (o AoC usa texturas combinadas em `0x20 + 8r`; o tradutor só conhecia as separadas em `0x168`). Com isso as views
-   passaram a existir, mas a GPU **travou** (ring gfx timeout aos ~48 s). Hipótese testada e **descartada**: views
-   inteiras de 32 bits como floats de mesma largura (`texel_view`, mantido por ser o certo para um sampler FP32) — a
-   GPU travou igual (`device lost`, 1 ring timeout). O Deck não travou junto (uptime intacto; só a rede caiu ao
-   dormir). Próximo passo: **bisseção** com chaves temporárias — (a) só as texel views (zero view de volta), (b) só
-   o `TexSlot` de imagens do `Program.cs` (formatos de imagem agora chegam ao tradutor e mudam shaders de compute),
-   (c) só o patch 0012 — e `AOC_DUMP_LOG` para achar o pass que trava. Antes de qualquer teste: confirmar com o dono
-   que o Deck está livre, acordado e na tomada.
-   Ferramentas: `tools/deck/` (deploy, execução remota com captura, folha de contato), `AOC_DUMP=<frame>`,
-   `AOC_SKIP_LOG=<n>`, `journalctl -k` no Deck para timeouts do amdgpu.
-2. **Desempenho na batalha** (16–21 fps; replay de CPU 15–20 ms por frame) e **shaders antecipados** (13,5 s
-   de travada na entrada da batalha). O repositório do dono `Deck Zelda/totk-recomp-main` (TotK no Deck) resolve
+0. **Levar as correções da sessão 3 ao Deck** (offline desde a tarde de 2026-11-05; o dono acha que travou numa
+   corrida longa). Ao voltar: `journalctl -k -b -1` (o que aconteceu), `tools/build.py dist` no WSL (o guest não
+   mudou; só o runtime) e `tools/deck/deploy.sh`. Esperado: sem a travada ~frame 570 e sem o "ring gfx timeout".
+1. **Imagem lavada na batalha** (o bloqueio atual da imagem). Já resolvido na sessão 3: a perda do dispositivo era o
+   tamanho da memória compartilhada dos compute shaders (`gfx_shader.c`, controle +0x754, `KEY_VERSION` 5). O que
+   sobra, medido no dump do frame 4400 (`AOC_DUMP=4400`, pasta `C:\aoc-win\dump*`):
+   - G-buffer certo (pass 9); iluminação do sol (pass 40) idêntica com e sem luzes locais; exposição fixa em 0,0103
+     (pass 89, 2×1 R32F, a outra célula é 1/0,0103) — não é a exposição.
+   - O véu nasce no **pass 53** (fs `719f2567…`, passe de luzes locais em tela cheia, mesmo VS do pass 40): mínimo azul
+     2,75 em vez de 0; no pass 86 o mínimo da imagem inteira vai a 13 (contra 0,6 sem luzes).
+   - `AOC_TEXEL_ZERO=17,18,20` (posições/raios, cores e spots das luzes viram zero só nos draws) ou
+     `AOC_TEXEL_VIEWS=cs` dão imagem com contraste e sombras; `AOC_TEXEL_ZERO=25` (tabela de materiais) não muda;
+     `AOC_UBO_SNAPSHOT=0` não muda.
+   - Os dados lidos de verdade (snapshot `AOC_DUMP_BUF=0x1902ad040:0x6180`, endereço muda entre execuções — conferir
+     em `passes.txt`): 7 luzes, duas a 30–50 km com raio 200, cinco desligadas na origem com raio −1; nenhum spot;
+     slot 19 = `(2, 0xff, 0)` por luz (tipo e máscara, dentro do teste de distância). A matriz de P do pass 53 (c3
+     linhas 27–30) está certa (`[29].xyz/[29].w` = câmera). Com esses dados nenhuma luz deveria passar no teste
+     `|L−P|² < r²` — ainda não explicado. Próximas apostas: (a) o que o pass 53 lê do `tcb_28` (cabeçalho/índices)
+     com o `AOC_DUMP_BUF` no endereço do slot 16; (b) inteiros pequenos (2, 0xff, índices) lidos por view R32_SFLOAT
+     (são denormais — se o hardware zerar denormais o resultado muda); um teste é declarar `usamplerBuffer` no
+     tradutor para buffer textures de formato inteiro; (c) shader `light53` decompilado em `C:\aoc-win\glsl`.
+   Ferramentas novas: `AOC_CRUMB_DRAWS=1` + `AOC_VK_RECORDER=0` (breadcrumb por draw/dispatch; na perda do dispositivo
+   o log diz o shader), `AOC_TEXEL_ZERO=<slots>`, `vk_dump` mostra o buffer texture real de cada slot,
+   `spirv-cross --vulkan-semantics` nos `sh_*.spv` do dump.
+   **Atenção:** depois da mudança de formato das views de storage (`storage_view_format`), 2 de 8 corridas perderam o
+   dispositivo (antes 0 de 4) — as duas com o gravador (`vk_rec.c`, ligado por padrão na NVIDIA) ativo; 3 de 3 com
+   `AOC_VK_RECORDER=0` passaram (`C:\aoc-win\lost_loop.sh`). Se voltar a cair, rodar com crumbs para ver o shader;
+   suspeitos: o gravador, ou a mudança de formato.
+2. **Desempenho na batalha.** No notebook (i5-11400H) a batalha fica em 30 fps, mas sem folga: GPU 6,7 ms, replay
+   7,8 ms, e a thread do jogo ocupa os 33 ms (`bound: cpu`). No Deck eram 16–21 fps. Medir onde a CPU do guest gasta
+   (`AOC_PROFILE` no Windows, `prof_win.c`) antes de mexer. E **shaders antecipados**: a entrada da batalha ainda
+   trava 20 s com o cache frio (pipeline 13,6 s, tradução 4 s; 13,5 s no Deck). O repositório do dono `Deck Zelda/totk-recomp-main` (TotK no Deck) resolve
    isso com um pacote de todos os programas VS+FS dos arquivos do jogo (`tools/shader_pack.py`) e um warm-up uma vez
    (`tools/linux/warmup.sh`, todos os núcleos menos um, retomável) — fazer o equivalente com o `census_shaders.py` e
    o `shader_pairs.tsv` do nxnative, no formato de semente do runtime (`--prepare-shaders`). Lá também: memory guard
@@ -174,3 +200,14 @@ Detalhes em `docs/building.md`, incluindo os testes do lifter.
   `tools/build.py` (`BIG_EXTRA`) cortam ~40 % do tempo a -O1. O ninja limita quantas rodam juntas pela RAM.
 - **Endereços do nxnative** só valem para estes build IDs; o nxnative é ARM64 nativo, então os patches dele
   (`patches.py`) precisam virar patches do lifter (`recomp/patches.py`), não cópia.
+- **Uma instância só**: um `aoc.exe` esquecido faz o próximo sair com código 1 logo depois de carregar os shaders.
+  `TaskStop` de um comando em segundo plano mata o shell pai, mas um `bash script.sh` filho continua relançando o
+  jogo — procurar com `ps -ef | grep <script>` e matar.
+- **MSYS2 pelo PowerShell**: `$env:MSYSTEM="UCRT64"; $env:CHERE_INVOKING="1"; & C:\msys64\usr\bin\bash.exe -lc "..."`.
+  O `ninja` do Windows não usa shell: `tools/build.py` escreve aspas duplas e não usa `rm` quando `os.name == "nt"`.
+- **RAM no notebook**: o WSL segura memória; `wsl --shutdown` antes do build do guest no Windows.
+- **Travada intermitente**: o vigia (`AOC_HANG_SECS`, padrão 10 s) registra o estado de cada thread; a entrada da
+  batalha com cache frio passa de 6 s sem present e aparece no log sem ser travada (só tradução/pipelines).
+- **Endereços de pool mudam entre execuções** (às vezes): conferir em `passes.txt` antes de usar `AOC_DUMP_BUF`.
+- **Símbolos do SDK**: `sdk+0x...` vira nome pela tabela de exports do NSO (`recomp/nso.py`), e uma chamada de PLT do
+  `main` (adrp/ldr x16/x17) pelo `JUMP_SLOT` do GOT — script de uma página, ver o histórico da sessão 3.

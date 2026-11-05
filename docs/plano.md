@@ -74,6 +74,10 @@ os primeiros shaders/programas NVN.
 - [ ] Extração KTGL (G2S, `_DOK`, GLSLC do `main`) + tradução AOT de todos os shaders + `spirv-val`.
 - [ ] Vídeos VP9 (intro, cutscenes pré-renderizadas): decodificação ✔ (`ov_movie.c`, ~1,3 ms/frame); falta imagem (Vulkan) e o **som dos vídeos** (silêncio durante o vídeo de abertura).
 - [ ] Pipelines: lista de chaves gravada em jogo, pré-montagem com graphics pipeline library.
+- [x] Memória compartilhada dos compute shaders com o tamanho do NVN (controle +0x754): sem isso a primeira batalha
+      perdia o dispositivo (sessão 3).
+- [x] Build nativo do Windows para testar em GPU de PC (`tools/build.py` no MSYS2 UCRT64).
+- [ ] Imagem da batalha lavada: véu do passe de luzes locais (pass 53) — em investigação (`handover.md` §6).
 
 **Portão C:** vídeo de abertura, título e menus corretos; **primeira batalha (Hyrule Field) com soldados, skinning,
 luzes, decals e efeitos** — comparada com captura de referência do Switch/emulador; zero falhas de shader não

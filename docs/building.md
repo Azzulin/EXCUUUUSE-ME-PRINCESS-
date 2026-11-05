@@ -94,3 +94,19 @@ python3 tests/jumptables_check.py --modules main,subsdk0,sdk
 python3 tests/diff/simd.py && python3 tests/diff/atomic.py     # não usam arquivos do jogo
 python3 tests/spin_waits_test.py && python3 tests/test_tools.py
 ```
+
+## Windows nativo (testes numa GPU de PC)
+
+O Deck usa sempre o `dist` do WSL. Para depurar gráficos numa GPU de PC, o mesmo `tools/build.py` compila no Windows
+com o MSYS2 (UCRT64):
+
+```sh
+pacman -S mingw-w64-ucrt-x86_64-{clang,lld,llvm,ninja,sdl3,opus,libvpx,zstd,vulkan-headers,vulkan-loader,vulkan-memory-allocator,python,python-cryptography,python-lz4}
+# o C gerado vem do WSL (\wsl.localhost\archlinux\root\aoc-build\generated -> C:\aoc-win\generated)
+python3 tools/build.py --work /c/aoc-win --big-jobs 2 guest host   # aoc.exe em C:\aoc-win\host
+```
+
+Ao lado do `aoc.exe`: `SDL3.dll`, `libopus-0.dll` (de `C:\msys64\ucrt64\bin`), `aoc_xlate.exe` e `aoc_xlate.id`. O
+tradutor sai do WSL com `dotnet publish <csproj> -c Release -r win-x64 --self-contained -p:PublishAot=false
+-p:PublishSingleFile=true -p:InvariantGlobalization=true -p:RyuSrc=<árvore com os patches>` (NativeAOT só compila
+para o sistema em que roda; o modo `--serve` mantém o processo vivo, então o JIT não pesa).

@@ -141,3 +141,27 @@ disco D e sem as referências locais.
   patch 0012 do tradutor, slots c2 combinados no `Program.cs`); as views passaram a existir e a GPU travou (ring
   timeout). Hipótese do tipo FP32 × R32_UINT corrigida, sem teste: o Deck deixou de responder.
 - O dono deixou `Deck Zelda/` (o TotK no Deck deles) como referência para shaders antecipados e estabilidade.
+
+### Windows nativo na RTX 3050 (mesmo dia, tarde; commit 63121e8)
+
+O Deck saiu da rede numa corrida longa; o dono pediu para seguir testando no notebook.
+
+- `tools/build.py` passou a compilar também no Windows (MSYS2 UCRT64 + clang): aspas duplas no ninja, sem `rm`, os
+  arquivos `*_win`/`win32.c` do runtime, bibliotecas do build do Astral Chain. Guest em ~30 min (12 threads, WSL
+  desligado para liberar RAM); tradutor `aoc_xlate.exe` publicado do WSL sem NativeAOT (`--serve` persiste, o JIT
+  não pesa). `aoc.exe --selftest` passa.
+- **Travada de CPU ~frame 570** reproduzida no Windows (intermitente). Vigia novo (`AOC_HANG_SECS`) mostrou três
+  threads de prioridade 44 segurando os três núcleos virtuais num spinlock do jogo (`main+0x157ab64`, laço
+  `while (*lock) nn::os::YieldThread()`), com o dono do lock (prioridade 49/50) sem núcleo. O yield só entregava o
+  núcleo a quem tivesse prioridade igual ou melhor. Agora uma sequência de yields é tratada como espera ativa e,
+  passados 50 µs, entrega o núcleo a qualquer thread esperando (`kernel.c`, como `rt_spin_gate`).
+- **Perda do dispositivo na entrada da batalha** (deterministica na RTX 3050, provavelmente o "ring gfx timeout" do
+  Deck). `AOC_CRUMB_DRAWS` (breadcrumb por draw) apontou o compute `fbb562b2` (colisão/pano). Ele usa 68 bytes de
+  memória compartilhada por invocação a partir do byte 304 (4 656 bytes para 64), mas o tradutor declarava o padrão
+  de 4 096: os limites de laço lidos depois do fim do array eram lixo. O tamanho real está na seção de controle do
+  NVN (+0x754, ao lado do tamanho do grupo em +0x748); `gfx_shader.c` passa a mandá-lo (`KEY_VERSION` 5). Batalha
+  completa (175 s) a 30 fps sem travar.
+- Imagem da batalha ainda lavada: dumps do frame 4400 isolaram o véu no passe de luzes locais (pass 53); detalhes e
+  apostas em `handover.md` §6. Testes feitos: tabela de materiais, snapshot de uniformes e exposição descartados.
+- Mudança experimental: views de storage no formato que o shader declara (`storage_view_format`, R32F lido como
+  r32ui pela auto-exposição). Não mudou a imagem; depois dela 2 de 8 corridas perderam o dispositivo — em medição.

@@ -1413,6 +1413,14 @@ static VkBufferView texel_view(uint64_t h, int storage) {
     uint64_t addr, n;
     int format;
     static int probes;   // AOC_TRACE=gfx: the first bindings, for diagnosing a list that stays zero
+    // AOC_TEXEL_VIEWS (diagnosis): 0 every texel buffer reads the zero view; gfx only draws get real views; cs only
+    // dispatches do; unset or 1 both.
+    static int views_on = -1;   // bit 0 draws, bit 1 dispatches
+    if (views_on < 0) {
+        const char *e = cfg_get("AOC_TEXEL_VIEWS");
+        views_on = !e ? 3 : !strcmp(e, "0") ? 0 : !strcmp(e, "gfx") ? 1 : !strcmp(e, "cs") ? 2 : 3;
+    }
+    if (!(views_on & (twin_dispatch ? 2 : 1))) return Z.zview;
     if (!h || !vk_texture_buffer_by_id_locked((int)(h & 0xfffff), &addr, &format, &n)) {
         if ((rt_trace & RT_TRACE_GFX) && probes < 24) {
             probes++;
@@ -1489,6 +1497,69 @@ static VkBufferView texel_view(uint64_t h, int storage) {
     }
     if (!tview_warned++) rt_log("vk: more than %d texel buffer views: zero view", TVIEWS);
     return Z.zview;
+}
+
+// ---- AOC_CRUMB_DRAWS=1 (diagnosis; with AOC_VK_RECORDER=0, as the crumb goes straight into ex->cb): a GPU breadcrumb
+// before every draw and dispatch, and a ring of the shaders each used (cache key prefixes, as the shader-cache file
+// names), so a lost device names the draw the GPU was in (vk_crumbs.c vk_crumbs_report).
+#define CRUMB_RING 16384
+typedef struct { uint32_t seq; char what[60]; } CrumbRec;
+static CrumbRec crumb_ring[CRUMB_RING];
+static uint32_t crumb_seq;
+static int crumb_on = -1;
+
+static void key8(const GfxShader *s, char *o) {
+    const uint8_t *k = s ? gfx_shader_key(s) : NULL;
+    if (k) snprintf(o, 9, "%02x%02x%02x%02x", k[0], k[1], k[2], k[3]);
+    else snprintf(o, 9, "-");
+}
+
+static void crumb_mark(VkExec *ex, const GfxShader *a, const GfxShader *b) {
+    if (crumb_on < 0) {
+        const char *e = cfg_get("AOC_CRUMB_DRAWS");
+        crumb_on = e && *e && strcmp(e, "0");
+        if (crumb_on) rt_log("vk: a GPU breadcrumb before every draw and dispatch (AOC_CRUMB_DRAWS)");
+    }
+    if (!crumb_on) return;
+    uint32_t n = ++crumb_seq & 0x0fffffff;
+    CrumbRec *r = &crumb_ring[n % CRUMB_RING];
+    char ka[9], kb[9];
+    key8(a, ka);
+    key8(b, kb);
+    r->seq = n;
+    if (b) snprintf(r->what, sizeof r->what, "draw vs %s fs %s", ka, kb);
+    else snprintf(r->what, sizeof r->what, "dispatch cs %s", ka);
+    vk_crumb(ex->cb, VK_CRUMB_DRAW, n);
+}
+
+void vk_exec_crumb_name(uint32_t n, char *o, size_t size) {
+    const CrumbRec *r = &crumb_ring[n % CRUMB_RING];
+    if (r->seq == n) snprintf(o, size, "%s", r->what);
+    else snprintf(o, size, "draw %u not in the ring", n);
+}
+
+// vk_memory.c destroy_rec, once the GPU is done with a pool's buffer (or its mirror): the views over it go too. The
+// cache is keyed by the VkBuffer handle, and a buffer made later may get the same handle (NVIDIA's are driver
+// pointers): the cache then handed out a view over the freed buffer, and the first battle of Age of Calamity lost the
+// device with a fault inside a shader (RTX 3050, VK_EXT_device_fault). The emptied slot is reused by a later miss; a
+// view further along its probe chain stays valid and is at most made twice.
+void vk_texel_views_forget(VkBuffer b) {
+    if (!b) return;
+    VkCtx *c = vk_ctx();
+    int n = 0;
+    vk_texture_lock();
+    for (int i = 0; i < TVIEWS; i++)
+        if (tviews[i].view && tviews[i].buf == b) {
+            vkDestroyBufferView(c->device, tviews[i].view, NULL);
+            tviews[i] = (TexelView){0};
+            n++;
+        }
+    vk_texture_unlock();
+    static int logged;
+    if (n && logged < 16) {
+        logged++;
+        rt_log("vk: %d texel buffer view(s) dropped with their pool buffer", n);
+    }
 }
 
 static void tex_info(VkExec *ex, const GfxShaderRes *r, uint64_t h, int storage, int separate, VkDescriptorImageInfo *out) {
@@ -2320,6 +2391,7 @@ static int prepare_draw(VkExec *ex, int prim, int32_t count, int restart) {
     feedback_written(ex, &s);
     bind_vertex_buffers(ex);
     if (vk_dump_armed) vk_dump_draw(ex, &s, p, info);
+    crumb_mark(ex, s.vs, s.fs ? s.fs : s.vs);
     if (vk_hdr_track) vk_hdr_draw(ex, info);
     vk_exec_oq_draw(ex);
     return 1;
@@ -2501,6 +2573,7 @@ static void op_dispatch(VkExec *ex, const p_dispatch *d) {
     twin_dispatch = 1;
     bind_resources(ex, info);
     twin_dispatch = 0;
+    crumb_mark(ex, cs, NULL);
     vkCmdDispatch(ex->cb, (uint32_t)d->x, (uint32_t)d->y, (uint32_t)d->z);
     ex->recorded++;
     if (vk_dump_armed) vk_dump_dispatch(ex, cs, p, info, d);
@@ -2536,6 +2609,7 @@ static void op_dispatch_ind(VkExec *ex, const p_dispatch_ind *d) {
         vk_exec_barrier(ex);
         B.c0_valid[2] = 0;   // the range no longer holds B.c0[2]
     }
+    crumb_mark(ex, cs, NULL);
     vkCmdDispatchIndirect(ex->cb, ip.buffer, ip.offset);
     ex->recorded++;
     vk_mem_count(ip.cls, VK_MUSE_IND, sizeof(VkDispatchIndirectCommand));

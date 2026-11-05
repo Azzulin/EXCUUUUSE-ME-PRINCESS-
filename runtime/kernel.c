@@ -13,6 +13,7 @@
 #include <string.h>
 
 #include "cfg.h"
+#include "dispatch.h"
 #include "host.h"
 #include "kernel.h"
 #include "platform/platform.h"
@@ -88,6 +89,7 @@ struct RtThread {
     uint64_t wake_at, grant_at;   // when a wait was signalled and a core granted, until the thread runs again
     uint64_t lw_ns, lw_n, lw_max, lg_ns, lg_n, lg_max, sl_n, sl_req, sl_act;   // those latencies; SleepThread asked/took
     uint64_t sp_n, sp_ho, sp_site;   // spin wait passes and core handoffs, the last loop head (the thread writes them)
+    uint64_t y_t0, y_last, y_ho;     // yield runs (SleepThread 0/-1/-2): start, last yield, handoffs to worse waiters
     RtThread *target;          // as a core waiter: the owner core_kick asked to give its core up for it (holding G)
     // AOC_ASYNC_PREEMPT (holding G)
     PlatIntr *hthr;            // the host thread, for plat_intr_stop / resume; open while it may own a core
@@ -1052,17 +1054,21 @@ void kern_core_back(int *away) {
 static int g_spin_on = -1;
 static uint64_t g_spin_handoff_ns;
 static _Thread_local uint64_t sw_head, sw_t0, sw_last;
+#define YIELD_GAP_NS 1000000ull   // yields further apart than this start a new run (SleepThread)
+
+static void spin_cfg(void) {
+    if (g_spin_on >= 0) return;
+    const char *e = cfg_get("AOC_SPIN_HANDOFF_US");
+    g_spin_handoff_ns = (uint64_t)(e && *e ? atoll(e) : 50) * 1000;
+    g_spin_on = !(cfg_get("AOC_SPIN") && !cfg_bool("AOC_SPIN"));
+}
 
 void rt_spin_gate(Cpu *c, uint64_t head) {
     (void)c;
     plat_pause();
     RtThread *t = tcur;
     if (!t) return;
-    if (g_spin_on < 0) {
-        const char *e = cfg_get("AOC_SPIN_HANDOFF_US");
-        g_spin_handoff_ns = (uint64_t)(e && *e ? atoll(e) : 50) * 1000;
-        g_spin_on = !(cfg_get("AOC_SPIN") && !cfg_bool("AOC_SPIN"));
-    }
+    spin_cfg();
     t->sp_n++;
     t->sp_site = head;
     uint64_t now = kern_now_ns();
@@ -1694,14 +1700,30 @@ int kern_svc(Cpu *c, uint32_t imm) {
             unlock();
             return 1;
         }
-        // Yield: hand the core to a waiting thread of equal or better priority.
+        // Yield: hand the core to a waiting thread of equal or better priority. A run of yields (each within
+        // YIELD_GAP_NS of the previous) is a spin wait through YieldThread, like the game's lock at main+0x157ab64
+        // (`while (*lock) nn::os::YieldThread();`): once it has lasted the spin handoff time, the core goes to any
+        // waiter, as rt_spin_gate does. Otherwise three such pollers at priority 44 held all three virtual cores while
+        // the lock's owner, at 49 or 50, waited for one forever (hang watchdog, 1.3.0 first battle route, Windows and
+        // Deck). On the Switch the owner keeps running on a core of its own; here the cores are shared.
+        uint64_t now = kern_now_ns();
+        if (now - t->y_last > YIELD_GAP_NS) t->y_t0 = now;
+        t->y_last = now;
+        spin_cfg();
+        int streak = g_spin_on && now - t->y_t0 >= g_spin_handoff_ns;
         lock();
         int give = 0;
         int tp = prio_of(t);
         for (RtThread *w = g_core_wait; w && !give; w = w->cnext)
-            give = t->cur_core >= 0 && core_allowed(w, t->cur_core) && prio_of(w) <= tp;
+            give = t->cur_core >= 0 && core_allowed(w, t->cur_core) && (streak || prio_of(w) <= tp);
         if (give) {
+            if (streak) t->y_ho++;
             core_put(t);
+            if (streak) {   // let the owner run before taking a core back (core_take kicks it again if worse)
+                unlock();
+                plat_yield();
+                lock();
+            }
             core_take(t);
         }
         unlock();
@@ -2257,3 +2279,66 @@ HOST_OVERRIDE(KERN_SYM_INITIALIZE_FIBER, kern_fiber_initialize);
 HOST_OVERRIDE(KERN_SYM_FINALIZE_FIBER, kern_fiber_finalize);
 HOST_OVERRIDE(KERN_SYM_SWITCH_TO_FIBER, kern_fiber_switch);
 HOST_OVERRIDE(KERN_SYM_GET_CURRENT_FIBER, kern_fiber_current);
+
+// ---- hang watchdog (AOC_HANG_SECS, default 10; 0 off). The present (nvn_api_obj.c nvnQueuePresentTexture) stamps the
+// time; a host thread started at the first present checks it once a second and, when no present came for that long,
+// logs every guest thread once per stall: wait kind and object (with the lock or arbiter word), the virtual core it
+// holds, host call depth, its last spin-wait site and the guest pc/lr/sp of its current context. The report reads the
+// thread list without G (a deadlock may hold it); threads are not freed while the game runs, so the walk is safe, but
+// fields may be mid-update.
+static volatile uint64_t g_present_ns;
+static int g_watch_started;
+
+static void hang_report(uint64_t stalled_ns) {
+    static const char *const kind[] = {"run", "lock", "condvar", "address", "sync"};
+    rt_log("hang: no present for %.1f s; guest threads (core: virtual core held, -1 none):",
+           (double)stalled_ns / 1e9);
+    char n1[96], n2[96], q[512] = "";
+    int ql = 0;
+    for (RtThread *w = g_core_wait; w && ql < (int)sizeof q - 24; w = w->cnext)
+        ql += snprintf(q + ql, sizeof q - ql, " %#x/%d", w->handle, w->prio);
+    rt_log("hang: core owners %#x %#x %#x; waiting for a core (handle/prio):%s",
+           g_core_owner[0] ? g_core_owner[0]->handle : 0, g_core_owner[1] ? g_core_owner[1]->handle : 0,
+           g_core_owner[2] ? g_core_owner[2]->handle : 0, ql ? q : " none");
+    for (RtThread *t = g_all; t; t = t->all) {
+        if (t->exited) continue;
+        const Cpu *c = t->cur ? t->cur : t->cpu;
+        int k = t->wkind >= 0 && t->wkind <= W_SYNC ? t->wkind : 0;
+        char word[32] = "";
+        if ((k == W_LOCK || k == W_ADDRESS) && t->waddr)
+            snprintf(word, sizeof word, " =%#x", __atomic_load_n((const uint32_t *)(uintptr_t)t->waddr, __ATOMIC_RELAXED));
+        rt_log("hang:  thread %#x prio %d%s%s core %d host %d %s addr %#llx%s key %#llx obj %#llx spin %llu at %#llx",
+               t->handle, t->prio, t->is_main ? " main" : "", t == g_render ? " render" : "", t->cur_core,
+               t->host_depth, kind[k], (unsigned long long)t->waddr, word, (unsigned long long)t->wkey,
+               (unsigned long long)t->wobj, (unsigned long long)t->sp_n, (unsigned long long)t->sp_site);
+        if (t->y_ho) rt_log("hang:    yield handoffs to worse waiters %llu", (unsigned long long)t->y_ho);
+        if (c)
+            rt_log("hang:    pc %#llx %s lr %#llx %s sp %#llx%s", (unsigned long long)c->pc,
+                   rt_guest_name(c->pc, n1, sizeof n1), (unsigned long long)c->x[30],
+                   rt_guest_name(c->x[30], n2, sizeof n2), (unsigned long long)c->sp, t->fiber ? " (fiber)" : "");
+    }
+}
+
+static void watch_main(void *arg) {
+    (void)arg;
+    const char *v = cfg_get("AOC_HANG_SECS");
+    double secs = v && *v ? atof(v) : 10.0;
+    uint64_t limit = (uint64_t)(secs * 1e9), reported = 0;
+    for (;;) {
+        plat_sleep_ms(1000);
+        uint64_t last = g_present_ns, now = kern_now_ns();
+        if (last && now > last + limit && reported != last) {
+            reported = last;
+            hang_report(now - last);
+        }
+    }
+}
+
+void kern_watch_present(void) {
+    g_present_ns = kern_now_ns();
+    if (g_watch_started) return;
+    g_watch_started = 1;
+    const char *v = cfg_get("AOC_HANG_SECS");
+    if (v && *v && atof(v) <= 0) return;
+    plat_thread_spawn(watch_main, NULL, "aoc hang watchdog", 0);
+}

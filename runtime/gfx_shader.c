@@ -48,8 +48,9 @@
 #define CODE_SKIP 0x30                                     // graphics code starts after the first 0x30 bytes of the program
 #define BUCKETS 4096
 #define LINE_MAX_LEN 4096
-#define KEY_VERSION 4                                      // in every cache key; bump when the key layout or the use of the
-                                                           // output changes here (4: translator identity, input ids);
+#define KEY_VERSION 5                                      // in every cache key; bump when the key layout or the use of the
+                                                           // output changes here (4: translator identity, input ids; 5:
+                                                           // compute shared memory size from the control section);
                                                            // translator changes are covered by its identity
 #define IN_VERSION 1                                       // in every input id and .in file: bump when the answers layout
                                                            // or the program hash changes (drops every stored input)
@@ -1072,13 +1073,23 @@ static size_t build_request(char *o0, const char *hex, const char *stage, const 
         o += sprintf(o, "},\"fout\":{");
         for (int i = 0; i < 8; i++)
             if (a->frag_out_type[i]) o += sprintf(o, "%s\"%d\":\"%s\"", sep, i, attr_name(a->frag_out_type[i])), sep = ",";
-        o += sprintf(o, "},\"shared\":%u", a->shared_bytes);
+        o += sprintf(o, "}");
     }
     if (!strcmp(stage, "cs")) {
         uint32_t l[3] = {1, 1, 1};
         if (a && (a->local[0] | a->local[1] | a->local[2])) l[0] = a->local[0], l[1] = a->local[1], l[2] = a->local[2];
         else memcpy(l, control + 0x748, 12);
         o += sprintf(o, ",\"local\":[%u,%u,%u]", l[0], l[1], l[2]);
+        // Shared memory bytes: the NVN compute control section's word at +0x754, next to the workgroup size (Age of
+        // Calamity 1.3.0: 0x130 to 0x1230 in its compute shaders, the sum of what each one indexes). Ryujinx answers
+        // QueryComputeSharedMemorySize from the QMD; without it the translator declared its 4096-byte default, and
+        // the cloth/collision shader fbb562b2 (68 bytes per invocation from byte 304, 4656 bytes for 64) read loop
+        // bounds from past the array: undefined in Vulkan, and on the RTX 3050 a loop that ran until the device was
+        // lost in the first battle.
+        uint32_t sh = 0;
+        memcpy(&sh, control + 0x754, 4);
+        if (a && a->shared_bytes) sh = a->shared_bytes;
+        if (sh) o += sprintf(o, ",\"shared\":%u", sh);
     }
     /* Control byte +0x718 of a fragment shader: early fragment tests (the NVN driver's early-Z-force, MacNativeGames
        ae8f4f4). Without it a shader that stores to memory is depth-tested late, and the G-buffer draws' EQUAL test

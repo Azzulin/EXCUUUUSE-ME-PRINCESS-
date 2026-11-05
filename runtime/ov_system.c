@@ -195,6 +195,32 @@ void ov_operation_mode_changed(void) {
     plat_xchg32(&mode_read_after_change, 1);
 }
 
+// Diagnosis, at every present: AOC_PEEK=<addr>:<words>[,<addr>:<words>...] logs that many 32-bit words of guest memory
+// at each address every 60 presents (GPU-written lists as the CPU sees them after write-back).
+void ov_peek_tick(void) {
+    static int state = -1;
+    static uint64_t frames;
+    static char spec[256];
+    if (state < 0) {
+        const char *e = cfg_get("AOC_PEEK");
+        state = e && *e && strlen(e) < sizeof spec;
+        if (state) strcpy(spec, e);
+    }
+    if (!state || ++frames % 60) return;
+    char tmp[256], *save = NULL;
+    strcpy(tmp, spec);
+    for (char *t = strtok_r(tmp, ",", &save); t; t = strtok_r(NULL, ",", &save)) {
+        unsigned long long a = 0;
+        unsigned n = 0;
+        if (sscanf(t, "%llx:%u", &a, &n) != 2 || !n || n > 32 || !plat_mem_readable(a, n * 4ull)) continue;
+        char line[32 * 11 + 64];
+        int o = snprintf(line, sizeof line, "peek frame %llu %#llx:", (unsigned long long)frames, a);
+        for (unsigned i = 0; i < n && o < (int)sizeof line - 12; i++)
+            o += snprintf(line + o, sizeof line - (size_t)o, " %08x", ((const volatile uint32_t *)(uintptr_t)a)[i]);
+        rt_log("%s", line);
+    }
+}
+
 // Test hook, at every present (nvn_api_obj.c): AOC_TEST_OPMODE=<seconds>:<docked|handheld> makes the change the quick
 // menu makes, once, that many seconds after the first present, without a window or a pad (AOC_GPU=null runs).
 void ov_operation_mode_test_tick(void) {

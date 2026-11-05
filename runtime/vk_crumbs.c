@@ -51,10 +51,14 @@ static void describe(uint32_t code, char *o, size_t size) {
     static const char *const kinds[] = {"nothing", "the start of a part of submission", "the end of submission",
                                         "the start of upload batch", "the end of upload batch",
                                         "ASTC decode chunk", "the start of present",
-                                        "the end of present"};
+                                        "the end of present", "draw or dispatch"};
     unsigned k = code >> 28;
     if (!code) snprintf(o, size, "nothing yet");
-    else if (k < sizeof kinds / sizeof *kinds) snprintf(o, size, "%s %u", kinds[k], code & 0x0fffffff);
+    else if (k == VK_CRUMB_DRAW) {
+        char name[96];
+        vk_exec_crumb_name(code & 0x0fffffff, name, sizeof name);
+        snprintf(o, size, "%s %u (%s)", kinds[k], code & 0x0fffffff, name);
+    } else if (k < sizeof kinds / sizeof *kinds) snprintf(o, size, "%s %u", kinds[k], code & 0x0fffffff);
     else snprintf(o, size, "unknown code %#x", code);
 }
 
@@ -64,4 +68,10 @@ void vk_crumbs_report(void) {
     describe(words[0], reached, sizeof reached);
     describe(words[1], finished, sizeof finished);
     rt_log("vk: GPU breadcrumbs: the GPU last reached %s; everything before %s had finished", reached, finished);
+    if (words[1] >> 28 == VK_CRUMB_DRAW)   // AOC_CRUMB_DRAWS: the draws after the last finished one, in order
+        for (uint32_t i = 1; i <= 6; i++) {
+            char name[96];
+            vk_exec_crumb_name((words[1] & 0x0fffffff) + i, name, sizeof name);
+            rt_log("vk: GPU breadcrumbs: then %s", name);
+        }
 }

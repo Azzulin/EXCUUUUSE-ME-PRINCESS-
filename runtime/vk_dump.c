@@ -589,7 +589,19 @@ static void describe_bindings(Str *b, const VkExec *ex, const VkPipeInfo *info) 
         int st = nvn_stage(bd->stage), img = bd->kind == GFX_RES_IMG;
         char dt[24], fn[16];
         if (bd->type == VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER || bd->type == VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER) {
-            sp(b, "    %s %s slot %d: buffer texture (zero view bound)\n", stn[st], img ? "img" : "tex", r->slot);
+            // What texel_view (vk_exec_draw.c) binds: the slot's buffer texture, or the zero view when there is none.
+            uint64_t h = handle_of(ex, st, r->slot, img), addr = 0, elems = 0;
+            int fmt = 0, has;
+            vk_texture_lock();
+            has = h && vk_texture_buffer_by_id_locked((int)(h & 0xfffff), &addr, &fmt, &elems);
+            vk_texture_unlock();
+            if (has)
+                sp(b, "    %s %s slot %d: buffer texture handle %#llx at %#llx, NVN format %#x, %llu elements\n", stn[st],
+                   img ? "img" : "tex", r->slot, (unsigned long long)h, (unsigned long long)addr, fmt,
+                   (unsigned long long)elems);
+            else
+                sp(b, "    %s %s slot %d: buffer texture, handle %#llx holds none: zero view\n", stn[st],
+                   img ? "img" : "tex", r->slot, (unsigned long long)h);
             continue;
         }
         for (uint32_t k = 0; k < (bd->count ? bd->count : 1u); k++) {

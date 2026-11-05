@@ -85,7 +85,9 @@ void vk_device_fault_report(VkResult r);
 // twice, when the command processor reaches it and when all work before it has finished. After a lost device the two
 // codes bracket the work that hung. Without the extension every call returns at once.
 enum { VK_CRUMB_SUBMIT = 1, VK_CRUMB_SUBMIT_END, VK_CRUMB_UPLOAD, VK_CRUMB_UPLOAD_END, VK_CRUMB_ASTC, VK_CRUMB_PRESENT,
-       VK_CRUMB_PRESENT_END };
+       VK_CRUMB_PRESENT_END, VK_CRUMB_DRAW };
+// AOC_CRUMB_DRAWS: the draw or dispatch crumb number n as "draw vs .. fs .." or "dispatch cs .." (vk_exec_draw.c).
+void vk_exec_crumb_name(uint32_t n, char *o, size_t size);
 void vk_crumbs_init(VkCtx *c);       // after the allocator exists
 void vk_crumbs_release(void);
 // Records crumb kind with number n (a timeline value, a batch number; the low 28 bits are kept) into cb. Only the
@@ -348,6 +350,7 @@ void vk_texture_unlock(void);
 const VkTexImage *vk_texture_by_id_locked(int id, view_t *view, int *has_view);
 // A buffer texture in slot id: storage address, NVN format and element count; 0 when the slot holds none.
 int vk_texture_buffer_by_id_locked(int id, uint64_t *addr, int *format, uint64_t *elems);
+void vk_texel_views_forget(VkBuffer b);   // vk_exec_draw.c: drops the texel buffer views over b (destroy_rec)
 VkSampler vk_sampler_by_id_locked(int id);
 // The slot's sampler with nearest filtering and no anisotropy: a depth texture read without a compare lands on one texel
 // on the Switch although the game binds a linear sampler, and MacNativeGames samples it the same way. VK_NULL_HANDLE

@@ -30,6 +30,11 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+# Windows (MSYS2 UCRT64 Python + clang): ninja starts commands with CreateProcess, not a shell, so arguments take
+# double quotes and there is no rm; the runtime takes its Win32 files (platform/win32.c, *_win.*). For tests on a
+# Windows PC with a Vulkan GPU; the Steam Deck build is the Linux one (dist).
+WIN = os.name == "nt"
+EXE = "aoc.exe" if WIN else "aoc"
 
 # Flags do código gerado, como no Astral Chain (tools/build_game.py GEN_FLAGS).
 GEN_FLAGS = ["-O1", "-fno-strict-aliasing", "-Wno-return-type", "-Wno-unused-label", "-fvisibility=hidden",
@@ -106,7 +111,9 @@ def ninja_escape(p: Path | str) -> str:
 
 
 def shell_arg(p: Path | str) -> str:
-    """Argumento dentro do valor de uma variável do ninja, que o ninja passa ao shell como está."""
+    """Argumento dentro do valor de uma variável do ninja, que o ninja passa ao shell (ao CreateProcess no Windows)."""
+    if WIN:
+        return ('"' + str(p).replace("\\", "/") + '"').replace("$", "$$")
     return shlex.quote(str(p)).replace("$", "$$")
 
 
@@ -142,7 +149,7 @@ def step_guest(args, gen: Path) -> Path:
         "  command = $cc $cflags $extra -c $in -o $out",
         "  description = cc $in",
         "rule ar",
-        "  command = rm -f $out && $ar rcs $out @$out.rsp",
+        "  command = $ar rcs $out @$out.rsp" if WIN else "  command = rm -f $out && $ar rcs $out @$out.rsp",
         "  rspfile = $out.rsp",
         "  rspfile_content = $in",
         "  description = ar $out",
@@ -177,6 +184,13 @@ RT_FLAGS = ["-O2", "-g", "-Wall", "-fno-strict-aliasing", "-march=x86-64-v3"]
 # $ORIGIN: uma libSDL3.so.0 ao lado do executável vem antes da do sistema (a pasta do Deck).
 LINK_FLAGS = ["-fuse-ld=lld", "-no-pie", "-Wl,-z,noexecstack", "'-Wl,-rpath,$$ORIGIN/lib'"]
 LINK_LIBS = ["-lvulkan", "-lSDL3", "-lopus", "-lvpx", "-lzstd", "-l:libstdc++.a", "-lm", "-lpthread", "-ldl"]
+if WIN:   # as astral-chain-pc-recomp tools/build_game.py (MSYS2 UCRT64), plus the libraries folder_pick_win.cpp needs
+    # MSYS2's VMA (newer than 3.4.0) marks nullability on some pointers only: hundreds of warnings per file.
+    RT_FLAGS += ["-D_WIN32_WINNT=0x0A00", "-Wno-nullability-completeness"]
+    LINK_FLAGS = ["-fuse-ld=lld", "-Wl,--stack,16777216"]
+    LINK_LIBS = ["-lpsapi", "-lbcrypt", "-lvulkan-1", "-luser32", "-lgdi32", "-ldwmapi", "-limm32", "-lwinmm", "-lole32",
+                 "-lshell32", "-luuid", "-lSDL3", "-lopus", "-l:libvpx.a", "-l:libzstd.a", "-l:libstdc++.a",
+                 "-l:libwinpthread.a"]
 # vk_mem_alloc.h: o do sistema, senão a versão que o TotK Recomp fixa (VMA 3.4.0, MIT), baixada uma vez em
 # toolchain/vma e conferida pelo hash.
 VMA_FETCH = ("https://raw.githubusercontent.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator/v3.4.0/include/vk_mem_alloc.h",
@@ -190,6 +204,10 @@ def vma_include() -> Path:
     import urllib.request
     if Path("/usr/include/vk_mem_alloc.h").is_file():
         return Path("/usr/include")
+    if WIN:
+        ucrt = Path(shutil.which("clang") or "C:/msys64/ucrt64/bin/clang.exe").parent.parent / "include" / "vma"
+        if (ucrt / "vk_mem_alloc.h").is_file():
+            return ucrt
     local = ROOT / "toolchain" / "vma"
     dst = local / "vk_mem_alloc.h"
     if not dst.is_file():
@@ -208,6 +226,8 @@ def runtime_sources() -> list[Path]:
     pats = ("*.c", "*.cpp", "platform/*.c", "ui/*.cpp", "third_party/imgui/*.cpp", "third_party/imgui/backends/*.cpp")
 
     def other_os(p: Path) -> bool:
+        if WIN:
+            return p.stem.endswith("_sdl") or p.name == "linux.c"
         return p.stem.endswith("_win") or p.name == "win32.c"
     return sorted(p for pat in pats for p in RUNTIME.glob(pat) if not other_os(p))
 
@@ -300,7 +320,7 @@ def step_host(args, gen: Path, lib: Path) -> Path:
         o.parent.mkdir(parents=True, exist_ok=True)
         lines.append(f"build {ninja_escape(o)}: cc_rt {ninja_escape(src)}")
         objs.append(o)
-    exe = out / "aoc"
+    exe = out / EXE
     lines.append(f"build {ninja_escape(exe)}: link " + " ".join(ninja_escape(o) for o in objs) + f" {ninja_escape(lib)}")
     lines.append(f"build runtime: phony " + " ".join(ninja_escape(o) for o in objs))
     lines.append(f"default {ninja_escape(exe)}")

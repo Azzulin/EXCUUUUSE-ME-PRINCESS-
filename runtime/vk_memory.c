@@ -229,6 +229,8 @@ static PoolRec *phys_find(const pool_t *key) {
 }
 
 static void destroy_rec(VkCtx *c, PoolRec *r) {
+    vk_texel_views_forget(r->mbuf);   // vk_exec_draw.c: buffer texture views over these buffers die with them
+    vk_texel_views_forget(r->buf);
     if (r->mbuf) vmaDestroyBuffer(c->vma, r->mbuf, r->malloc_);
     if (r->salloc) vmaDestroyBuffer(c->vma, r->buf, r->salloc), r->buf = VK_NULL_HANDLE;
     if (r->buf) vkDestroyBuffer(c->device, r->buf, NULL);

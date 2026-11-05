@@ -220,6 +220,7 @@ void kern_host_left(void *thread);                         // back at depth 0 wi
 int kern_core_diag_on(void);                               // AOC_CORE_DIAG
 void kern_core_diag_frame(uint64_t frame, uint64_t interval_ns);   // perf_present, every present (also logs the
                                                            // asynchronous preemption counters)
+void kern_watch_present(void);                            // every guest present: the hang watchdog (AOC_HANG_SECS)
 void kern_sched_report(uint64_t frame);                    // AOC_TRACE=sched: per-thread time split, on present
 uint32_t kern_handle_new(int kind, void *obj);             // kind: KERN_SESSION or KERN_TMEM (ipc.c)
 void *kern_handle_get(uint32_t h, int kind);
@@ -252,6 +253,7 @@ void account_uid(uint64_t out[2]);                         // the local user's n
 void movie_tick(Cpu *c);                                   // at every present, on the presenting guest thread: hands
                                                            // decoded movie frames over when due, signals their events
 void ov_operation_mode_test_tick(void);                    // ov_system.c: AOC_TEST_OPMODE, at every present
+void ov_peek_tick(void);                                   // ov_system.c: AOC_PEEK diagnosis, at every present
 
 // ---- camera speed (camera_speed.c): AOC_STICK_SENS
 float cam_speed_wanted(void);                              // the factor AOC_STICK_SENS asks for, 0.1 to 3

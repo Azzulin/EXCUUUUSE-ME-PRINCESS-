@@ -87,7 +87,10 @@ typedef struct { uint64_t target; } p_jump;                // OP_JUMP / OP_CALL:
 // OP_DRAW_IDX_IND: DrawElementsIndirect; ind = GPU address of {count, instances, first index, base vertex, base
 // instance} (VkDrawIndexedIndirectCommand's layout), read by the GPU when the draw runs
 typedef struct { int32_t prim, itype; uint64_t ibuf, ind; } p_draw_idx_ind;
-typedef struct { uint64_t ind, caller; } p_dispatch_ind;   // OP_DISPATCH_IND: ind = GPU address of the 3 group counts
+typedef struct { uint64_t ind, caller; } p_dispatch_ind;
+// OP_DRAW_IND: DrawArraysIndirect; ind = GPU address of {count, instances, first vertex, base instance}
+// (VkDrawIndirectCommand's layout), read by the GPU when the draw runs
+typedef struct { int32_t prim, pad; uint64_t ind; } p_draw_ind;   // OP_DISPATCH_IND: ind = GPU address of the 3 group counts
 // OP_CLEAR_BUF: size bytes at addr filled with the 32-bit value in GPU order (ClearBuffer; ReportValue is a 4-byte one)
 typedef struct { uint64_t addr, size; uint32_t value, pad; } p_clear_buf;
 _Static_assert(sizeof(p_signal_event) == 16 && sizeof(p_report_counter) == 16 && sizeof(p_copy_b2b) == 24 &&

@@ -1251,6 +1251,18 @@ const VkTexImage *vk_texture_by_id_locked(int id, view_t *view, int *has_view) {
     return e ? &e->pub : NULL;
 }
 
+// A buffer texture registered in slot id (NVN_TEXTURE_TARGET_BUFFER): its storage address, NVN format and element
+// count, for a texel buffer view over the pool (vk_exec_draw.c texel_view). 0 for an empty slot or another target.
+// Age of Calamity's KTGL keeps its light and decal lists in such textures (slots 16-21 of 16,438 shaders, nxnative
+// dm/games/01002B00111A2000/README.md, Rendering).
+int vk_texture_buffer_by_id_locked(int id, uint64_t *addr, int *format, uint64_t *elems) {
+    if (id < 0 || id >= ntslots || !tslots[id].used) return 0;
+    const tex_t *t = &tslots[id].t;
+    if (t->d.target != NVN_TEXTURE_TARGET_BUFFER || !t->mem || !t->d.width) return 0;
+    *addr = (uint64_t)(uintptr_t)t->mem, *format = t->d.format, *elems = t->d.width;
+    return 1;
+}
+
 // vk_dump: the swizzle selectors of the descriptor registered in slot id; 0 when the slot is empty.
 int vk_texture_slot_swz(int id, uint8_t swz[4]) {
     lock();

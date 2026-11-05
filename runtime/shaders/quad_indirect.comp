@@ -1,0 +1,27 @@
+// Indirect quads (runtime/vk_quad_ind.c): NVN's DrawArraysIndirect record {vertex count, instances, first vertex,
+// base instance} -> a VkDrawIndexedIndirectCommand over a fixed quad index list {0,1,2, 0,2,3} + 4 k, so a quad list
+// whose count the GPU wrote draws as triangles. Vulkan has no quads; Age of Calamity's GPU-driven effects are indirect
+// quads (nxnative dm/games/01002B00111A2000/README.md, Rendering: "indirect quads, converted to indexed indirect
+// arguments by a compute pass"). Our own shader.
+#version 450
+layout(local_size_x = 1) in;
+
+layout(std430, set = 0, binding = 0) readonly buffer Src { uint src[]; };    // the game's record, 16 bytes
+layout(std430, set = 0, binding = 1) writeonly buffer Dst { uint dst[]; };   // the Vulkan command, 20 bytes
+
+layout(push_constant) uniform Push {
+    uint src_word;   // word index of the record in Src
+    uint dst_word;   // word index of the command in Dst
+    uint max_quads;  // quads the index list holds
+} pc;
+
+void main() {
+    uint count = src[pc.src_word], instances = src[pc.src_word + 1u];
+    uint first = src[pc.src_word + 2u], base_instance = src[pc.src_word + 3u];
+    uint quads = min(count / 4u, pc.max_quads);
+    dst[pc.dst_word] = quads * 6u;           // indexCount
+    dst[pc.dst_word + 1u] = instances;       // instanceCount
+    dst[pc.dst_word + 2u] = 0u;              // firstIndex
+    dst[pc.dst_word + 3u] = first;           // vertexOffset (int32: the record's first vertex)
+    dst[pc.dst_word + 4u] = base_instance;   // firstInstance
+}

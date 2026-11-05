@@ -2,6 +2,9 @@
 // Provenance: that file is based on D2R Mobile dm/gfx/tools/dmsh_xlate/Program.cs. Changes here: SPIR-V for Vulkan is the final
 // output (no MSL service, no VertexCounterLowering, no NEAR_IS_MINUS_W rewrite), depth clip control reported as supported,
 // non-constant texture offsets reported as unsupported, --disasm dropped.
+// AoC Recomp: slots of all three c2 handle tables (TexSlot), as runtime/gfx_shader.c handle_slot numbers them: Age of
+// Calamity binds combined textures (nvnCommandBufferBindTexture, 0x20 + 8 r) and images (0x120 + 8 r), which the TotK
+// copy (separate textures only, 0x168 + 8 r) answered as slot -1: every type and format query fell back to 2D / RGBA8.
 // Protocol (stdout carries replies only; diagnostics go to stderr):
 //   totk_xlate --serve              one request per stdin line: {"job": {...}, "out": "<dir>"}; one reply line per request:
 //                                   "ok <key>" or "fail <key> <message>"; a malformed line gets "fail ? <message>" and the loop continues.
@@ -46,17 +49,25 @@ static class SwshXlate
         public int QueryTextureArrayLengthFromPool() => 32;
 
         string Get(string table, int slot) => _job[table] is JsonObject t && t[slot.ToString()] is JsonNode n ? (n is JsonObject o ? (string)o["type"] : (string)n) : null;
-        int TexSlot(int handle, int cbufSlot)
+        // c2 handle tables (nxnative dm/gfx/nvn/dmsh_abi.h): combined textures at 0x20 + 8 r, images at 0x120 + 8 r,
+        // separate textures at 0x168 + 8 r (TexBase); the runtime keeps a slot's answers under r for each of them.
+        const int CombBase = 0x20, ImgBase = 0x120;
+        int TexSlot(int handle, int cbufSlot) => TexSlot(handle, cbufSlot, out _);
+        int TexSlot(int handle, int cbufSlot, out bool image)
         {
             (int off0, _, _) = TextureHandle.UnpackOffsets(handle);
             int bytes = off0 * 4;
-            return (cbufSlot < 0 || (cbufSlot & 0xffff) == 2) && bytes >= TexBase && bytes < SampBase && (bytes - TexBase) % 8 == 0 ? (bytes - TexBase) / 8 : -1;
+            image = false;
+            if (!(cbufSlot < 0 || (cbufSlot & 0xffff) == 2) || bytes % 8 != 0) return -1;
+            if (bytes >= CombBase && bytes < ImgBase) return (bytes - CombBase) / 8;
+            if (bytes >= ImgBase && bytes < TexBase) { image = true; return (bytes - ImgBase) / 8; }
+            return bytes >= TexBase && bytes < SampBase ? (bytes - TexBase) / 8 : -1;
         }
         public SamplerType QuerySamplerType(int handle, int cbufSlot = -1)
         {
-            int slot = TexSlot(handle, cbufSlot);
-            if (slot >= 0) TexQueried.Add(slot);
-            string t = slot >= 0 ? Get("tex", slot) ?? Get("img", slot) : null;
+            int slot = TexSlot(handle, cbufSlot, out bool image);
+            if (slot >= 0) { if (image) ImgQueried.Add(slot); else TexQueried.Add(slot); }
+            string t = slot < 0 ? null : image ? Get("img", slot) : Get("tex", slot) ?? Get("img", slot);
             if (t == null) { Notes.Add($"贴图句柄 {handle:X}（常量段 {cbufSlot}，槽 {slot}）无 PC 类型，按 2D"); return SamplerType.Texture2D; }
             if (t.EndsWith("_depth")) t = t.Substring(0, t.Length - 6);   // depth-format texture: same sampler type here; the host binds a depth view
             return t switch

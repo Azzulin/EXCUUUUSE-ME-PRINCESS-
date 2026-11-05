@@ -25,6 +25,8 @@
 #include "host.h"
 #include "nvn_api.h"
 #include "nvn_hmap.h"
+#include "nvn_tex.h"
+#include "tex.h"
 #include "vk.h"
 #include "vk_exec.h"
 #include "platform/platform.h"
@@ -671,7 +673,19 @@ static uint8_t type_of_handle(uint64_t h) {   // texture lock held
     view_t v;
     int hv;
     const VkTexImage *img = h ? vk_texture_by_id_locked((int)(h & 0xfffff), &v, &hv) : NULL;
-    return img ? (uint8_t)gfx_type_of(img, &v, hv) : 0;
+    if (img) return (uint8_t)gfx_type_of(img, &v, hv);
+    // A buffer texture has no image: its slot is answered GFX_TEX_BUFFER ("buffer" in gfx_shader.c tex_names), so the translator
+    // declares a texel buffer and texel_view binds the pool memory. Answered 0 it became a 2D texture bound to the zero
+    // image, and Age of Calamity's light lists read zeros: every light reached the whole scene (battles blown white).
+    uint64_t addr, n;
+    int format;
+    int buf = h && vk_texture_buffer_by_id_locked((int)(h & 0xfffff), &addr, &format, &n);
+    static int logged;
+    if ((rt_trace & RT_TRACE_GFX) && h && logged < 16) {
+        logged++;
+        rt_log("vk: slot answer for handle %#llx without an image: %s", (unsigned long long)h, buf ? "buffer" : "none");
+    }
+    return buf ? GFX_TEX_BUFFER : 0;
 }
 
 // The answers of stage st for the slots in mask; the types of other slots stay zero.
@@ -1385,6 +1399,98 @@ static Twin *twin_update(VkExec *ex, const VkTexImage *img) {
 
 // The image descriptor of slot h; in a dispatch, a compare-sampled colour image the driver cannot compare is swapped
 // for its depth twin.
+// ---- buffer textures: a texel buffer view over the pool memory a buffer texture names (texel_view). The translator
+// declares a slot that a buffer texture is bound to as a texel buffer; the GPU reads the pool's current content when
+// the draw runs, as on the Switch. Views are kept by (buffer, offset, range, format) for the session: the game has a
+// few lists that it rewrites in place (Age of Calamity: KTGL's light and decal lists). A full table or an unsupported
+// format falls back to the zero view, logged once.
+#define TVIEWS 4096
+typedef struct { VkBuffer buf; VkDeviceSize off, range; VkFormat fmt; VkBufferView view; } TexelView;
+static TexelView tviews[TVIEWS];
+static int tview_warned;
+
+static VkBufferView texel_view(uint64_t h, int storage) {
+    uint64_t addr, n;
+    int format;
+    static int probes;   // AOC_TRACE=gfx: the first bindings, for diagnosing a list that stays zero
+    if (!h || !vk_texture_buffer_by_id_locked((int)(h & 0xfffff), &addr, &format, &n)) {
+        if ((rt_trace & RT_TRACE_GFX) && probes < 24) {
+            probes++;
+            rt_log("vk: texel buffer binding with handle %#llx: %s", (unsigned long long)h,
+                   h ? "the slot holds no buffer texture" : "no handle bound");
+        }
+        return Z.zview;
+    }
+    TexVkFormat f;
+    int bw, bh, bpb = nvn_fmt_bpb(format, &bw, &bh);
+    if (!bpb || bw != 1 || bh != 1 || !tex_vk_format(format, &f) || f.vk != f.ideal) {
+        if (!tview_warned++) rt_log("vk: buffer texture of NVN format %#x has no texel buffer format: zero view", format);
+        return Z.zview;
+    }
+    // The translator declares every sampled texel buffer as float (Ryujinx Declarations.cs: TypeImage of FP32). On the
+    // Switch a fetch of an integer format hands the shader the integer's bits, which it then uses as an integer; a
+    // float view of the same 32-bit layout gives exactly those bits back. An integer view under a float sampled type is
+    // undefined in Vulkan: Age of Calamity's light index lists (R32UI) read as garbage counts there and its lighting
+    // loops hung the GPU (ring timeout). 8- and 16-bit integer formats have no such twin: logged once, kept.
+    if (!storage) {
+        VkFormat twin = f.vk == VK_FORMAT_R32_UINT || f.vk == VK_FORMAT_R32_SINT ? VK_FORMAT_R32_SFLOAT
+                      : f.vk == VK_FORMAT_R32G32_UINT || f.vk == VK_FORMAT_R32G32_SINT ? VK_FORMAT_R32G32_SFLOAT
+                      : f.vk == VK_FORMAT_R32G32B32A32_UINT || f.vk == VK_FORMAT_R32G32B32A32_SINT ? VK_FORMAT_R32G32B32A32_SFLOAT
+                      : VK_FORMAT_UNDEFINED;
+        if (twin) f.vk = twin;
+        else if (f.vk == VK_FORMAT_R8_UINT || f.vk == VK_FORMAT_R16_UINT || f.vk == VK_FORMAT_R8G8B8A8_UINT ||
+                 f.vk == VK_FORMAT_R16G16_UINT || f.vk == VK_FORMAT_R16G16B16A16_UINT || f.vk == VK_FORMAT_R8_SINT ||
+                 f.vk == VK_FORMAT_R16_SINT) {
+            static int int_warned;
+            if (!int_warned++) rt_log("vk: a sampled buffer texture of narrow integer format %d: read as float (no exact twin)", (int)f.vk);
+        }
+    }
+    VkCtx *c = vk_ctx();
+    static VkPhysicalDeviceLimits lim;
+    static int have_lim;
+    if (!have_lim) {
+        VkPhysicalDeviceProperties pp;
+        vkGetPhysicalDeviceProperties(c->phys, &pp);
+        lim = pp.limits, have_lim = 1;
+    }
+    uint64_t range = n * (uint64_t)bpb;
+    if (n > lim.maxTexelBufferElements) n = lim.maxTexelBufferElements, range = n * (uint64_t)bpb;
+    VkMemSpan sp;
+    if (!vk_mem_resolve(addr, range, &sp) || sp.avail < range || sp.offset % (lim.minTexelBufferOffsetAlignment ? lim.minTexelBufferOffsetAlignment : 1)) {
+        if (!tview_warned++) rt_log("vk: buffer texture at %#llx (%llu bytes) is not one aligned span: zero view", (unsigned long long)addr, (unsigned long long)range);
+        return Z.zview;
+    }
+    VK_MEM_USE(sp);
+    VkFormatProperties fp;
+    vkGetPhysicalDeviceFormatProperties(c->phys, f.vk, &fp);
+    if (!(fp.bufferFeatures & (storage ? VK_FORMAT_FEATURE_STORAGE_TEXEL_BUFFER_BIT : VK_FORMAT_FEATURE_UNIFORM_TEXEL_BUFFER_BIT))) {
+        if (!tview_warned++) rt_log("vk: format %d cannot be a texel buffer here: zero view", (int)f.vk);
+        return Z.zview;
+    }
+    uint64_t hsh = ((uint64_t)(uintptr_t)sp.buffer * 0x9e3779b97f4a7c15ull) ^ (sp.offset * 0xc2b2ae3d27d4eb4full) ^ range ^ ((uint64_t)f.vk << 40);
+    for (uint32_t i = 0, k = (uint32_t)(hsh >> 20) % TVIEWS; i < TVIEWS; i++, k = (k + 1) % TVIEWS) {
+        TexelView *t = &tviews[k];
+        if (t->view && t->buf == sp.buffer && t->off == sp.offset && t->range == range && t->fmt == f.vk) return t->view;
+        if (t->view) continue;
+        VkBufferViewCreateInfo bi = {.sType = VK_STRUCTURE_TYPE_BUFFER_VIEW_CREATE_INFO, .buffer = sp.buffer,
+                                     .format = f.vk, .offset = sp.offset, .range = range};
+        if (vkCreateBufferView(c->device, &bi, NULL, &t->view) != VK_SUCCESS) {
+            t->view = VK_NULL_HANDLE;
+            return Z.zview;
+        }
+        t->buf = sp.buffer, t->off = sp.offset, t->range = range, t->fmt = f.vk;
+        static int made;
+        ++made;
+        if (made <= 32 || made % 256 == 0)
+            rt_log("vk: texel buffer view %d: %#llx, NVN format %#x -> vk %d, %llu elements (%llu bytes), %s", made,
+                   (unsigned long long)addr, format, (int)f.vk, (unsigned long long)n, (unsigned long long)range,
+                   storage ? "storage" : "sampled");
+        return t->view;
+    }
+    if (!tview_warned++) rt_log("vk: more than %d texel buffer views: zero view", TVIEWS);
+    return Z.zview;
+}
+
 static void tex_info(VkExec *ex, const GfxShaderRes *r, uint64_t h, int storage, int separate, VkDescriptorImageInfo *out) {
     tex_info_lookup(ex, r, h, storage, separate, out);
     if (!twin_dispatch || storage || separate || !h || !(r->type & 0x400)) return;
@@ -1775,11 +1881,17 @@ static void bind_resources(VkExec *ex, const VkPipeInfo *info) {
             int img = b->kind == GFX_RES_IMG;
             if (b->type == VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER || b->type == VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER) {
                 kind = 2;
-                for (uint32_t k = 0; k < cnt; k++) {   // buffer textures are not replayed yet
+                vk_texture_lock();   // texel_view reads the texture slots
+                for (uint32_t k = 0; k < cnt; k++) {   // buffer textures: a texel buffer view over the pool (texel_view)
+                    int slot = r->slot + (int)k;
+                    uint64_t h = img ? (slot >= 0 && slot < 32 ? ex->img[st][slot] : 0)
+                                     : (slot >= 0 && slot < 128 ? ex->tex[st][slot] : 0);
+                    VkBufferView v = texel_view(h, img);
                     o[k].w[0] = 0, o[k].w[1] = 0, o[k].w[2] = 0;
-                    o[k].view = Z.zview;
-                    if (need_w) bv[nd + k] = Z.zview;
+                    o[k].view = v;
+                    if (need_w) bv[nd + k] = v;
                 }
+                vk_texture_unlock();
             } else {
                 kind = 1;
                 vk_texture_lock();   // tex_info looks up with the texture lock held
@@ -2331,6 +2443,44 @@ static void op_draw_idx_ind(VkExec *ex, const p_draw_idx_ind *d) {
     VK_MEM_BOUND(ib);
 }
 
+// DrawArraysIndirect: the record is read by the GPU. Quads have no Vulkan topology: vk_quad_ind.c converts the record
+// on the GPU into an indexed command over a fixed quad index list, outside the render pass (which ends for it) and
+// behind a barrier on each side. Line loops would need the count on the CPU: skipped, logged once.
+int vk_quad_ind_convert(VkCommandBuffer cb, const VkMemSpan *src, VkBuffer *cmd, VkDeviceSize *cmd_off, VkBuffer *index);
+static void op_draw_ind(VkExec *ex, const p_draw_ind *d) {
+    c0_binst = 0;
+    VkMemSpan ip;
+    if (!vk_mem_resolve(d->ind, sizeof(VkDrawIndirectCommand), &ip) || ip.offset % 4)
+        return warn_once(W_INDIRECT, "indirect draw arguments at %#llx are not backed or not aligned: draws skipped", (unsigned long long)d->ind);
+    if (d->prim == NVN_DRAW_PRIMITIVE_LINE_LOOP)
+        return warn_once(W_INDIRECT, "an indirect line-loop draw is skipped (its count is on the GPU)");
+    if (d->prim == NVN_DRAW_PRIMITIVE_QUADS) {
+        VkBuffer cmd, ix;
+        VkDeviceSize co;
+        cb_res(ex);
+        vk_exec_barrier(ex);   // ends the pass; the record's writers are done
+        VK_MEM_USE(ip);
+        if (!vk_quad_ind_convert(ex->cb, &ip, &cmd, &co, &ix))
+            return warn_once(W_INDIRECT, "indirect quads: the converter is not available, draws skipped");
+        ex->recorded++;
+        B.pipe[1] = VK_NULL_HANDLE;   // the converter bound its own compute pipeline
+        vk_exec_barrier(ex);          // the converted command is written before the draw reads it
+        if (!prepare_draw(ex, d->prim, 0x7fffffff, 0)) return;
+        vk_exec_frame.draws++;
+        vkCmdBindIndexBuffer(ex->cb, ix, 0, VK_INDEX_TYPE_UINT32);
+        vkCmdDrawIndexedIndirect(ex->cb, cmd, co, 1, sizeof(VkDrawIndexedIndirectCommand));
+        ex->recorded += 2;
+    } else {
+        if (!prepare_draw(ex, d->prim, 0x7fffffff, 0)) return;
+        vk_exec_frame.draws++;
+        VK_MEM_USE(ip);
+        vkCmdDrawIndirect(ex->cb, ip.buffer, ip.offset, 1, sizeof(VkDrawIndirectCommand));
+        ex->recorded++;
+    }
+    vk_mem_count(ip.cls, VK_MUSE_IND, sizeof(VkDrawIndirectCommand));
+    VK_MEM_BOUND(ip);
+}
+
 // ---- dispatch and uniform buffer updates
 
 static void op_dispatch(VkExec *ex, const p_dispatch *d) {
@@ -2518,6 +2668,7 @@ void vk_exec_op_draw(VkExec *ex, uint32_t op, const void *payload) {
     case OP_DRAW_IDX: op_draw_idx(ex, payload); break;
     case OP_DISPATCH: op_dispatch(ex, payload); break;
     case OP_DRAW_IDX_IND: op_draw_idx_ind(ex, payload); break;
+    case OP_DRAW_IND: op_draw_ind(ex, payload); break;
     case OP_DISPATCH_IND: op_dispatch_ind(ex, payload); break;
     default: rt_fatal("vk: op %s is not a draw op", nvn_op_name(op));
     }

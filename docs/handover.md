@@ -17,7 +17,7 @@ por isso não serve direto para x86).
 | 0 — inventário | **Quase fechada.** Falta: teste de tradução dos shaders (Ryujinx + `spirv-val`, precisa .NET 10). |
 | 1 — lifter | **Fechada na prática.** Build completo rodou (~48 min no notebook, 0 falhas), `aoc --selftest` passa, tabela de 1 112 spin waits (`recomp/patches-v130.txt`). Pendentes menores: 1 jump table superconjunto no `subsdk0`, funções gigantes no gerador. |
 | 2 — host/boot | **Portão B2 cumprido.** Runtime do Astral Chain + porta Linux do TotK em `runtime/`. Com `AOC_GPU=null`: laço principal a 30 fps (relógio 1×), 8 756 programas NVN, RomFS e save, **som não-silencioso** depois das telas do primeiro boot (A por `AOC_INPUT_SCRIPT`) e **vídeo de abertura decodificado** (VP9, ~1,3 ms/frame). |
-| 3 — gráficos | Não começada. Não dá para testar Vulkan no WSL (só Dozen, Vulkan 1.2): precisa do Deck, Linux nativo ou build Windows. |
+| 3 — gráficos | **Em andamento, testado no próprio Deck por SSH.** Tradutor `aoc_xlate` (Ryujinx 1.3.2 + 12 patches) na pasta do Deck. Funcionam: telas do primeiro boot, vídeo de abertura, cenas com legenda, castelo, **primeira batalha com HUD** (~16–21 fps). Problema aberto: na batalha o chão e os soldados saem **estourados em branco** (iluminação diferida lê as listas de luz/decal das buffer textures). |
 | 5 — Deck | `tools/build.py dist --with-romfs` monta a pasta única `dist/aoc-deck/` (sysroot sniper, GLIBC_2.29, romfs por hardlink, LEIA-ME, `aoc.ini`, saves em `profile/` ao lado do executável), testada de ponta a ponta no WSL. **Menu rápido** (L3+R3 segurado): 30 fps, resolução interna portátil/TV ao vivo, overlay. Falta rodar no Deck. |
 
 Números-chave (detalhes em `docs/aoc.md`):
@@ -104,12 +104,24 @@ Detalhes em `docs/building.md`, incluindo os testes do lifter.
 
 ## 6. Próximos passos (em ordem)
 
-1. **Tradutor de shaders (Fase 3) — é o que impede jogar.** No Deck (2026-11-05) o jogo roda a 29,9 fps com o
-   Vulkan do RADV, mas a tela fica preta: nenhum shader é traduzido. Trazer o tradutor Ryujinx 1.3.2 do Astral Chain
-   (`tools/build_xlate.py`, `tools/xlate/`, `tools/vendor/ryujinx`, .NET 10 com NativeAOT) para Linux, empacotá-lo em
-   `dist/aoc-deck/` e montar a extração KTGL. O Deck é acessível por SSH (`deck@192.168.100.130`, nome `steamdeck`,
-   chave `~/.ssh/id_ed25519_deck` no notebook): ler `logs/aoc.log` lá.
-2. **Som do vídeo de abertura** (silêncio enquanto o VP9 toca): a faixa de áudio do `.webm` passa pela biblioteca
+1. **Branco estourado na batalha** (o bloqueio atual da imagem). Achado: as listas de luz e decal do KTGL são
+   buffer textures (`tgt=10`, 1 035 delas) lidas com `TLD.LL`; elas viravam imagem 2D de zeros. Feito nesta sessão:
+   `vk_texture_buffer_by_id_locked` + `texel_view` (views sobre o pool), resposta `GFX_TEX_BUFFER` em
+   `type_of_handle`, patch 0012 do tradutor (TLD.LL em buffer) e `TexSlot` do `Program.cs` com as três tabelas c2
+   (o AoC usa texturas combinadas em `0x20 + 8r`; o tradutor só conhecia as separadas em `0x168`). Com isso as views
+   passaram a existir, mas a GPU **travou** (ring gfx timeout aos ~48 s). Hipótese aplicada, **ainda não testada**: o
+   tradutor declara todo sampler como FP32 e a view era R32_UINT; agora views inteiras de 32 bits viram floats de
+   mesma largura (`texel_view`). O teste seguinte não voltou: o Deck parou de responder (dormiu, desligou ou travou).
+   Antes de qualquer teste: confirmar com o dono que o Deck está livre e acordado.
+   Ferramentas: `tools/deck/` (deploy, execução remota com captura, folha de contato), `AOC_DUMP=<frame>`,
+   `AOC_SKIP_LOG=<n>`, `journalctl -k` no Deck para timeouts do amdgpu.
+2. **Desempenho na batalha** (16–21 fps; replay de CPU 15–20 ms por frame) e **shaders antecipados** (13,5 s
+   de travada na entrada da batalha). O repositório do dono `Deck Zelda/totk-recomp-main` (TotK no Deck) resolve
+   isso com um pacote de todos os programas VS+FS dos arquivos do jogo (`tools/shader_pack.py`) e um warm-up uma vez
+   (`tools/linux/warmup.sh`, todos os núcleos menos um, retomável) — fazer o equivalente com o `census_shaders.py` e
+   o `shader_pairs.tsv` do nxnative, no formato de semente do runtime (`--prepare-shaders`). Lá também: memory guard
+   do GTT (o Deck deles congelou duas vezes com o GTT cheio) e pools de imagens.
+3. **Som do vídeo de abertura** (silêncio enquanto o VP9 toca): a faixa de áudio do `.webm` passa pela biblioteca
    `movie` do `subsdk0`; o `ov_movie.c` só troca o decodificador de vídeo. Ver qual decodificador de áudio ela abre
    (`AOC_TRACE=ipc,audio`) e se cai no caminho Android/NvMM que não existe aqui. Roteiro de entrada usado:
    A em @6000, @8000, @10000, @12000, @14000, @16000 ms (`AOC_INPUT_SCRIPT`, formato em `runtime/input.c`).

@@ -1,0 +1,22 @@
+--- a/src/Ryujinx.Graphics.Shader/Instructions/InstEmitTexture.cs	2026-11-05 07:10:15.635947958 -0300
++++ b/src/Ryujinx.Graphics.Shader/Instructions/InstEmitTexture.cs	2026-11-05 07:10:15.668772211 -0300
+@@ -212,7 +212,7 @@
+             bool hasLod = lodMode > Lod.Lz;
+ 
+             if (type == SamplerType.Texture1D && (flags & ~TextureFlags.Bindless) == TextureFlags.IntCoords && !(
+-                hasLod ||
++                (hasLod && lodMode != Lod.Ll) ||
+                 hasDepthCompare ||
+                 hasOffset ||
+                 isArray ||
+@@ -220,7 +220,9 @@
+             {
+                 // For bindless, we don't have any way to know the texture type,
+                 // so we assume it's texture buffer when the sampler type is 1D, since that's more common.
+-                bool isTypeBuffer = isBindless || context.TranslatorContext.GpuAccessor.QuerySamplerType(imm) == SamplerType.TextureBuffer;
++                // A fetch with an explicit level (TLD.LL) reads a buffer texture too when the host says the slot holds
++                // one: the hardware ignores the level there (Age of Calamity's light and decal lists).
++                bool isTypeBuffer = (isBindless && !hasLod) || context.TranslatorContext.GpuAccessor.QuerySamplerType(imm) == SamplerType.TextureBuffer;
+                 if (isTypeBuffer)
+                 {
+                     type = SamplerType.TextureBuffer;

@@ -126,3 +126,18 @@ disco D e sem as referências locais.
   Steam lista aplicativos `.desktop`, não um script solto no cartão SD.
 - `dist` ganhou `instalar-atalho.sh` (cria `~/.local/share/applications/aoc-recomp.desktop` com o caminho da pasta);
   rodado e validado no Deck (`desktop-file-validate`). LEIA-ME atualizado.
+
+### Fase 3 no Deck (mesmo dia)
+
+- Tradutor de shaders do TotK Recomp compilado com NativeAOT contra o sniper (`aoc_xlate`, 3,5 MB, GLIBC_2.29) e
+  levado na pasta do Deck; `tools/deck/` com envio por SSH e execução remota com capturas.
+- Tela preta: `BindProgram(NULL, COMPUTE)` desligava o programa gráfico e todo draw depois de um dispatch era
+  pulado (achado com `AOC_SKIP_LOG`). Corrigido: **primeira imagem no Deck** (telas do primeiro boot corretas).
+- `nvnCommandBufferDrawArraysIndirect` (efeitos com quads indiretos) faltava: op `OP_DRAW_IND`, quads convertidos
+  na GPU por um compute shader nosso (`vk_quad_ind.c`, `shaders/quad_indirect.comp`). Com isso o jogo chega à
+  **primeira batalha** (cena de abertura com legendas, castelo, Hyrule Field com HUD e minimapa), 16–21 fps.
+- Batalha estourada em branco: G-buffer certo, iluminação diferida errada (dump `AOC_DUMP=3900`). Causa: listas de
+  luz em buffer textures lidas como imagem de zeros. Correções em quatro camadas (texel views, resposta "buffer",
+  patch 0012 do tradutor, slots c2 combinados no `Program.cs`); as views passaram a existir e a GPU travou (ring
+  timeout). Hipótese do tipo FP32 × R32_UINT corrigida, sem teste: o Deck deixou de responder.
+- O dono deixou `Deck Zelda/` (o TotK no Deck deles) como referência para shaders antecipados e estabilidade.

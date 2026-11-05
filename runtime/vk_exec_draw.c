@@ -1442,6 +1442,28 @@ static int tview_warned;
 
 // AOC_TEXEL_ZERO=<slot>[,<slot>...] (diagnosis): those sampled buffer-texture slots of draws read the zero view, to
 // tell which of a shader's lists changes the image.
+static char B_fs_key[9] = "-";    // the fragment key prepare_draw last saw (AOC_TEXEL_ZERO log)
+static int texel_zero_fs_ok = 1;   // AOC_TEXEL_ZERO_FS=<key prefix>: the draw's fragment shader matches (prepare_draw)
+
+// AOC_TEXEL_LOG_FS=<key prefix> (diagnosis): for the first draws whose fragment shader key starts so, log each bound
+// buffer texture (slot, address, NVN format, elements) and its first 16 words as the guest wrote them.
+static int texel_log_on = -1, texel_log_match;
+static void texel_log(int slot, uint64_t h) {
+    static int logged;
+    if (!texel_log_match || logged >= 24) return;
+    uint64_t addr, n;
+    int fmt;
+    if (!h || !vk_texture_buffer_by_id_locked((int)(h & 0xfffff), &addr, &fmt, &n)) {
+        rt_log("vk: texel log: slot %d handle %#llx holds no buffer texture", slot, (unsigned long long)h);
+        return;
+    }
+    logged++;
+    const uint32_t *w = (const uint32_t *)(uintptr_t)addr;
+    rt_log("vk: texel log: slot %d at %#llx fmt %#x %llu elements: %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x "
+           "%08x %08x %08x %08x %08x %08x", slot, (unsigned long long)addr, fmt, (unsigned long long)n, w[0], w[1], w[2],
+           w[3], w[4], w[5], w[6], w[7], w[8], w[9], w[10], w[11], w[12], w[13], w[14], w[15]);
+}
+
 static int texel_zero_slot(int slot, int storage) {
     static uint64_t mask[2];
     static int init;
@@ -1455,7 +1477,7 @@ static int texel_zero_slot(int slot, int storage) {
             if (p) p++;
         }
     }
-    return !storage && !twin_dispatch && slot >= 0 && slot < 128 && (mask[slot >> 6] >> (slot & 63) & 1);
+    return !storage && !twin_dispatch && texel_zero_fs_ok && slot >= 0 && slot < 128 && (mask[slot >> 6] >> (slot & 63) & 1);
 }
 
 static VkBufferView texel_view(uint64_t h, int storage) {
@@ -1489,8 +1511,13 @@ static VkBufferView texel_view(uint64_t h, int storage) {
     // float view of the same 32-bit layout gives exactly those bits back. An integer view under a float sampled type is
     // undefined in Vulkan: Age of Calamity's light index lists (R32UI) read as garbage counts there and its lighting
     // loops hung the GPU (ring timeout). 8- and 16-bit integer formats have no such twin: logged once, kept.
-    if (!storage) {
-        VkFormat twin = f.vk == VK_FORMAT_R32_UINT || f.vk == VK_FORMAT_R32_SINT ? VK_FORMAT_R32_SFLOAT
+    static int twin_on = -1;   // AOC_TEXEL_TWIN=0 (diagnosis): integer views as Ryujinx binds them, no float twin
+    if (twin_on < 0) {
+        const char *e = cfg_get("AOC_TEXEL_TWIN");
+        twin_on = !(e && !strcmp(e, "0"));
+    }
+    if (!storage && twin_on) {
+        VkFormat twin =f.vk == VK_FORMAT_R32_UINT || f.vk == VK_FORMAT_R32_SINT ? VK_FORMAT_R32_SFLOAT
                       : f.vk == VK_FORMAT_R32G32_UINT || f.vk == VK_FORMAT_R32G32_SINT ? VK_FORMAT_R32G32_SFLOAT
                       : f.vk == VK_FORMAT_R32G32B32A32_UINT || f.vk == VK_FORMAT_R32G32B32A32_SINT ? VK_FORMAT_R32G32B32A32_SFLOAT
                       : VK_FORMAT_UNDEFINED;
@@ -2006,7 +2033,30 @@ static void bind_resources(VkExec *ex, const VkPipeInfo *info) {
                     int slot = r->slot + (int)k;
                     uint64_t h = img ? (slot >= 0 && slot < 32 ? ex->img[st][slot] : 0)
                                      : (slot >= 0 && slot < 128 ? ex->tex[st][slot] : 0);
-                    VkBufferView v = texel_zero_slot(slot, img) ? Z.zview : texel_view(h, img);
+                    int zero = texel_zero_slot(slot, img);
+                    if (zero) {   // AOC_TEXEL_ZERO: say once that the filter matched, and which shaders
+                        static char seen[64][9];
+                        static int nseen;
+                        int k = 0;
+                        while (k < nseen && strcmp(seen[k], B_fs_key)) k++;
+                        if (k == nseen && nseen < 64) {
+                            memcpy(seen[nseen++], B_fs_key, 9);
+                            rt_log("vk: AOC_TEXEL_ZERO zeroed slot %d (fragment key %s)", slot, B_fs_key);
+                        }
+                    }
+                    VkBufferView v = zero ? Z.zview : texel_view(h, img);
+                    texel_log(slot, h);
+                    if (texel_log_match && k == 0) {   // the fragment stage's first user block (c3), as the guest wrote it
+                        static int ulog;
+                        const p_bind_buf *ub = &ex->ubo[NVN_STAGE_FS][0];
+                        if (ulog < 8 && ub->addr && ub->size >= 32) {
+                            ulog++;
+                            const float *f = (const float *)(uintptr_t)ub->addr;
+                            rt_log("vk: texel log: frame %llu fs c3 at %#llx size %#llx: %g %g %g %g | %g %g %g %g", (unsigned long long)gfx_stats().frames,
+                                   (unsigned long long)ub->addr, (unsigned long long)ub->size, f[0], f[1], f[2], f[3],
+                                   f[4], f[5], f[6], f[7]);
+                        }
+                    }
                     o[k].w[0] = 0, o[k].w[1] = 0, o[k].w[2] = 0;
                     o[k].view = v;
                     if (need_w) bv[nd + k] = v;
@@ -2435,6 +2485,38 @@ static int prepare_draw(VkExec *ex, int prim, int32_t count, int restart) {
     vk_dlaa_draw(ex);
     record_fixed(ex);
     repeat_stats(ex, info);
+    if (texel_log_on) {   // AOC_TEXEL_LOG_FS (diagnosis)
+        static const char *lf;
+        if (texel_log_on < 0) {
+            lf = cfg_get("AOC_TEXEL_LOG_FS");
+            texel_log_on = lf && *lf;
+        }
+        if (texel_log_on) {
+            char k[9];
+            key8(s.fs, k);
+            texel_log_match = !strncmp(k, lf, strlen(lf) < 8 ? strlen(lf) : 8);
+        }
+    }
+    {   // AOC_TEXEL_ZERO_FS (diagnosis): AOC_TEXEL_ZERO only in draws whose fragment shader key starts so
+        static const char *zf = (const char *)1;
+        static int zany = -1;
+        if (zf == (const char *)1) zf = cfg_get("AOC_TEXEL_ZERO_FS");
+        if (zany < 0) {
+            const char *e = cfg_get("AOC_TEXEL_ZERO");
+            zany = e && *e;
+        }
+        if (zany && (zf == NULL || !*zf)) key8(s.fs, B_fs_key);
+        if (zf && *zf) {
+            char k[9];
+            key8(s.fs, k);
+            memcpy(B_fs_key, k, 9);
+            texel_zero_fs_ok = 0;   // a comma list of key prefixes
+            for (const char *q = zf; q && *q && !texel_zero_fs_ok; q = strchr(q, ','), q = q ? q + 1 : NULL) {
+                size_t n = strcspn(q, ",");
+                texel_zero_fs_ok = n && !strncmp(k, q, n < 8 ? n : 8);
+            }
+        }
+    }
     bind_resources(ex, info);
     if (fbl & ex->fb_dirty) feedback_barrier(ex);
     feedback_written(ex, &s);

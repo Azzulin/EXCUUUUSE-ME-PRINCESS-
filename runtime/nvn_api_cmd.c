@@ -923,6 +923,15 @@ NVN_API(nvnCommandBufferCopyTextureToBuffer) {
     p_copy_b2t *o = REC(cmd_of(c), OP_COPY_T2B, p_copy_b2t);
     o->src = arg_x(c, 4);
     o->tex = tex_pin(arg_p(c, 1));
+    {   // AOC_TRACE=gfx: the first small texture-to-buffer copies (a value the CPU reads back)
+        static int said;
+        const tex_t *t = arg_p(c, 1);
+        if ((rt_trace & RT_TRACE_GFX) && said < 16 && t && t->d.width <= 4 && t->d.height <= 4) {
+            said++;
+            rt_log("nvn: CopyTextureToBuffer %ux%u format %#x -> %#llx", t->d.width, t->d.height, t->d.format,
+                   (unsigned long long)o->src);
+        }
+    }
     copy_view(&o->view, &o->has_view, arg_p(c, 2));
     o->r = *(const NVNcopyRegion *)arg_p(c, 3);
     o->flags = (int)arg_x(c, 5);

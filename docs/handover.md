@@ -117,31 +117,34 @@ partir de 100 s, `AOC_TRACE=perf`, vigia de travada).
 0. **Levar as correções da sessão 3 ao Deck** (offline desde a tarde de 2026-11-05; o dono acha que travou numa
    corrida longa). Ao voltar: `journalctl -k -b -1` (o que aconteceu), `tools/build.py dist` no WSL (o guest não
    mudou; só o runtime) e `tools/deck/deploy.sh`. Esperado: sem a travada ~frame 570 e sem o "ring gfx timeout".
-1. **Imagem lavada na batalha** (o bloqueio atual da imagem). Já resolvido na sessão 3: a perda do dispositivo era o
-   tamanho da memória compartilhada dos compute shaders (`gfx_shader.c`, controle +0x754, `KEY_VERSION` 5). O que
-   sobra, medido no dump do frame 4400 (`AOC_DUMP=4400`, pasta `C:\aoc-win\dump*`):
-   - G-buffer certo (pass 9); iluminação do sol (pass 40) idêntica com e sem luzes locais; exposição fixa em 0,0103
-     (pass 89, 2×1 R32F, a outra célula é 1/0,0103) — não é a exposição.
-   - O véu nasce no **pass 53** (fs `719f2567…`, passe de luzes locais em tela cheia, mesmo VS do pass 40): mínimo azul
-     2,75 em vez de 0; no pass 86 o mínimo da imagem inteira vai a 13 (contra 0,6 sem luzes).
-   - `AOC_TEXEL_ZERO=17,18,20` (posições/raios, cores e spots das luzes viram zero só nos draws) ou
-     `AOC_TEXEL_VIEWS=cs` dão imagem com contraste e sombras; `AOC_TEXEL_ZERO=25` (tabela de materiais) não muda;
-     `AOC_UBO_SNAPSHOT=0` não muda.
-   - Os dados lidos de verdade (snapshot `AOC_DUMP_BUF=0x1902ad040:0x6180`, endereço muda entre execuções — conferir
-     em `passes.txt`): 7 luzes, duas a 30–50 km com raio 200, cinco desligadas na origem com raio −1; nenhum spot;
-     slot 19 = `(2, 0xff, 0)` por luz (tipo e máscara, dentro do teste de distância). A matriz de P do pass 53 (c3
-     linhas 27–30) está certa (`[29].xyz/[29].w` = câmera). Com esses dados nenhuma luz deveria passar no teste
-     `|L−P|² < r²` — ainda não explicado. Próximas apostas: (a) o que o pass 53 lê do `tcb_28` (cabeçalho/índices)
-     com o `AOC_DUMP_BUF` no endereço do slot 16; (b) inteiros pequenos (2, 0xff, índices) lidos por view R32_SFLOAT
-     (são denormais — se o hardware zerar denormais o resultado muda); um teste é declarar `usamplerBuffer` no
-     tradutor para buffer textures de formato inteiro; (c) shader `light53` decompilado em `C:\aoc-win\glsl`.
-   Ferramentas novas: `AOC_CRUMB_DRAWS=1` + `AOC_VK_RECORDER=0` (breadcrumb por draw/dispatch; na perda do dispositivo
-   o log diz o shader), `AOC_TEXEL_ZERO=<slots>`, `vk_dump` mostra o buffer texture real de cada slot,
-   `spirv-cross --vulkan-semantics` nos `sh_*.spv` do dump.
-   **Atenção:** depois da mudança de formato das views de storage (`storage_view_format`), 2 de 8 corridas perderam o
-   dispositivo (antes 0 de 4) — as duas com o gravador (`vk_rec.c`, ligado por padrão na NVIDIA) ativo; 3 de 3 com
-   `AOC_VK_RECORDER=0` passaram (`C:\aoc-win\lost_loop.sh`). Se voltar a cair, rodar com crumbs para ver o shader;
-   suspeitos: o gravador, ou a mudança de formato.
+1. **Imagem lavada na batalha** (o bloqueio atual da imagem). A perda do dispositivo já foi resolvida (memória
+   compartilhada, `KEY_VERSION` 5). O que se sabe do véu claro, medido nos dumps do frame 4400 (`C:\aoc-win\dump*`):
+   - **Não é** exposição: a do jogo vai de `2^-6,6` = 0,0103 a `2^-5,9` (c5 do pass 89: medidor travado entre
+     luminância 9,85 e 16); a nossa fica no mínimo porque a cena média passa de 16. Não é a leitura r32ui da exposição
+     anterior, nem leitura de volta pela CPU (nenhum ReadTexels/CopyTextureToBuffer de textura pequena), nem o
+     snapshot de uniformes, nem a tabela de materiais, nem a LUT de BRDF (valores 0–1, certos), nem o céu (LUT 3D de
+     espalhamento idêntica), nem as views inteiras vs. float (`AOC_TEXEL_TWIN=0` igual).
+   - **É** a luz ambiente do cubo de ambiente: zerar só as buffer textures do shader `7da82f37` (filtro do cubo,
+     roda uma vez na carga da batalha, frame ~3506) dá uma imagem com contraste (sombras pretas demais — falta luz
+     ambiente, o certo fica no meio). Os dados que ele lê estão certos (slot 17 RGBA16F com direções/LOD, slot 18
+     R32F pesos ~1, c3 = 128, soma 127,153, face) e a saída tem valores plausíveis (15–300, face do sol até 3 776).
+   - Conclusão provisória: a cena inteira sai ~10–20× mais clara do que o medidor espera (sol c3[4] ≈ 556, ambiente
+     ≈ 150, superfícies ao sol ≈ 1 000–1 400; o jogo quer média 10–16). Próximas apostas: (a) a captura do cubo de
+     origem (passes ~100–105 do dump de carga `C:\aoc-win\dumpc`, faces 128×128 de 7 a 376 e o sol a 62 464) —
+     comparar com o que o jogo espera; (b) um fator de pré-exposição que o KTGL aplique e nós não (procurar no pass 9,
+     que lê o 2×1 de exposição); (c) a LUT 3D de cor do tonemap (32³ rgba16f; layout 3D block-linear) — ter uma
+     captura de referência (Switch ou emulador) da mesma cena ajudaria muito.
+   - Ferramentas desta investigação: `AOC_CRUMB_DRAWS=1` + `AOC_VK_RECORDER=0` (breadcrumb por draw),
+     `AOC_TEXEL_ZERO=<slots>` com `AOC_TEXEL_ZERO_FS=<prefixos de chave>` (zera buffer textures só nesses fragment
+     shaders; o log diz quais casaram), `AOC_TEXEL_LOG_FS=<prefixo>` (endereço, formato, 16 palavras e o c3 do
+     shader, com o frame), `AOC_TEXEL_TWIN=0`, `AOC_DUMP_LOG=<de>` para pegar frames de carga, `AOC_DUMP_TEX=WxH`,
+     `AOC_TRACE=gfx` registra leituras de textura pequena. Hash do dump (FNV-1a do SPIR-V) → chave do cache: mesma
+     conta sobre `shader-cache/*.spv`. GLSL com `spirv-cross --vulkan-semantics`.
+   - **Perda de dispositivo residual:** só apareceu em corridas com dump ou com o slot 16 zerado (nenhuma em mais de
+     dez corridas normais); com `AOC_VK_RECORDER=0` não apareceu. Fica para depois.
+   - **Denormais:** a RTX 3050 informa `shaderDenormPreserveFloat32 = false`; o SPIR-V do Ryujinx carrega inteiros
+     em variáveis float (ex.: o índice do laço do filtro do cubo começa como a constante float 2,8e-45). Não explicou
+     o véu, mas é um risco real; no Deck (RADV) dá para pedir `DenormPreserve`.
 2. **Desempenho na batalha.** No notebook (i5-11400H) a batalha fica em 30 fps, mas sem folga: GPU 6,7 ms, replay
    7,8 ms, e a thread do jogo ocupa os 33 ms (`bound: cpu`). No Deck eram 16–21 fps. Medir onde a CPU do guest gasta
    (`AOC_PROFILE` no Windows, `prof_win.c`) antes de mexer. E **shaders antecipados**: a entrada da batalha ainda

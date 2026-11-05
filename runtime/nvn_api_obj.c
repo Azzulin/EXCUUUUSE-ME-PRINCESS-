@@ -310,6 +310,12 @@ static void read_texels(Cpu *c, int strided) {
     texel_strides(o, r, &row, &img, "ReadTexels");
     NVN_BLOCKING();
     gfx_backend()->read_texels(o, arg_p(c, 1), r, arg_p(c, 3), row, img);
+    static int said;   // AOC_TRACE=gfx: the first small readbacks (exposure-like values the CPU may use)
+    if ((rt_trace & RT_TRACE_GFX) && said < 16 && o->d.width <= 4 && o->d.height <= 4) {
+        said++;
+        const float *f = arg_p(c, 3);
+        rt_log("nvn: ReadTexels %ux%u format %#x: %g %g %g %g", o->d.width, o->d.height, o->d.format, f[0], f[1], f[2], f[3]);
+    }
 }
 // void nvnTextureWriteTexels[Strided](const NVNtexture *t, const NVNtextureView *v, const NVNcopyRegion *r, const void
 // *src[, ptrdiff_t row, ptrdiff_t img])

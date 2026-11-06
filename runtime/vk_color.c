@@ -5,8 +5,10 @@
 // nothing is recorded and the present is what it was. Design and preset values: STS78721's colour profiles (issue #136).
 //
 // One compute pass (shaders/color_grade.comp) reads the crop rectangle of the game's image and writes an RGBA16F image
-// of its size, which present_image then hands to FSR or the blit in place of the game's image. The HUD is part of that
-// picture and is adjusted with it; the in-game menu is drawn later, straight into the swapchain image, and is not.
+// of its size, which present_image then hands to FSR or its draw (vk_blit.c) in place of the game's image. The image is
+// read through a view of the format the present passes: an sRGB window texture through its UNORM twin, so the
+// adjustment works on the bytes the display gets (mid-grey 0.5 is the display's). The HUD is part of that picture and
+// is adjusted with it; the in-game menu is drawn later, straight into the swapchain image, and is not.
 // The source view of slot s is destroyed when slot s records again (present_image has waited for that slot's fence);
 // the output image is shared by all slots, and each frame's first barrier orders it after the previous frame's reads.
 #include "vk.h"

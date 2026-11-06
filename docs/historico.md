@@ -191,3 +191,34 @@ O Deck saiu da rede numa corrida longa; o dono pediu para seguir testando no not
 - Estabilidade: perda de dispositivo com o gravador ligado vinha do push direto no conversor de quads; corrigido.
 - Ferramentas novas: `AOC_PRESENT_SHOT`, `AOC_DUMP_RAW` (.f32), `AOC_DUMP_LOG_VKFMT`, estado de depth/stencil/blend no
   dump, `AOC_SCAN_F32`/`AOC_SCAN_FRAME`, `--probe-libm`, `AOC_SKIP_DRAW_IND` (diagnóstico).
+
+## Sessão 4 — 2026-11-06 (notebook, build nativo do Windows)
+
+### Cor da janela: os bytes do jogo como estão
+
+- Causa: o jogo termina num alvo `RGBA8_SRGB` (NVN 0x38) e o Switch manda esses bytes à tela como estão. Nossa
+  apresentação lia a imagem pelo formato dela: o `vkCmdBlitImage` e o FSR decodificavam sRGB para linear e gravavam o
+  linear num swapchain UNORM (janela escura e supersaturada).
+- Correção: a imagem do jogo é lida por uma **view UNORM** (`gfx_present.c` `unorm_view_format`; as imagens de cor já
+  são `MUTABLE_FORMAT`). Como o `vkCmdBlitImage` não aceita view, ele virou um draw de tela cheia (`vk_blit.c`,
+  `shaders/present_blit.frag`): bilinear no mesmo mapeamento do blit, texel a texel quando os tamanhos batem, barras
+  pretas pelo clear do próprio passe. O FSR devolve a imagem dele e o draw a põe no lugar (antes, um blit 1:1); o
+  ajuste de cor (`vk_color.c`) lê pela mesma view e passa a trabalhar nos valores da tela, como o shader supõe. O HDR10
+  continua decodificando (o PQ precisa de luz). Custo: o do blit (uma leitura da imagem, uma escrita do swapchain);
+  nenhum passe a mais no Deck.
+- Medido com a imagem do jogo (`AOC_SHOTS` + `AOC_SHOTS_FULL`) e a da janela (`AOC_PRESENT_SHOT`) no mesmo frame,
+  contra a interpolação bilinear do blit refeita em numpy (`C:\aoc-win\cmp\cmp.py`):
+
+  | Caminho | Frame | Janela × jogo: diferença média / máxima |
+  |---|---|---|
+  | Redução bilinear com barras em cima e embaixo (janela 1280×800, o caso do Deck) | 4300 (batalha) | 0,16 / 0,5 |
+  | Redução com barras dos lados (janela 1604×881) | 1200 | 0,08 / 1 |
+  | Ajuste de cor (`AOC_COLOR_BRIGHTNESS=10`: esperado jogo + 25,5) | 1200 | 0,30 / 1 |
+  | FSR (recorte 1280×720 forçado só no teste, ampliado para 1566×881) | 1200 | 0,33 média, cor média igual (as bordas mudam pelo realce do FSR) |
+
+  Antes a janela batia com a imagem decodificada (23–45 de diferença média contra a do jogo). Grama na batalha:
+  152,6 / 184,4 / 161,7 no jogo e na janela. As barras saem pretas (0).
+- A janela agora mostra o véu claro da imagem verdadeira: é a Fase D, não a apresentação.
+- Visto no caminho: o `aoc.exe` do Windows roda **sem DPI por monitor** (`--probe-dpi`: "unaware"; o manifesto do
+  Astral Chain não entrou no nosso build). No notebook a 120 % o Windows estica a janela de 1604×881 para 1925×1057
+  pixels físicos, borrando a imagem.

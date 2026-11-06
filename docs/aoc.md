@@ -256,3 +256,15 @@ Pontos que o boot do AoC expôs no runtime herdado (corrigidos):
   de materiais; bits 16–23 escolhem a linha da rampa 256×8).
 - **Custo na batalha** (i5-11400H + RTX 3050): 30 fps estáveis; GPU 6,7 ms, replay 7,8 ms, thread do jogo ocupando os
   33 ms (`bound: cpu`). Entrada da batalha com cache frio: frame de 20,6 s (pipelines 13,6 s, tradução 4 s).
+
+## Apresentação (2026-11-06, build nativo do Windows)
+
+- **Textura da janela**: `RGBA8_SRGB` (NVN 0x38), **1920×1080** em toda a rota, também com `AOC_OPERATION_MODE=handheld`
+  e com `AOC_OUTPUT_RES=1280x800` (o gerador não tem os patches de resolução: "the game keeps its own resolution"). O
+  jogo codifica sRGB uma vez só, no alvo; o Switch mostra os bytes como estão.
+- **Janela × imagem do jogo** depois da correção (mesmo frame, bilinear do blit refeita em numpy): diferença média
+  0,08–0,16, máxima ≤ 1; cor média da batalha no frame 4300: 226,1 / 235,9 / 218,0 nas duas. Antes da correção a
+  janela batia com a imagem decodificada de sRGB (23–45 de diferença média contra a do jogo).
+- **DPI no Windows**: o `aoc.exe` é "unaware" (`--probe-dpi`). Notebook: tela 1920×1080 a 120 % = 1600×900 lógicos;
+  `AOC_WINDOW_SIZE=1920x1080` vira janela de 1604×881 lógicos (limite de arraste da tela), esticada pelo Windows para
+  1925×1057 físicos.

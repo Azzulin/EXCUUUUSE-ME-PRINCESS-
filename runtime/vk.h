@@ -96,25 +96,36 @@ void vk_crumb(VkCommandBuffer cb, int kind, uint64_t n);
 void vk_crumbs_report(void);         // logs the two codes and what they name
 
 // ---- window and present (gfx_present.c). Host threads only.
-// vk_present_image: blits the crop rectangle {x, y, w, h} of src (NULL, or w/h <= 0: the whole w x h image), scaled
+// vk_present_image: puts the crop rectangle {x, y, w, h} of src (NULL, or w/h <= 0: the whole w x h image), scaled
 // to the swapchain extent, into the acquired swapchain image and presents it. src is in layout, which is
-// VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL (its writes made visible to the transfer stage by the caller's barrier) or
-// VK_IMAGE_LAYOUT_GENERAL (vk_texture.c images: the present makes earlier writes visible and orders later writes after
-// the blit). All its writes must be submitted to gfx_queue before the call (queue order does the rest). Starts the
-// window on first use. A minimised window or a lost swapchain skips the frame. Calls serialise on an internal lock.
+// VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL (blitted; its writes made visible to the transfer stage by the caller's
+// barrier) or VK_IMAGE_LAYOUT_GENERAL (vk_texture.c images: read through a view, an sRGB one as its UNORM twin, by FSR
+// or the present's draw; the present makes earlier writes visible and orders later writes after its read). All its
+// writes must be submitted to gfx_queue before the call (queue order does the rest). Starts the window on first use.
+// A minimised window or a lost swapchain skips the frame. Calls serialise on an internal lock.
 void vk_present_image(VkImage src, VkImageLayout layout, VkFormat fmt, int w, int h, const int crop[4]);
 // vk_present_image split in two: vk_present_blit submits the blit and leaves the present waiting, vk_present_flip
 // queues it. The next blit or a swapchain rebuild queues a waiting present first.
 void vk_present_blit(VkImage src, VkImageLayout layout, VkFormat fmt, int w, int h, const int crop[4]);
-// FSR 1 on the present (vk_fsr.c): records EASU (+ RCAS) of src's crop rectangle {x, y, w, h} into the rectangle out
-// {x, y, w, h} of dst, a swapchain image in TRANSFER_DST; src is in GENERAL and fmt its format. 0 = nothing recorded
-// (the setting says bilinear, no upscale is needed, or FSR is not available): the caller blits.
-int vk_fsr_record(VkCommandBuffer cb, unsigned slot, VkImage src, VkFormat fmt, int sw, int sh, const int crop[4],
-                  VkImage dst, const int out[4]);
+// FSR 1 on the present (vk_fsr.c): records EASU (+ RCAS) of src's crop rectangle {x, y, w, h} (src sw x sh, in GENERAL,
+// read through a view of fmt) scaled to dw x dh, and returns the RGBA16F image of that size holding it, in GENERAL (the
+// caller draws it into the swapchain image). VK_NULL_HANDLE = nothing recorded (the setting says bilinear, no upscale
+// is needed, or FSR is not available): the caller scales the source itself.
+VkImage vk_fsr_record(VkCommandBuffer cb, unsigned slot, VkImage src, VkFormat fmt, int sw, int sh, const int crop[4],
+                      uint32_t dw, uint32_t dh);
 void vk_fsr_release(void);   // before the device goes away
+// The present's draw (vk_blit.c): src's crop rectangle {x, y, w, h} (src sw x sh, in GENERAL, read through a view of
+// fmt) scaled bilinearly into the rectangle out {x, y, w, h} of dst, a dw x dh swapchain image of format dst_fmt with
+// the colour attachment view dst_view, black around it. dst's old content is dropped and it is left in
+// COLOR_ATTACHMENT_OPTIMAL, written at the colour attachment output stage, where the acquire semaphore must be waited
+// for. 0 = nothing recorded (no pipeline or view): the caller blits.
+int vk_blit_record(VkCommandBuffer cb, unsigned slot, VkImage src, VkFormat fmt, int sw, int sh, const int crop[4],
+                   VkImage dst, VkImageView dst_view, VkFormat dst_fmt, uint32_t dw, uint32_t dh, const int out[4]);
+void vk_blit_release(void);   // before the device goes away
 // Colour adjustment on the present (vk_color.c): with AOC_COLOR_* away from their defaults, records a pass that writes
 // src's crop rectangle {x, y, w, h}, adjusted, into an RGBA16F image of that size in GENERAL and returns it (the caller
-// scales that one instead, crop {0, 0, w, h}); VK_NULL_HANDLE = nothing recorded. src is in GENERAL, fmt its format.
+// scales that one instead, crop {0, 0, w, h}); VK_NULL_HANDLE = nothing recorded. src is in GENERAL, read through a
+// view of fmt.
 VkImage vk_color_record(VkCommandBuffer cb, unsigned slot, VkImage src, VkFormat fmt, const int crop[4]);
 void vk_color_release(void);   // before the device goes away
 // HDR output (vk_hdr.c). vk_hdr_wanted: AOC_HDR, read once. vk_hdr_surface_format: the HDR10 surface format when wanted

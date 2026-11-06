@@ -10,7 +10,8 @@
 // submission takes the recursive queue lock (vk_queue_lock). The swapchain is rebuilt lazily: a resize only marks it
 // dirty (gfx_window_mark_dirty), the next present (or gfx_window_resize) rebuilds it.
 //
-// The in-game menu (ui/menu.h) draws over the game image in the present's command buffer, after the blit. The window's
+// The in-game menu (ui/menu.h) draws over the game image in the present's command buffer, after the picture (the draw
+// of vk_blit.c, or FSR's output through it). The window's
 // size and fullscreen state are the settings AOC_WINDOW_SIZE and AOC_FULLSCREEN, which the back end applies at start
 // and whenever a cfg_set changes them (window_settings_live -> gfx_window_apply_settings).
 #include <stdio.h>
@@ -312,7 +313,8 @@ static int create_swapchain(void) {
     if (nf > 64) nf = 64;
     vkGetPhysicalDeviceSurfaceFormatsKHR(c->phys, g_surface, &nf, fmts);
     if (!nf) return 0;
-    // UNORM: the blit writes the bytes the game wrote (no sRGB encode). AOC_HDR: HDR10 when the surface offers it.
+    // UNORM: the present writes the bytes the game wrote, with no sRGB encode (its draw reads an sRGB picture through a
+    // UNORM view, present_image). AOC_HDR: HDR10 when the surface offers it.
     VkSurfaceFormatKHR sf = fmts[0];
     int hdr = vk_hdr_surface_format(fmts, nf, &sf), found = hdr;
     for (uint32_t i = 0; i < nf && !found; i++)
@@ -553,6 +555,19 @@ void gfx_fit_rect(int cw, int ch, int dw, int dh, int out[4]) {
     out[0] = (dw - out[2]) / 2, out[1] = (dh - out[3]) / 2;
 }
 
+// The format a view reads the bytes of an fmt image as they are: the UNORM twin of an 8-bit sRGB colour format (same
+// layout, no decode; vk_texture.c makes colour images MUTABLE_FORMAT), any other format itself.
+static VkFormat unorm_view_format(VkFormat fmt) {
+    switch (fmt) {
+    case VK_FORMAT_R8_SRGB: return VK_FORMAT_R8_UNORM;
+    case VK_FORMAT_R8G8_SRGB: return VK_FORMAT_R8G8_UNORM;
+    case VK_FORMAT_R8G8B8A8_SRGB: return VK_FORMAT_R8G8B8A8_UNORM;
+    case VK_FORMAT_B8G8R8A8_SRGB: return VK_FORMAT_B8G8R8A8_UNORM;
+    case VK_FORMAT_A8B8G8R8_SRGB_PACK32: return VK_FORMAT_A8B8G8R8_UNORM_PACK32;
+    default: return fmt;
+    }
+}
+
 static void present_image(VkImage src, VkImageLayout layout, VkFormat fmt, int w, int h, const int crop[4], int defer) {
     int general = layout == VK_IMAGE_LAYOUT_GENERAL;
     gfx_window_start();
@@ -634,48 +649,67 @@ static void present_image(VkImage src, VkImageLayout layout, VkFormat fmt, int w
     uint64_t crumb = __atomic_load_n(&gfx_counters.frames, __ATOMIC_RELAXED);
     vk_crumb(cb, VK_CRUMB_PRESENT, crumb);
     VkImage dst = g_sc_img[idx];
-    sync_barrier(cb, dst, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_PIPELINE_STAGE_2_TRANSFER_BIT, 0,
-                 VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
     const int rect[4] = {cx, cy, cw, ch};
     int to[4];   // where the picture goes in the swapchain image: {x, y, w, h}
     gfx_fit_rect(cw, ch, (int)g_sc_ext.width, (int)g_sc_ext.height, to);
-    if (to[2] != (int)g_sc_ext.width || to[3] != (int)g_sc_ext.height) {   // black bars beside or above and below it
-        VkClearColorValue black = {.float32 = {0, 0, 0, 1}};
-        VkImageSubresourceRange all = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-        vkCmdClearColorImage(cb, dst, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &black, 1, &all);
-        sync_barrier(cb, dst, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                     VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_TRANSFER_BIT,
-                     VK_ACCESS_2_TRANSFER_WRITE_BIT);
-    }
+    // The game's picture is read through a view of the UNORM format of its layout: the Switch sends the bytes of its
+    // sRGB window texture (RGBA8_SRGB, NVN 0x38) to the display as they are, and the UNORM swapchain with the sRGB
+    // colour space shows them so. Reading it as sRGB (a blit, a view of its own format) decoded it to linear values,
+    // which the swapchain then showed as if encoded: grass at 163, 203, 155 in the game's image came out 92, 162, 81.
+    VkFormat vfmt = unorm_view_format(fmt);
     // Colour adjustment (AOC_COLOR_*, vk_color.c), or on an HDR10 swapchain the PQ encode (vk_hdr.c; the adjustment is
-    // for SDR): a copy of the crop takes the game image's place below
+    // for SDR; the encode wants light, so it reads the picture in its own format): a copy of the crop takes the game
+    // image's place below
     VkImage graded = !general ? VK_NULL_HANDLE : g_sc_hdr ? vk_hdr_encode(cb, slot, src, fmt, rect)
-                                                         : vk_color_record(cb, slot, src, fmt, rect);
-    const int grect[4] = {0, 0, cw, ch};
+                                                         : vk_color_record(cb, slot, src, vfmt, rect);
     VkImage psrc = graded ? graded : src;
-    VkFormat pfmt = graded ? VK_FORMAT_R16G16B16A16_SFLOAT : fmt;
-    const int *prect = graded ? grect : rect;
-    // FSR (AOC_UPSCALER) when the picture's rectangle is larger than the crop; else the bilinear blit
-    int fsr = general && vk_fsr_record(cb, slot, psrc, pfmt, graded ? cw : w, graded ? ch : h, prect, dst, to);
-    g_scaler = fsr ? 2 : cw != to[2] || ch != to[3];
-    if (!fsr) {
+    VkFormat pfmt = graded ? VK_FORMAT_R16G16B16A16_SFLOAT : vfmt;
+    int pw = graded ? cw : w, ph = graded ? ch : h;
+    int prect[4] = {graded ? 0 : cx, graded ? 0 : cy, cw, ch};
+    // FSR (AOC_UPSCALER) when the picture's rectangle is larger than the crop: its output, of the rectangle's size,
+    // takes the picture's place
+    VkImage up = general ? vk_fsr_record(cb, slot, psrc, pfmt, pw, ph, prect, (uint32_t)to[2], (uint32_t)to[3])
+                         : VK_NULL_HANDLE;
+    g_scaler = up ? 2 : cw != to[2] || ch != to[3];
+    if (up) {
+        psrc = up, pfmt = VK_FORMAT_R16G16B16A16_SFLOAT, pw = to[2], ph = to[3];
+        prect[0] = prect[1] = 0, prect[2] = to[2], prect[3] = to[3];
+    }
+    // last: the image's layout, and the stage and access of its last write, as each step leaves it
+    VkImageLayout last = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    VkPipelineStageFlags2 last_stage = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+    VkAccessFlags2 last_write = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+    // The picture into the swapchain image: drawn through the view (vk_blit.c), the bars around it cleared to black by
+    // the same pass; blitted when the source is the probe's TRANSFER_SRC image or the draw cannot run (an sRGB picture
+    // then shows decoded, as before the draw)
+    if (!general || !vk_blit_record(cb, slot, psrc, pfmt, pw, ph, prect, dst, g_sc_view[idx], g_sc_fmt, g_sc_ext.width,
+                                    g_sc_ext.height, to)) {
+        sync_barrier(cb, dst, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                     VK_PIPELINE_STAGE_2_TRANSFER_BIT, 0, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
+        if (to[2] != (int)g_sc_ext.width || to[3] != (int)g_sc_ext.height) {   // black bars beside or above and below it
+            VkClearColorValue black = {.float32 = {0, 0, 0, 1}};
+            VkImageSubresourceRange all = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+            vkCmdClearColorImage(cb, dst, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &black, 1, &all);
+            sync_barrier(cb, dst, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                         VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+                         VK_ACCESS_2_TRANSFER_WRITE_BIT);
+        }
         if (general)   // a GENERAL source (vk_texture.c images): earlier submissions' writes become visible to the blit here
             sync_barrier(cb, psrc, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
                          VK_ACCESS_2_MEMORY_WRITE_BIT, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT);
         VkImageBlit region = {
             .srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
-            .srcOffsets = {{prect[0], prect[1], 0}, {prect[0] + cw, prect[1] + ch, 1}},
+            .srcOffsets = {{prect[0], prect[1], 0}, {prect[0] + prect[2], prect[1] + prect[3], 1}},
             .dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1}, .dstOffsets = {{to[0], to[1], 0}, {to[0] + to[2], to[1] + to[3], 1}}};
         vkCmdBlitImage(cb, psrc, general ? VK_IMAGE_LAYOUT_GENERAL : VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dst,
                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region, VK_FILTER_LINEAR);
         if (general)   // later submissions that write the source wait for the blit's read
             sync_barrier(cb, psrc, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_TRANSFER_BIT, 0,
                          VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, 0);
+        last = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        last_stage = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+        last_write = VK_ACCESS_2_TRANSFER_WRITE_BIT;
     }
-    // last: the image's layout, and the stage and access of its last write, as each step leaves it
-    VkImageLayout last = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-    VkPipelineStageFlags2 last_stage = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
-    VkAccessFlags2 last_write = VK_ACCESS_2_TRANSFER_WRITE_BIT;
     // HDR10: the menu goes into vk_hdr.c's RGBA8 image, which is then blended onto the swapchain image at the HUD's white
     VkImageView menu_view = overlay && g_sc_hdr ? vk_hdr_ui_target(cb, g_sc_ext.width, g_sc_ext.height) : VK_NULL_HANDLE;
     if (overlay && g_sc_hdr && !menu_view) overlay = 0;
@@ -721,8 +755,11 @@ static void present_image(VkImage src, VkImageLayout layout, VkFormat fmt, int w
     vk_crumb(cb, VK_CRUMB_PRESENT_END, crumb);
     vkEndCommandBuffer(cb);
 
+    // the swapchain image is first touched by the draw (attachment output) or the blit's clear and copy (transfer); the
+    // compute passes before them need not wait for the acquire
     VkSemaphoreSubmitInfo wait = {.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO, .semaphore = g_acquire[slot],
-                                  .stageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT};
+                                  .stageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT |
+                                               VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT};
     VkSemaphoreSubmitInfo sig = {.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO, .semaphore = g_render_done[idx],
                                  .stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT};
     VkCommandBufferSubmitInfo cbi = {.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO, .commandBuffer = cb};
@@ -786,6 +823,7 @@ void gfx_window_release_vk(void) {
         g_flip_on = 0;   // its blit is done (device idle); the swapchain goes away unpresented
         menu_vk_release();
         vk_fsr_release();
+        vk_blit_release();
         vk_color_release();
         vk_hdr_release();
         vk_contact_release();

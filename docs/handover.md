@@ -1,7 +1,7 @@
 # Handover — estado do projeto para o próximo agente
 
 Leia isto primeiro, depois `AGENTS.md` (regras) e `docs/plano.md` (fases). O plano de ação imediato e um prompt pronto
-para uma sessão nova estão em `docs/proxima-sessao.md`. Atualizado em 2026-11-05 (sessão 3, no
+para uma sessão nova estão em `docs/proxima-sessao.md`. Atualizado em 2026-11-06 (sessão 4, no
 notebook, build nativo do Windows na RTX 3050). Tudo aqui foi medido no dump do próprio dono do projeto; nada é
 estimativa salvo onde está dito.
 
@@ -19,7 +19,7 @@ por isso não serve direto para x86).
 | 0 — inventário | **Quase fechada.** Falta: teste de tradução dos shaders (Ryujinx + `spirv-val`, precisa .NET 10). |
 | 1 — lifter | **Fechada na prática.** Build completo rodou (~48 min no notebook, 0 falhas), `aoc --selftest` passa, tabela de 1 112 spin waits (`recomp/patches-v130.txt`). Pendentes menores: 1 jump table superconjunto no `subsdk0`, funções gigantes no gerador. |
 | 2 — host/boot | **Portão B2 cumprido.** Runtime do Astral Chain + porta Linux do TotK em `runtime/`. Com `AOC_GPU=null`: laço principal a 30 fps (relógio 1×), 8 756 programas NVN, RomFS e save, **som não-silencioso** depois das telas do primeiro boot (A por `AOC_INPUT_SCRIPT`) e **vídeo de abertura decodificado** (VP9, ~1,3 ms/frame). |
-| 3 — gráficos | **Em andamento.** Deck (SSH) e, desde a sessão 3, **build nativo do Windows** (RTX 3050). A primeira batalha roda **175 s inteiros a 30 fps sem travar** no notebook (antes: travada de CPU ~frame 570 e perda do dispositivo na entrada da batalha; as duas corrigidas, seção 6). Problema aberto: a imagem da batalha sai **lavada** (véu claro somado pelo passe de luzes locais, pass 53 do dump). |
+| 3 — gráficos | **Em andamento.** Deck (SSH) e, desde a sessão 3, **build nativo do Windows** (RTX 3050). A primeira batalha roda **175 s inteiros a 30 fps sem travar** no notebook (antes: travada de CPU ~frame 570 e perda do dispositivo na entrada da batalha; as duas corrigidas, seção 6). A janela mostra os bytes do jogo como estão (sessão 4; antes, decodificados de sRGB). Problema aberto: a imagem da batalha sai **lavada** (véu claro: a cena chega ~10× acima da faixa do medidor de exposição do jogo). |
 | 5 — Deck | `tools/build.py dist --with-romfs` monta a pasta única `dist/aoc-deck/` (sysroot sniper, GLIBC_2.29, romfs por hardlink, LEIA-ME, `aoc.ini`, saves em `profile/` ao lado do executável), testada de ponta a ponta no WSL. **Menu rápido** (L3+R3 segurado): 30 fps, resolução interna portátil/TV ao vivo, overlay. Falta rodar no Deck. |
 
 Números-chave (detalhes em `docs/aoc.md`):
@@ -118,21 +118,25 @@ partir de 100 s, `AOC_TRACE=perf`, vigia de travada).
 0. **Levar as correções da sessão 3 ao Deck** (offline desde a tarde de 2026-11-05; o dono acha que travou numa
    corrida longa). Ao voltar: `journalctl -k -b -1` (o que aconteceu), `tools/build.py dist` no WSL (o guest não
    mudou; só o runtime) e `tools/deck/deploy.sh`. Esperado: sem a travada ~frame 570 e sem o "ring gfx timeout".
-1. **Cor supersaturada/escura na janela do PC — PRÓXIMA CORREÇÃO (prioridade do dono).** A janela não mostra os bytes
-   que o jogo escreveu. Medido no mesmo frame (`AOC_PRESENT_SHOT=<frame>:<png>` grava a imagem final do swapchain):
-   grama do campo = `163, 203, 155` na imagem do jogo (dump/`--shot`) e `92, 162, 81` na janela — exatamente a
-   decodificação sRGB→linear (163 → 0,37·255 = 94). O jogo termina num alvo `RGBA8_SRGB` (NVN 0x38, pass 91/94) e
-   codifica uma vez só (o tonemap sai linear: `c5[1].y = 0` pula o `pow(1/2,2)` dele, `c5[7].x = 1`, `c5[8].z = 1`);
-   o Switch mostra esses bytes como estão. Nossa apresentação (`gfx_present.c` `present_image`) escolhe um swapchain
-   **UNORM** e lê a imagem do jogo pelo formato dela (sRGB): o `vkCmdBlitImage` e o FSR (`vk_fsr.c`, "EASU reads the
-   source through a view of its own format") decodificam para linear e gravam linear num destino que não recodifica.
-   **Correção planejada:** ler a fonte por uma **view UNORM** (as imagens de cor são `MUTABLE_FORMAT`, `vk_texture.c`)
-   no FSR e no ajuste de cor (`vk_color.c`), e no caminho do blit trocar o `vkCmdBlitImage` direto por uma cópia de
-   uma view UNORM (ou um swapchain `B8G8R8A8_SRGB` quando a fonte é sRGB, que faz decode+encode e preserva os bytes).
-   Conferir com `AOC_PRESENT_SHOT` que a janela fica igual ao `--shot` (grama `163, 203, 155`). Atenção: com isso a
-   janela fica mais clara/lavada — é a imagem verdadeira do jogo; o véu claro (item 2) passa a ser o que sobra.
-   O **retângulo branco fixo no centro** que o dono vê na janela só aparece onde há cor; depois desta correção, procurar
-   de novo com `AOC_PRESENT_SHOT` (não aparece na imagem do jogo — é desenhado depois dela, ou depende da sessão do dono).
+1. **Cor da janela — CORRIGIDA na sessão 4.** O jogo termina num alvo `RGBA8_SRGB` (NVN 0x38, pass 91/94) e codifica
+   uma vez só (o tonemap sai linear: `c5[1].y = 0` pula o `pow(1/2,2)` dele, `c5[7].x = 1`, `c5[8].z = 1`); o Switch
+   mostra esses bytes como estão. A apresentação agora lê a imagem do jogo por uma **view UNORM**
+   (`gfx_present.c` `unorm_view_format`) num draw de tela cheia que substituiu o `vkCmdBlitImage` (`vk_blit.c`,
+   `shaders/present_blit.frag`: bilinear no mapeamento do blit, texel a texel quando os tamanhos batem, barras pelo
+   clear do passe); o FSR devolve a imagem dele para esse draw e o ajuste de cor lê pela mesma view. Conferido no mesmo
+   frame (`AOC_SHOTS` + `AOC_SHOTS_FULL` × `AOC_PRESENT_SHOT`, script `C:\aoc-win\cmp\cmp.py`): janela = imagem do jogo
+   com diferença média 0,08–0,16 e máxima ≤ 1 (arredondamento da bilinear) na redução com barras (o caso do Deck) e
+   dos lados; ajuste de cor e FSR também conferidos (tabela em `historico.md`, sessão 4). A janela fica clara/lavada:
+   é a imagem verdadeira; o véu (item 2) é o que sobra. Atenção: a saída do jogo é sempre 1920×1080 (o gerador não
+   tem os patches de resolução; `AOC_OUTPUT_RES` e o modo portátil não a mudam), então no Deck e no notebook o caminho
+   é a redução bilinear; o FSR só entra numa janela maior que 1920×1080.
+   **Retângulo branco fixo no centro** (relato do dono, sessão 3): não aparece em nenhuma captura da janela da sessão 4
+   (todas iguais à imagem do jogo, pixel a pixel, com menu fechado e overlay desligado; com eles fechados o ImGui não
+   desenha nada). Ou depende da sessão do dono (cursor, overlay, entrada), ou de uma cena que as rotas não mostraram.
+   Próximo passo: o dono dizer quando e onde aparece (foto ou captura); ver também o DPI (item 1b).
+1b. **DPI no Windows:** o `aoc.exe` roda sem DPI por monitor (`aoc.exe --probe-dpi`: "unaware"; o manifesto do Astral
+   Chain não entrou no `tools/build.py`). No notebook a 120 % a janela é criada em pixels lógicos (1604×881, limitada à
+   tela de 1600×900 lógicos) e o Windows a estica para 1925×1057 físicos, borrando a imagem.
 2. **Imagem lavada na batalha** (o bloqueio atual da imagem). A perda do dispositivo já foi resolvida (memória
    compartilhada, `KEY_VERSION` 5). O que se sabe do véu claro, medido nos dumps do frame 4400 (`C:\aoc-win\dump*`):
    - **Não é** exposição: a do jogo vai de `2^-6,6` = 0,0103 a `2^-5,9` (c5 do pass 89: medidor travado entre

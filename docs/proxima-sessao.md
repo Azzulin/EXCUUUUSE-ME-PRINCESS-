@@ -7,18 +7,10 @@ Escrito em 2026-11-05 (fim da sessão 3), commit de partida `7aae2e4`. Detalhes 
 Estado: a batalha roda a 30 fps no notebook (RTX 3050) sem travar; a perda de GPU com o gravador foi corrigida (3 de 3
 corridas limpas).
 
-### Fase A — cor saturada na janela (prioridade do dono)
+### Fase A — cor saturada na janela (prioridade do dono) — FEITA na sessão 4
 
-1. Problema: a janela mostra os bytes sRGB do jogo decodificados para linear (grama do campo: 163, 203, 155 na imagem
-   do jogo → 92, 162, 81 na janela).
-2. Onde: `runtime/gfx_present.c` (`present_image`), `runtime/vk_color.c`, `runtime/vk_fsr.c`. O swapchain é UNORM; o
-   blit e o FSR leem a fonte por uma view do formato dela (sRGB) e decodificam.
-3. Correção: ler a imagem do jogo por uma **view UNORM** (imagens de cor são `MUTABLE_FORMAT`). Opção 1: sempre que a
-   fonte for sRGB, rodar um passe identidade do `vk_color` (que já grava RGBA16F antes do FSR/blit; hoje ele não roda
-   nos valores padrão). Opção 2: view UNORM direto no `vk_fsr.c` e, no caminho do blit, o mesmo passe. O menu ImGui e
-   os ajustes de cor não mudam.
-4. Conferência: `AOC_PRESENT_SHOT=4300:C:/aoc-win/present.png` com a grama igual à do `--shot` (163, 203, 155).
-5. Commit, atualizar handover e histórico.
+A apresentação lê a imagem do jogo por uma view UNORM num draw que substituiu o `vkCmdBlitImage` (`vk_blit.c`); a
+janela é igual à imagem do jogo no mesmo frame (diferença máxima ≤ 1). Números em `historico.md`, sessão 4.
 
 ### Fase B — retângulo branco fixo no centro
 

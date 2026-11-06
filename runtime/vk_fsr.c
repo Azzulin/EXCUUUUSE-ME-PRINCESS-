@@ -1,14 +1,15 @@
 // AMD FidelityFX Super Resolution 1 on the present path (gfx_present.c present_image): when the window is larger than
 // the game's output, EASU scales the game's crop rectangle to the swapchain size and RCAS sharpens it, in place of the
-// bilinear vkCmdBlitImage. AOC_UPSCALER=fsr|bilinear picks it, AOC_SHARPNESS (0..100, 0 = no RCAS pass) sets RCAS;
+// bilinear draw (vk_blit.c). AOC_UPSCALER=fsr|bilinear picks it, AOC_SHARPNESS (0..100, 0 = no RCAS pass) sets RCAS;
 // both apply at the next frame.
 //
-// Per frame: EASU reads the source through a view of its own format (the same colour conversion the blit does) and
-// writes an RGBA16F image of the picture's size on the swapchain (all of it, or the part between black bars,
-// gfx_window.c fit_rect); RCAS reads that and writes a second one; a 1:1 blit converts the result into its place in
-// the swapchain image, which the caller left in TRANSFER_DST. The shaders (runtime/shaders/fsr_*.comp)
-// compute AMD's constants from the push constants. Cost: two compute passes over the swapchain size and one copy per
-// present; nothing on the game's draws.
+// Per frame: EASU reads the source through a view of the format the present passes (an sRGB window texture through its
+// UNORM twin, so FSR works on the display-encoded values, the perceptual space AMD's FSR 1 expects) and writes an
+// RGBA16F image of the picture's size on the swapchain (all of it, or the part between black bars, gfx_present.c
+// gfx_fit_rect); RCAS reads that and writes a second one. The present then draws the result texel for texel into its
+// place in the swapchain image (vk_blit.c). The shaders (runtime/shaders/fsr_*.comp) compute AMD's constants from the
+// push constants. Cost: two compute passes over the swapchain size and one copy per present; nothing on the game's
+// draws.
 //
 // The source view of slot s is destroyed when slot s records again: present_image has waited for that slot's fence.
 // The two intermediate images are shared by all slots; each frame's first barrier orders it after the previous
@@ -156,14 +157,14 @@ static void bind_pass(VkCommandBuffer cb, VkPipeline p, VkImageView in, VkImageV
     vkCmdPushConstants(cb, F.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, 32, pc);
 }
 
-int vk_fsr_record(VkCommandBuffer cb, unsigned slot, VkImage src, VkFormat fmt, int sw, int sh, const int crop[4],
-                  VkImage dst, const int out[4]) {
+VkImage vk_fsr_record(VkCommandBuffer cb, unsigned slot, VkImage src, VkFormat fmt, int sw, int sh, const int crop[4],
+                      uint32_t dw, uint32_t dh) {
     int cw = crop[2], ch = crop[3];
-    uint32_t dw = (uint32_t)out[2], dh = (uint32_t)out[3];
-    if (strcmp(cfg_value("AOC_UPSCALER"), "fsr") || (dw <= (uint32_t)cw && dh <= (uint32_t)ch) || !fmt) return 0;
+    if (strcmp(cfg_value("AOC_UPSCALER"), "fsr") || (dw <= (uint32_t)cw && dh <= (uint32_t)ch) || !fmt)
+        return VK_NULL_HANDLE;
     VkCtx *c = vk_ctx();
     if (!F.tried) init(c);
-    if (!F.ok || !ensure_images(c, dw, dh)) return 0;
+    if (!F.ok || !ensure_images(c, dw, dh)) return VK_NULL_HANDLE;
     slot %= SLOTS;
     if (F.src_view[slot]) vkDestroyImageView(c->device, F.src_view[slot], NULL);
     VkImageViewCreateInfo vi = {.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO, .image = src,
@@ -173,7 +174,7 @@ int vk_fsr_record(VkCommandBuffer cb, unsigned slot, VkImage src, VkFormat fmt, 
                                 .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1}};
     if (vkCreateImageView(c->device, &vi, NULL, &F.src_view[slot]) != VK_SUCCESS) {
         F.src_view[slot] = VK_NULL_HANDLE;
-        return 0;
+        return VK_NULL_HANDLE;
     }
     int sharp = cfg_int("AOC_SHARPNESS");
     if (sharp < 0) sharp = 0;
@@ -182,13 +183,13 @@ int vk_fsr_record(VkCommandBuffer cb, unsigned slot, VkImage src, VkFormat fmt, 
         F.logged = 1;
         rt_log("vk: FSR upscales %dx%d to %ux%u (sharpness %d)", cw, ch, dw, dh, sharp);
     }
-    const VkPipelineStageFlags2 CS = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, XF = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+    const VkPipelineStageFlags2 CS = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, ALL = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
     // the game's writes to the source become visible to the compute read; the earlier frame's reads of the
-    // intermediates finish before this frame writes them
-    barrier(cb, src, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-            VK_ACCESS_2_MEMORY_WRITE_BIT, CS, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+    // intermediates (compute, the present's draw or blit) finish before this frame writes them
+    barrier(cb, src, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL, ALL, VK_ACCESS_2_MEMORY_WRITE_BIT, CS,
+            VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
     for (int i = 0; i < 2; i++)
-        barrier(cb, F.img[i], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, CS | XF, 0, CS,
+        barrier(cb, F.img[i], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, ALL, 0, CS,
                 VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT | VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
     uint32_t gx = (dw + 15) / 16, gy = (dh + 15) / 16;
     float easu[8] = {(float)cw, (float)ch, (float)sw, (float)sh, (float)dw, (float)dh, (float)crop[0], (float)crop[1]};
@@ -203,17 +204,11 @@ int vk_fsr_record(VkCommandBuffer cb, unsigned slot, VkImage src, VkFormat fmt, 
         vkCmdDispatch(cb, gx, gy, 1);
         last = 1;
     }
+    // the present's draw (or blit) reads the result; later submissions that write the source wait for the compute read
     barrier(cb, F.img[last], VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL, CS, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
-            XF, VK_ACCESS_2_TRANSFER_READ_BIT);
-    // later submissions that write the source wait for the compute read
-    barrier(cb, src, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL, CS, 0, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, 0);
-    VkImageBlit region = {.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
-                          .srcOffsets = {{0, 0, 0}, {(int)dw, (int)dh, 1}},
-                          .dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
-                          .dstOffsets = {{out[0], out[1], 0}, {out[0] + (int)dw, out[1] + (int)dh, 1}}};
-    vkCmdBlitImage(cb, F.img[last], VK_IMAGE_LAYOUT_GENERAL, dst, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region,
-                   VK_FILTER_NEAREST);
-    return 1;
+            ALL, VK_ACCESS_2_MEMORY_READ_BIT);
+    barrier(cb, src, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL, CS, 0, ALL, 0);
+    return F.img[last];
 }
 
 void vk_fsr_release(void) {

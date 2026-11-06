@@ -361,6 +361,35 @@ static VkFormat storage_view_format(const VkTexImage *img, int code) {
     return img->format;
 }
 
+// The format a sampled view of img takes: the image's, or its sRGB / UNORM twin when the NVN texture view asks for
+// exactly that (the view's format maps to the twin). Age of Calamity creates its BC7, BC3 and BC1 colour maps UNORM
+// and samples them through sRGB views (186 bindings in a battle frame); read through the image's own format they came
+// out without the sRGB decode, every colour too bright, and the battle ran far past the range of the game's exposure
+// meter (the washed-out picture). Other reinterpretations keep the image's format, as before. Hot path: the NVN view
+// formats are mapped once (texture lock held, the replay thread).
+static VkFormat sampled_view_format(const VkTexImage *img, const view_t *v, int hv) {
+    if (!hv || !v->set_format || !v->format || v->format > 0x9c) return img->format;
+    static VkFormat nvn_vk[0x9d];
+    static uint8_t mapped, sampleable[256];   // sampleable: 0 not asked, 1 yes, 2 no (core formats are below 256)
+    if (!mapped) {
+        for (int n = 1; n <= 0x9c; n++) {
+            TexVkFormat f;
+            nvn_vk[n] = tex_vk_format(n, &f) ? f.vk : VK_FORMAT_UNDEFINED;
+        }
+        mapped = 1;
+    }
+    VkFormat want = nvn_vk[v->format];
+    if (want == img->format || want == VK_FORMAT_UNDEFINED || (unsigned)want >= 256 ||
+        tex_srgb_twin(img->format, NULL) != want)
+        return img->format;
+    if (!sampleable[want]) {
+        VkFormatProperties fp;
+        vkGetPhysicalDeviceFormatProperties(vk_ctx()->phys, want, &fp);
+        sampleable[want] = fp.optimalTilingFeatures & VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT ? 1 : 2;
+    }
+    return sampleable[want] == 1 ? want : img->format;
+}
+
 static VkImageView storage_dummy(int di, int code) {
     VkFormat fmt = code > 0 && code < 40 ? tex_format[code] : VK_FORMAT_R8G8B8A8_UNORM;
     if (fmt == VK_FORMAT_R8G8B8A8_UNORM || dinfo[di].s != VK_SAMPLE_COUNT_1_BIT) return Z.img[di].sview;
@@ -551,7 +580,7 @@ static VkImageView get_view(VkExec *ex, const VkTexImage *img, const view_t *v, 
             }
     }
     uint32_t swz = (uint32_t)sw[0] | (uint32_t)sw[1] << 8 | (uint32_t)sw[2] << 16 | (uint32_t)sw[3] << 24;
-    VkFormat vf = storage ? storage_view_format(img, fmt_code) : img->format;
+    VkFormat vf = storage ? storage_view_format(img, fmt_code) : sampled_view_format(img, v, hv);
     ViewKey k = {img->image, vf, vt, aspect, l0, nl, y0, ny, swz};
     if (!view_of.klen) nvn_hm_init(&view_of, sizeof(ViewKey)), nvn_hm_init(&views_by_image, sizeof(VkImage));
     VkImageView found = (VkImageView)nvn_hm_get(&view_of, &k);

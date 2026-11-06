@@ -66,3 +66,6 @@ typedef struct TexVkFormat {
 int tex_vk_format(int nvn_format, TexVkFormat *out);
 // 1 when vk_ctx()->phys reports every bit of f->need for f->vk in optimal tiling. Needs vk_init().
 int tex_vk_format_supported(const TexVkFormat *f);
+// The other format of f's UNORM / sRGB pair (same layout, with or without the sRGB decode), VK_FORMAT_UNDEFINED when f
+// has none; *srgb (optional) says whether f is the sRGB one.
+VkFormat tex_srgb_twin(VkFormat f, int *srgb);

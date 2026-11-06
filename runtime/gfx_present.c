@@ -25,6 +25,7 @@
 #include "gfx_wsys.h"
 #include "nvn_api.h"
 #include "platform/platform.h"
+#include "tex.h"
 #include "ui/menu.h"
 #include "vk.h"
 
@@ -555,17 +556,12 @@ void gfx_fit_rect(int cw, int ch, int dw, int dh, int out[4]) {
     out[0] = (dw - out[2]) / 2, out[1] = (dh - out[3]) / 2;
 }
 
-// The format a view reads the bytes of an fmt image as they are: the UNORM twin of an 8-bit sRGB colour format (same
-// layout, no decode; vk_texture.c makes colour images MUTABLE_FORMAT), any other format itself.
+// The format a view reads the bytes of an fmt image as they are: the UNORM twin of an sRGB format (same layout, no
+// decode; vk_texture.c makes colour images MUTABLE_FORMAT), any other format itself.
 static VkFormat unorm_view_format(VkFormat fmt) {
-    switch (fmt) {
-    case VK_FORMAT_R8_SRGB: return VK_FORMAT_R8_UNORM;
-    case VK_FORMAT_R8G8_SRGB: return VK_FORMAT_R8G8_UNORM;
-    case VK_FORMAT_R8G8B8A8_SRGB: return VK_FORMAT_R8G8B8A8_UNORM;
-    case VK_FORMAT_B8G8R8A8_SRGB: return VK_FORMAT_B8G8R8A8_UNORM;
-    case VK_FORMAT_A8B8G8R8_SRGB_PACK32: return VK_FORMAT_A8B8G8R8_UNORM_PACK32;
-    default: return fmt;
-    }
+    int srgb;
+    VkFormat twin = tex_srgb_twin(fmt, &srgb);
+    return srgb ? twin : fmt;
 }
 
 static void present_image(VkImage src, VkImageLayout layout, VkFormat fmt, int w, int h, const int crop[4], int defer) {

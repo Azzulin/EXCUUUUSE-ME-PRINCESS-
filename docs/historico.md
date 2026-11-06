@@ -271,3 +271,21 @@ O Deck saiu da rede numa corrida longa; o dono pediu para seguir testando no not
 - Batalha, cache quente: GPU 4,28 ms por frame contra 5,97 ms da cópia inteira; fps igual (a batalha aqui é limitada
   pela CPU). `AOC_MEMORY=verify`: 0 divergências em ~30 milhões de comparações de página; nenhuma faixa caiu na cópia
   inteira. No Deck (UMA) o mirror não existe e nada disso roda.
+
+### O véu claro: as views sRGB eram ignoradas na amostragem
+
+- Pista de fora: o README do nxnative (o mesmo código do jogo rodando no Mac) mede luma média 163 no começo da primeira
+  batalha; a nossa era 233. Teste descartado antes: traduzir todos os shaders em modo debug (sem a propagação de
+  expressões do otimizador da AST) deu a mesma luma (233).
+- A exposição do frame vem da CPU (textura 2×1 RGBA32F reenviada todo frame e copiada no pass 0): `(0,0103; 0; 0; 1)`,
+  o mínimo do medidor. A cena estava clara demais, não a exposição errada.
+- Causa: no dump, `vk145(145) ... view-nvn-fmt 0x4e`: imagens BC7_UNORM amostradas por views BC7_SRGB (105 vínculos
+  no frame 4400), e o mesmo com BC3 (58) e BC1 (23). `get_view` (`vk_exec_draw.c`) criava a view sempre no formato da
+  imagem; o jogo cria os mapas de cor UNORM e os lê por views sRGB, então todo albedo vinha sem a decodificação.
+- Correção: `sampled_view_format` usa o par sRGB/UNORM da imagem (`tex_srgb_twin`, `vk_formats.c`) quando a view NVN
+  pede exatamente ele; a tradução NVN → Vulkan das views é uma tabela montada uma vez (caminho de cada bind). A
+  apresentação usa o mesmo par. Os alvos de render já respeitavam o formato da view (`vk_exec.c` `view_format`).
+- Medido: luma média no ponto de 143 s da rota **233 → 175**, no fim (175 s) 233 → 174; a rota inteira com cores
+  certas (configurações, abertura, cinemáticas do Rei Rhoam e dos Bokoblins, batalha); 0 erros de validação.
+- Com a cor certa aparece o **retângulo branco no centro** que o dono relatou: está na imagem do jogo (não na
+  apresentação), branco puro, ~20×38 px, fixo no centro da tela.

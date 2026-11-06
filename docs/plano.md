@@ -79,8 +79,9 @@ os primeiros shaders/programas NVN.
 - [x] Build nativo do Windows para testar em GPU de PC (`tools/build.py` no MSYS2 UCRT64).
 - [x] Janela com os bytes do jogo (view UNORM da textura sRGB; antes, cor decodificada e supersaturada) — sessão 4.
 - [x] Efeitos de partículas sem rastros: o tradutor mantém ballot, voto e shuffle no lugar (patch 0013) — sessão 4.
-- [ ] Imagem da batalha lavada: a cena chega ~10× acima da faixa do medidor de exposição — em investigação
-      (`handover.md` §6).
+- [x] Imagem da batalha lavada: as views sRGB dos mapas de cor eram ignoradas na amostragem (luma 233 → 175) —
+      sessão 4.
+- [ ] Retângulo branco no centro da tela (na imagem do jogo; `handover.md` §6).
 
 **Portão C:** vídeo de abertura, título e menus corretos; **primeira batalha (Hyrule Field) com soldados, skinning,
 luzes, decals e efeitos** — comparada com captura de referência do Switch/emulador; zero falhas de shader não

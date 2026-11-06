@@ -281,3 +281,12 @@ Pontos que o boot do AoC expôs no runtime herdado (corrigidos):
 - **Rastros**: 20–28 frames com rastro em 201 (capturas a cada 0,1 s, 140–160 s) antes do patch, 0 depois.
 - **Mirror na batalha** (RTX 3050): ~30 faixas escritas por frame (10,3 MiB), devolução precisa com GPU de 4,28 ms por
   frame contra 5,97 ms da cópia inteira; sobe ~102 MiB por frame da memória do jogo para a VRAM (páginas sujas).
+
+## Texturas de cor (2026-11-06)
+
+- Os mapas de cor são criados **UNORM** e amostrados por **views sRGB**: no frame 4400 da batalha, 105 vínculos BC7
+  (`0x4d` → view `0x4e`), 58 BC3 (`0x44` → `0x48`) e 23 BC1 (`0x42` → `0x46`); outros 100 BC7, 53 BC5, 11 BC1 e 8 BC4
+  pela view do próprio formato. Sem respeitar a view, luma média 233; respeitando, 175 (nxnative: 163 no começo da
+  batalha).
+- Exposição do frame: textura 2×1 RGBA32F escrita pela CPU (`0x18d58dbc0`, reenviada todo frame), copiada no pass 0
+  para a que os passes leem (slot 25): `(0,0103; 0; 0; 1)` e `(0,5; 2,80; 0; 0)` com a imagem lavada.

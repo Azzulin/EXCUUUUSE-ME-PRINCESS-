@@ -103,6 +103,41 @@ static const struct { uint8_t bw, bh; VkFormat unorm, srgb; } astc[14] = {
     {12, 12, VK_FORMAT_ASTC_12x12_UNORM_BLOCK, VK_FORMAT_ASTC_12x12_SRGB_BLOCK},
 };
 
+// UNORM and sRGB formats of the same layout (the ASTC pairs are in astc[] above): a view of one reads an image of the
+// other with or without the sRGB decode, as NVN texture views do (colour images are MUTABLE_FORMAT, vk_texture.c).
+static const VkFormat srgb_pairs[][2] = {
+    {VK_FORMAT_R8_UNORM, VK_FORMAT_R8_SRGB},
+    {VK_FORMAT_R8G8_UNORM, VK_FORMAT_R8G8_SRGB},
+    {VK_FORMAT_R8G8B8_UNORM, VK_FORMAT_R8G8B8_SRGB},
+    {VK_FORMAT_B8G8R8_UNORM, VK_FORMAT_B8G8R8_SRGB},
+    {VK_FORMAT_R8G8B8A8_UNORM, VK_FORMAT_R8G8B8A8_SRGB},
+    {VK_FORMAT_B8G8R8A8_UNORM, VK_FORMAT_B8G8R8A8_SRGB},
+    {VK_FORMAT_A8B8G8R8_UNORM_PACK32, VK_FORMAT_A8B8G8R8_SRGB_PACK32},
+    {VK_FORMAT_BC1_RGB_UNORM_BLOCK, VK_FORMAT_BC1_RGB_SRGB_BLOCK},
+    {VK_FORMAT_BC1_RGBA_UNORM_BLOCK, VK_FORMAT_BC1_RGBA_SRGB_BLOCK},
+    {VK_FORMAT_BC2_UNORM_BLOCK, VK_FORMAT_BC2_SRGB_BLOCK},
+    {VK_FORMAT_BC3_UNORM_BLOCK, VK_FORMAT_BC3_SRGB_BLOCK},
+    {VK_FORMAT_BC7_UNORM_BLOCK, VK_FORMAT_BC7_SRGB_BLOCK},
+};
+
+VkFormat tex_srgb_twin(VkFormat f, int *srgb) {
+    if (srgb) *srgb = 0;
+    for (size_t i = 0; i < sizeof srgb_pairs / sizeof *srgb_pairs; i++)
+        for (int k = 0; k < 2; k++)
+            if (srgb_pairs[i][k] == f) {
+                if (srgb) *srgb = k;
+                return srgb_pairs[i][!k];
+            }
+    for (int i = 0; i < 14; i++) {
+        if (astc[i].unorm == f) return astc[i].srgb;
+        if (astc[i].srgb == f) {
+            if (srgb) *srgb = 1;
+            return astc[i].unorm;
+        }
+    }
+    return VK_FORMAT_UNDEFINED;
+}
+
 int tex_vk_format(int nvn_format, TexVkFormat *o) {
     memset(o, 0, sizeof *o);
     o->vk = o->ideal = VK_FORMAT_UNDEFINED;

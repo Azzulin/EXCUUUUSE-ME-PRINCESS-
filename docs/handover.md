@@ -19,7 +19,7 @@ por isso não serve direto para x86).
 | 0 — inventário | **Quase fechada.** Falta: teste de tradução dos shaders (Ryujinx + `spirv-val`, precisa .NET 10). |
 | 1 — lifter | **Fechada na prática.** Build completo rodou (~48 min no notebook, 0 falhas), `aoc --selftest` passa, tabela de 1 112 spin waits (`recomp/patches-v130.txt`). Pendentes menores: 1 jump table superconjunto no `subsdk0`, funções gigantes no gerador. |
 | 2 — host/boot | **Portão B2 cumprido.** Runtime do Astral Chain + porta Linux do TotK em `runtime/`. Com `AOC_GPU=null`: laço principal a 30 fps (relógio 1×), 8 756 programas NVN, RomFS e save, **som não-silencioso** depois das telas do primeiro boot (A por `AOC_INPUT_SCRIPT`) e **vídeo de abertura decodificado** (VP9, ~1,3 ms/frame). |
-| 3 — gráficos | **Em andamento.** Deck (SSH) e, desde a sessão 3, **build nativo do Windows** (RTX 3050). A primeira batalha roda **175 s inteiros a 30 fps sem travar** no notebook (antes: travada de CPU ~frame 570 e perda do dispositivo na entrada da batalha; as duas corrigidas, seção 6). A janela mostra os bytes do jogo como estão (sessão 4; antes, decodificados de sRGB). Problema aberto: a imagem da batalha sai **lavada** (véu claro: a cena chega ~10× acima da faixa do medidor de exposição do jogo). |
+| 3 — gráficos | **Em andamento.** Deck (SSH) e, desde a sessão 3, **build nativo do Windows** (RTX 3050). A primeira batalha roda **175 s inteiros a 30 fps sem travar** no notebook (antes: travada de CPU ~frame 570 e perda do dispositivo na entrada da batalha; as duas corrigidas, seção 6). Sessão 4: a janela mostra os bytes do jogo como estão, os efeitos de partículas não têm mais rastros e a **imagem da batalha deixou de sair lavada** (views sRGB respeitadas na amostragem: luma 233 → 175). Aberto: um retângulo branco no centro da tela (na imagem do jogo). |
 | 5 — Deck | `tools/build.py dist --with-romfs` monta a pasta única `dist/aoc-deck/` (sysroot sniper, GLIBC_2.29, romfs por hardlink, LEIA-ME, `aoc.ini`, saves em `profile/` ao lado do executável), testada de ponta a ponta no WSL. **Menu rápido** (L3+R3 segurado): 30 fps, resolução interna portátil/TV ao vivo, overlay. Falta rodar no Deck. |
 
 Números-chave (detalhes em `docs/aoc.md`):
@@ -138,29 +138,26 @@ partir de 100 s, `AOC_TRACE=perf`, vigia de travada).
    código UTF-8, via `runtime/aoc.rc` e `llvm-windres` no `tools/build.py`); `--probe-dpi` passa. No notebook não muda a
    imagem: a área de trabalho é 1600×900 físicos a 100 % (a janela pedida de 1920×1080 fica em 1604×881; tela cheia,
    1600×900).
-2. **Imagem lavada na batalha** (o bloqueio atual da imagem). A perda do dispositivo já foi resolvida (memória
-   compartilhada, `KEY_VERSION` 5). O que se sabe do véu claro, medido nos dumps do frame 4400 (`C:\aoc-win\dump*`):
-   - **Não é** exposição: a do jogo vai de `2^-6,6` = 0,0103 a `2^-5,9` (c5 do pass 89: medidor travado entre
-     luminância 9,85 e 16); a nossa fica no mínimo porque a cena média passa de 16. Não é a leitura r32ui da exposição
-     anterior, nem leitura de volta pela CPU (nenhum ReadTexels/CopyTextureToBuffer de textura pequena), nem o
-     snapshot de uniformes, nem a tabela de materiais, nem a LUT de BRDF (valores 0–1, certos), nem o céu (LUT 3D de
-     espalhamento idêntica), nem as views inteiras vs. float (`AOC_TEXEL_TWIN=0` igual).
-   - **É** a luz ambiente do cubo de ambiente: zerar só as buffer textures do shader `7da82f37` (filtro do cubo,
-     roda uma vez na carga da batalha, frame ~3506) dá uma imagem com contraste (sombras pretas demais — falta luz
-     ambiente, o certo fica no meio). Os dados que ele lê estão certos (slot 17 RGBA16F com direções/LOD, slot 18
-     R32F pesos ~1, c3 = 128, soma 127,153, face) e a saída tem valores plausíveis (15–300, face do sol até 3 776).
-   - Conclusão provisória: a cena inteira sai ~10–20× mais clara do que o medidor espera (sol c3[4] ≈ 556, ambiente
-     ≈ 150, superfícies ao sol ≈ 1 000–1 400; o jogo quer média 10–16). Próximas apostas: (a) a captura do cubo de
-     origem (passes ~100–105 do dump de carga `C:\aoc-win\dumpc`, faces 128×128 de 7 a 376 e o sol a 62 464) —
-     comparar com o que o jogo espera; (b) um fator de pré-exposição que o KTGL aplique e nós não (procurar no pass 9,
-     que lê o 2×1 de exposição); (c) a LUT 3D de cor do tonemap (32³ rgba16f; layout 3D block-linear) — ter uma
-     captura de referência (Switch ou emulador) da mesma cena ajudaria muito.
-   - Ferramentas desta investigação: `AOC_CRUMB_DRAWS=1` + `AOC_VK_RECORDER=0` (breadcrumb por draw),
+2. **Imagem lavada na batalha — CORRIGIDA na sessão 4.** Causa: a view de amostragem usava sempre o formato da
+   imagem (`vk_exec_draw.c` `get_view`) e ignorava o formato da view NVN. O jogo cria os mapas de cor BC7, BC3 e BC1
+   como UNORM e os amostra por views sRGB (186 vínculos num frame da batalha: 105 BC7, 58 BC3, 23 BC1); lidos sem a
+   decodificação sRGB, todo albedo saía claro demais e a cena passava muito da faixa do medidor de exposição do jogo
+   (9,85–16), que travava no mínimo (0,0103). Agora a view usa o par sRGB/UNORM da imagem quando a view NVN pede
+   exatamente ele (`sampled_view_format`, par em `vk_formats.c` `tex_srgb_twin`). Luma média no mesmo ponto da
+   batalha: **233 → 175** (o nxnative, o mesmo código no Mac, mede 163 no começo da batalha); a rota inteira
+   (configurações, abertura, cinemáticas, batalha) com cores certas. A investigação antiga (cubo de ambiente, céu
+   procedural, exposição, denormais) está no `historico.md`, sessão 3; descartado também na sessão 4: o otimizador da
+   AST do tradutor (traduzir tudo em modo debug não mudou o véu: luma 233 nos dois).
+   **Retângulo branco fixo no centro (relato do dono):** com a cor certa ele aparece **na imagem do jogo**: branco
+   puro, ~20×38 px em 1920×1080, exatamente no centro da tela, parado com a câmera andando. Próximo passo: dump de
+   um frame da batalha e achar o draw que o pinta (provavelmente HUD/mira com textura branca).
+   - Ferramentas de diagnóstico de imagem: `AOC_CRUMB_DRAWS=1` + `AOC_VK_RECORDER=0` (breadcrumb por draw),
      `AOC_TEXEL_ZERO=<slots>` com `AOC_TEXEL_ZERO_FS=<prefixos de chave>` (zera buffer textures só nesses fragment
      shaders; o log diz quais casaram), `AOC_TEXEL_LOG_FS=<prefixo>` (endereço, formato, 16 palavras e o c3 do
      shader, com o frame), `AOC_TEXEL_TWIN=0`, `AOC_DUMP_LOG=<de>` para pegar frames de carga, `AOC_DUMP_TEX=WxH`,
-     `AOC_TRACE=gfx` registra leituras de textura pequena. Hash do dump (FNV-1a do SPIR-V) → chave do cache: mesma
-     conta sobre `shader-cache/*.spv`. GLSL com `spirv-cross --vulkan-semantics`.
+     `AOC_TRACE=gfx` registra leituras de textura pequena. Hash do dump (FNV-1a do SPIR-V) → arquivo do cache: mesma
+     conta sobre `shader-cache/*.spv`. GLSL com `spirv-cross --vulkan-semantics`. No `passes.txt` do dump,
+     `vk145(145) ... view-nvn-fmt 0x4e` = imagem BC7_UNORM amostrada por view BC7_SRGB (foi assim que o véu apareceu).
    - **Perda de dispositivo residual:** aparece com o gravador (`vk_rec.c`, padrão na NVIDIA) **e** cópias de imagem
      para leitura (dumps, `AOC_SHOTS` a cada 1 s); nenhuma em mais de dez corridas normais e nenhuma com
      `AOC_VK_RECORDER=0` (inclusive com captura a cada 1 s). Suspeita: corrida entre o gravador e as cópias de
@@ -187,20 +184,6 @@ partir de 100 s, `AOC_TRACE=perf`, vigia de travada).
      inteira. Descartados no caminho: buffer textures lendo memória velha (usam o mirror), escrita por storage texel
      buffer sem devolução (nenhum `imageStore` nesses shaders), escrita da GPU por DMA acendendo o write-watch (teste
      isolado: não acende).
-   - O cubo de origem do filtro é outra imagem (`0x1d5646600`, mips dos passes 141–146); o destino (`0x19e7ac800`)
-     tem o nível 0 = captura nítida e 1–6 filtrados — sem leitura de si mesmo. Como, sem o cubo, as sombras ficam
-     pretas e, com ele, quase tão claras quanto o sol, a aposta seguinte é o **peso** que a iluminação dá ao ambiente
-     (c3 do pass 40: `[9] = (100, 100, 100, 0,95)`, contra `(0, 0, 0, 0,95)` no pass 53).
-   - **Sessão 3, noite (com referência do dono: outra batalha no Switch — cores saturadas, sombras verde-escuras,
-     sem véu):** na iluminação principal (pass 40) o cubo pesa zero (`c3[34] = c3[35] = 0`) e o ambiente é o plano
-     `c3[9] = 100`. O ambiente de imagem vem do pass do shader `719f2567` (cache `34f8538c`): difuso
-     `cubo(lod 6) · c3[23]` (`(1,05; 1,36; 1,5)`) e especular `cubo(lod) · c3[24]`. O nível 6 do cubo filtrado fica em
-     150–200 em toda direção → ambiente ~200 contra sol ~720 (30–40%); a referência sugere bem menos. O cubo de origem
-     é um **céu procedural** (shader `e28482c2`, LUTs de atmosfera 64×256 e 3D de nuvens BC7) renderizado em cubo na
-     carga; o céu dele dá 200–370, o mesmo céu na vista principal (shader `e4d463d9`) dá ~40–130: **~3× de diferença**
-     — é a aposta principal. Os dois shaders usam layouts de c3 diferentes (o do cubo deslocado uma linha) e unidades
-     diferentes (Rayleigh `2,03e-8` no cubo × `2,03e-18` na vista, mesma proporção 1 : 2,34 : 5,7). Dumps em
-     `C:\aoc-win\dumps` (carga, com `AOC_DUMP_UBO=24`) e `C:\aoc-win\dumpf` (frame 4400 sem pular passes).
    - **Denormais:** a RTX 3050 informa `shaderDenormPreserveFloat32 = false`; o SPIR-V do Ryujinx carrega inteiros
      em variáveis float (ex.: o índice do laço do filtro do cubo começa como a constante float 2,8e-45). Não explicou
      o véu, mas é um risco real; no Deck (RADV) dá para pedir `DenormPreserve`.

@@ -1,6 +1,7 @@
 # Handover — estado do projeto para o próximo agente
 
-Leia isto primeiro, depois `AGENTS.md` (regras) e `docs/plano.md` (fases). Atualizado em 2026-11-05 (sessão 3, no
+Leia isto primeiro, depois `AGENTS.md` (regras) e `docs/plano.md` (fases). O plano de ação imediato e um prompt pronto
+para uma sessão nova estão em `docs/proxima-sessao.md`. Atualizado em 2026-11-05 (sessão 3, no
 notebook, build nativo do Windows na RTX 3050). Tudo aqui foi medido no dump do próprio dono do projeto; nada é
 estimativa salvo onde está dito.
 

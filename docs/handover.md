@@ -133,10 +133,11 @@ partir de 100 s, `AOC_TRACE=perf`, vigia de travada).
    **Retângulo branco fixo no centro** (relato do dono, sessão 3): não aparece em nenhuma captura da janela da sessão 4
    (todas iguais à imagem do jogo, pixel a pixel, com menu fechado e overlay desligado; com eles fechados o ImGui não
    desenha nada). Ou depende da sessão do dono (cursor, overlay, entrada), ou de uma cena que as rotas não mostraram.
-   Próximo passo: o dono dizer quando e onde aparece (foto ou captura); ver também o DPI (item 1b).
-1b. **DPI no Windows:** o `aoc.exe` roda sem DPI por monitor (`aoc.exe --probe-dpi`: "unaware"; o manifesto do Astral
-   Chain não entrou no `tools/build.py`). No notebook a 120 % a janela é criada em pixels lógicos (1604×881, limitada à
-   tela de 1600×900 lógicos) e o Windows a estica para 1925×1057 físicos, borrando a imagem.
+   Próximo passo: o dono dizer quando e onde aparece (foto ou captura).
+   **Manifesto do Windows (sessão 4):** o `aoc.exe` agora leva `runtime/aoc.manifest` (DPI por monitor v2 e página de
+   código UTF-8, via `runtime/aoc.rc` e `llvm-windres` no `tools/build.py`); `--probe-dpi` passa. No notebook não muda a
+   imagem: a área de trabalho é 1600×900 físicos a 100 % (a janela pedida de 1920×1080 fica em 1604×881; tela cheia,
+   1600×900).
 2. **Imagem lavada na batalha** (o bloqueio atual da imagem). A perda do dispositivo já foi resolvida (memória
    compartilhada, `KEY_VERSION` 5). O que se sabe do véu claro, medido nos dumps do frame 4400 (`C:\aoc-win\dump*`):
    - **Não é** exposição: a do jogo vai de `2^-6,6` = 0,0103 a `2^-5,9` (c5 do pass 89: medidor travado entre

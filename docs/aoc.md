@@ -265,6 +265,6 @@ Pontos que o boot do AoC expôs no runtime herdado (corrigidos):
 - **Janela × imagem do jogo** depois da correção (mesmo frame, bilinear do blit refeita em numpy): diferença média
   0,08–0,16, máxima ≤ 1; cor média da batalha no frame 4300: 226,1 / 235,9 / 218,0 nas duas. Antes da correção a
   janela batia com a imagem decodificada de sRGB (23–45 de diferença média contra a do jogo).
-- **DPI no Windows**: o `aoc.exe` é "unaware" (`--probe-dpi`). Notebook: tela 1920×1080 a 120 % = 1600×900 lógicos;
-  `AOC_WINDOW_SIZE=1920x1080` vira janela de 1604×881 lógicos (limite de arraste da tela), esticada pelo Windows para
-  1925×1057 físicos.
+- **Tela do notebook**: área de trabalho de 1600×900 pixels físicos a 100 % (`--probe-dpi` com o manifesto novo e
+  `GetSystemMetrics` de um processo ciente de DPI; o adaptador Intel informa o painel em 1920×1080 a 120 Hz).
+  `AOC_WINDOW_SIZE=1920x1080` vira janela de 1604×881 (limite de arraste da tela); tela cheia, 1600×900.

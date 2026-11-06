@@ -222,14 +222,24 @@ def vma_include() -> Path:
 
 
 def runtime_sources() -> list[Path]:
-    """Todo runtime/*.c, *.cpp, platform/*.c, ui/*.cpp e o Dear ImGui, sem os arquivos de outro sistema (Win32)."""
-    pats = ("*.c", "*.cpp", "platform/*.c", "ui/*.cpp", "third_party/imgui/*.cpp", "third_party/imgui/backends/*.cpp")
+    """Todo runtime/*.c, *.cpp, platform/*.c, ui/*.cpp e o Dear ImGui, sem os arquivos de outro sistema (Win32); no
+    Windows também o runtime/aoc.rc (manifesto do aoc.exe: DPI por monitor e página de código UTF-8)."""
+    pats = ("*.c", "*.cpp", "*.rc", "platform/*.c", "ui/*.cpp", "third_party/imgui/*.cpp",
+            "third_party/imgui/backends/*.cpp")
 
     def other_os(p: Path) -> bool:
         if WIN:
             return p.stem.endswith("_sdl") or p.name == "linux.c"
-        return p.stem.endswith("_win") or p.name == "win32.c"
+        return p.stem.endswith("_win") or p.name == "win32.c" or p.suffix == ".rc"
     return sorted(p for pat in pats for p in RUNTIME.glob(pat) if not other_os(p))
+
+
+def runtime_object(out: Path, src: Path) -> Path:
+    """Objeto de um fonte do runtime em <out>/obj; o de um .rc leva .res.o (não colide com um .c de mesmo nome)."""
+    rel = src.relative_to(RUNTIME) if src.is_relative_to(RUNTIME) else Path(src.name)
+    o = out / "obj" / rel.with_suffix(".res.o" if src.suffix == ".rc" else ".o")
+    o.parent.mkdir(parents=True, exist_ok=True)
+    return o
 
 
 def c_string(s: str) -> str:
@@ -313,12 +323,17 @@ def step_host(args, gen: Path, lib: Path) -> Path:
         "  rspfile_content = $in_newline",
         "  description = link $out",
     ]
+    if WIN:   # runtime/aoc.rc, como o tools/build_game.py do Astral Chain (MIT); o windres não escreve depfile
+        windres = shutil.which("llvm-windres") or need("windres")
+        lines += ["rule rc", f"  command = {windres} -I {shell_arg(RUNTIME)} -O coff $in -o $out",
+                  "  description = rc $in"]
     objs = []
     for src in runtime_sources() + [out / "modules.c"]:
-        rel = src.relative_to(RUNTIME) if src.is_relative_to(RUNTIME) else Path(src.name)
-        o = out / "obj" / rel.with_suffix(".o")
-        o.parent.mkdir(parents=True, exist_ok=True)
-        lines.append(f"build {ninja_escape(o)}: cc_rt {ninja_escape(src)}")
+        o = runtime_object(out, src)
+        if src.suffix == ".rc":
+            lines.append(f"build {ninja_escape(o)}: rc {ninja_escape(src)} | {ninja_escape(RUNTIME / 'aoc.manifest')}")
+        else:
+            lines.append(f"build {ninja_escape(o)}: cc_rt {ninja_escape(src)}")
         objs.append(o)
     exe = out / EXE
     lines.append(f"build {ninja_escape(exe)}: link " + " ".join(ninja_escape(o) for o in objs) + f" {ninja_escape(lib)}")
@@ -470,9 +485,7 @@ def step_dist(args, gen: Path, lib: Path) -> Path:
     ]
     objs = []
     for src in runtime_sources() + [host / "modules.c"]:
-        rel = src.relative_to(RUNTIME) if src.is_relative_to(RUNTIME) else Path(src.name)
-        o = out / "obj" / rel.with_suffix(".o")
-        o.parent.mkdir(parents=True, exist_ok=True)
+        o = runtime_object(out, src)
         lines.append(f"build {ninja_escape(o)}: cc_rt {ninja_escape(src)}")
         objs.append(o)
     exe = out / "aoc"

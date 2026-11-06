@@ -219,6 +219,14 @@ O Deck saiu da rede numa corrida longa; o dono pediu para seguir testando no not
   Antes a janela batia com a imagem decodificada (23–45 de diferença média contra a do jogo). Grama na batalha:
   152,6 / 184,4 / 161,7 no jogo e na janela. As barras saem pretas (0).
 - A janela agora mostra o véu claro da imagem verdadeira: é a Fase D, não a apresentação.
-- Visto no caminho: o `aoc.exe` do Windows roda **sem DPI por monitor** (`--probe-dpi`: "unaware"; o manifesto do
-  Astral Chain não entrou no nosso build). No notebook a 120 % o Windows estica a janela de 1604×881 para 1925×1057
-  pixels físicos, borrando a imagem.
+
+### Manifesto do executável do Windows
+
+- O `aoc.exe` rodava **sem DPI por monitor** (`--probe-dpi`: "unaware") e na página de código ANSI: o manifesto do
+  Astral Chain não tinha entrado no nosso `tools/build.py`. Agora `runtime/aoc.manifest` (DPI por monitor v2, página
+  de código UTF-8, como o `astralchain.manifest`) vai no executável por `runtime/aoc.rc`, compilado com `llvm-windres`
+  (ou `windres`) só no Windows. `--probe-dpi`: PASS ("per-monitor aware v2").
+- No notebook a imagem não muda: a área de trabalho é 1600×900 pixels físicos a 100 % (conferido de um processo
+  ciente de DPI), então não havia esticamento. Vale para telas com escala (o Windows esticaria uma janela de tamanho
+  lógico) e para pastas com nome não-ASCII (as funções de arquivo estreitas passam a falar UTF-8, que é o que
+  `platform/win32.c` e `fs_host.c` supõem). Na tela cheia deste notebook o swapchain é 1600×900.

@@ -106,6 +106,8 @@ pacman -S mingw-w64-ucrt-x86_64-{clang,lld,llvm,ninja,sdl3,opus,libvpx,zstd,vulk
 python3 tools/build.py --work /c/aoc-win --big-jobs 2 guest host   # aoc.exe em C:\aoc-win\host
 ```
 
+O executável leva o manifesto `runtime/aoc.manifest` (DPI por monitor v2 e página de código UTF-8), compilado de
+`runtime/aoc.rc` pelo `llvm-windres` do pacote `llvm` (ou o `windres` das binutils); `aoc.exe --probe-dpi` confere.
 Ao lado do `aoc.exe`: `SDL3.dll`, `libopus-0.dll` (de `C:\msys64\ucrt64\bin`), `aoc_xlate.exe` e `aoc_xlate.id`. O
 tradutor sai do WSL com `dotnet publish <csproj> -c Release -r win-x64 --self-contained -p:PublishAot=false
 -p:PublishSingleFile=true -p:InvariantGlobalization=true -p:RyuSrc=<árvore com os patches>` (NativeAOT só compila

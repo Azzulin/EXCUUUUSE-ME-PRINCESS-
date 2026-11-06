@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<!-- The application manifest of aoc.exe, embedded by aoc.rc (tools/build.py compiles it with windres on Windows only).
+     Adapted from astral-chain-pc-recomp runtime/astralchain.manifest (MIT, THIRD_PARTY_NOTICES.md).
+     activeCodePage UTF-8 (Windows 10 1903 and later): the narrow file functions (fopen, CreateFileA,
+     GetModuleFileNameA) and getenv carry UTF-8, the encoding platform/win32.c and fs_host.c convert with, so a folder
+     or user profile with a non-ASCII name works.
+     dpiAwareness PerMonitorV2 (dpiAware true/pm on Windows 10 before 1607): window, monitor and cursor sizes are physical
+     pixels and the swapchain matches the screen (gfx_window_win.c). Without it Windows hands a scaled display logical
+     sizes and stretches the window's image back up: at 120 % a 1604x881 swapchain was shown as 1925x1057, blurred. -->
+<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+  <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
+    <security>
+      <requestedPrivileges>
+        <requestedExecutionLevel level="asInvoker"/>
+      </requestedPrivileges>
+    </security>
+  </trustInfo>
+  <application xmlns="urn:schemas-microsoft-com:asm.v3">
+    <windowsSettings>
+      <activeCodePage xmlns="http://schemas.microsoft.com/SMI/2019/WindowsSettings">UTF-8</activeCodePage>
+      <dpiAware xmlns="http://schemas.microsoft.com/SMI/2005/WindowsSettings">true/pm</dpiAware>
+      <dpiAwareness xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">PerMonitorV2, PerMonitor</dpiAwareness>
+    </windowsSettings>
+  </application>
+</assembly>

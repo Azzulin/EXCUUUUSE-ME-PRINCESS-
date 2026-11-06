@@ -1,0 +1,3 @@
+/* The application manifest of aoc.exe (aoc.manifest): resource 1 of type 24 (RT_MANIFEST), the one the loader reads
+   for an executable. tools/build.py compiles this with windres on Windows and links it with the runtime objects. */
+1 24 "aoc.manifest"

@@ -20,6 +20,7 @@
 #include "nvn_api.h"
 #include "nvn_pool_index.h"
 #include "vk.h"
+#include "wb_merge_spv.h"
 #include "platform/platform.h"
 
 // Timestamps for the tracking cost, in ns; qpc_ms converts.
@@ -1160,6 +1161,7 @@ static PlatMutex flush_lock = PLAT_MUTEX_INIT;
 typedef struct {
     uint64_t subs, syncs, upload_bytes, upload_copies, first_n, first_bytes, wb_bytes, wb_copies, wb_ranges;
     uint64_t presnap_queries, sync_queries, presnap_t, sync_t, prologues, presnap_bytes;
+    uint64_t pre_bytes, wb_merged, wb_whole;   // precise write-back: pre-image bytes, ranges merged, copied whole
 } MirrorAcc;
 static MirrorAcc mrep;                 // replay: this submission
 static MirrorAcc macc;                 // mirror_stat_lock: since the last summary
@@ -1460,6 +1462,167 @@ static void freeze_pass(void) {
     }
 }
 
+// ---- precise write-back
+// The write-back copied each written range whole (mbuf -> buf). A storage buffer binding covers more than its shader
+// stores into, and the game's CPU writes into such buffers while a submission that binds them is in flight (legal on
+// the Switch, whose GPU stores only the bytes it writes): the whole-range copy put the mirror's older bytes over the
+// CPU's new ones, and the next sync carried them back into the mirror. In the first battle that was one-frame streaks
+// from the GPU-driven effects (indirect quads with a vertex thrown far; none with AOC_MEMORY=import, no mirror).
+// Now a written range gets a pre-image: a copy of its mirror bytes, taken in the prologue of the part that first writes
+// it (after that part's sync copies, so before any write of the submission into it), into a ring of device memory. At
+// the end of the submission shaders/wb_merge.comp stores into guest memory only the words that differ from the
+// pre-image. Ranges are widened to 16 bytes; a word the GPU changed is stored whole. A range the ring has no room for
+// or a binding cannot hold is copied whole as before; AOC_MIRROR_WB=whole copies every range whole.
+#define PRE_RING (64ull << 20)
+#define PRE_FIFO 512
+typedef struct { PoolRec *r; uint64_t off, size, pre; } PreRange;   // pre: offset in the ring, UINT64_MAX: none
+static PreRange *wpre;                 // replay: this submission's written ranges, kept until its last prologue
+static int nwpre, cwpre, npre_copied;  // wpre[0..npre_copied): their pre-image copy is recorded
+static int nwbl_seen;                  // wbl[0..nwbl_seen) went into wpre
+static struct {
+    int tried, ok;
+    PFN_vkCmdPushDescriptorSetKHR push;
+    VkDescriptorSetLayout dsl;
+    VkPipelineLayout layout;
+    VkPipeline pipe;
+    VkBuffer ring;
+    VmaAllocation ring_alloc;
+    uint64_t align, max_range;         // minStorageBufferOffsetAlignment, maxStorageBufferRange
+    uint64_t head, tail;               // ring bytes in use: [tail, head) circularly, when any
+    int any, sub_used;                 // bytes are in use; the submission being recorded took some
+    struct { uint64_t end, fence; } fifo[PRE_FIFO];   // submissions holding ring bytes, oldest first
+    int f0, nf;
+} W;
+
+static int wb_init(VkCtx *c) {
+    W.tried = 1;
+    const char *e = cfg_get("AOC_MIRROR_WB");
+    if (e && !strcmp(e, "whole")) {
+        rt_log("mem: mirror write-back copies whole ranges (AOC_MIRROR_WB=whole)");
+        return 0;
+    }
+    W.align = c->props.limits.minStorageBufferOffsetAlignment ? c->props.limits.minStorageBufferOffsetAlignment : 16;
+    W.max_range = c->props.limits.maxStorageBufferRange;
+    W.push = (PFN_vkCmdPushDescriptorSetKHR)vkGetDeviceProcAddr(c->device, "vkCmdPushDescriptorSetKHR");
+    VkDescriptorSetLayoutBinding b[3];
+    for (uint32_t i = 0; i < 3; i++)
+        b[i] = (VkDescriptorSetLayoutBinding){.binding = i, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                              .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT};
+    VkDescriptorSetLayoutCreateInfo dci = {.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+                                           .flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR,
+                                           .bindingCount = 3, .pBindings = b};
+    VkPushConstantRange pr = {VK_SHADER_STAGE_COMPUTE_BIT, 0, 16};
+    VkPipelineLayoutCreateInfo li = {.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO, .setLayoutCount = 1,
+                                     .pSetLayouts = &W.dsl, .pushConstantRangeCount = 1, .pPushConstantRanges = &pr};
+    VkShaderModuleCreateInfo mi = {.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO, .codeSize = sizeof wb_merge_spv,
+                                   .pCode = wb_merge_spv};
+    VkShaderModule m = VK_NULL_HANDLE;
+    VkBufferCreateInfo bi = {.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO, .size = PRE_RING,
+                             .usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT};
+    VmaAllocationCreateInfo ai = {.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE};
+    int ok = W.push && vkCreateDescriptorSetLayout(c->device, &dci, NULL, &W.dsl) == VK_SUCCESS &&
+             vkCreatePipelineLayout(c->device, &li, NULL, &W.layout) == VK_SUCCESS &&
+             vkCreateShaderModule(c->device, &mi, NULL, &m) == VK_SUCCESS;
+    if (ok) {
+        VkComputePipelineCreateInfo ci = {.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
+                                          .stage = {.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+                                                    .stage = VK_SHADER_STAGE_COMPUTE_BIT, .module = m, .pName = "main"},
+                                          .layout = W.layout};
+        ok = vkCreateComputePipelines(c->device, VK_NULL_HANDLE, 1, &ci, NULL, &W.pipe) == VK_SUCCESS;
+    }
+    if (m) vkDestroyShaderModule(c->device, m, NULL);
+    if (ok && vmaCreateBuffer(c->vma, &bi, &ai, &W.ring, &W.ring_alloc, NULL) != VK_SUCCESS) W.ring = VK_NULL_HANDLE, ok = 0;
+    rt_log(ok ? "mem: mirror write-back stores only the words the GPU changed (pre-image ring %llu MiB)"
+              : "mem: mirror write-back copies whole ranges: its merge pass could not be created (%llu MiB ring)",
+           (unsigned long long)(PRE_RING >> 20));
+    return W.ok = ok;
+}
+
+static void ring_reclaim(void) {
+    uint64_t done = vk_sync_fence_done();
+    while (W.nf && W.fifo[W.f0].fence <= done) {
+        W.tail = W.fifo[W.f0].end;
+        W.f0 = (W.f0 + 1) % PRE_FIFO, W.nf--;
+    }
+    if (!W.nf && !W.sub_used) W.any = 0;
+}
+
+// size bytes (a multiple of 16) of the ring for the submission being recorded; UINT64_MAX when the bytes still in
+// flight leave no room. Bytes are taken in order and given back per submission at its fence.
+static uint64_t ring_take(uint64_t size) {
+    if (size > PRE_RING / 4 || W.nf >= PRE_FIFO - 1) return UINT64_MAX;
+    ring_reclaim();
+    uint64_t at;
+    if (!W.any) {
+        at = W.head + size <= PRE_RING ? W.head : 0;
+        W.tail = at, W.any = 1;
+    } else if (W.tail < W.head) {   // in use [tail, head): free [head, RING) and [0, tail)
+        if (W.head + size <= PRE_RING) at = W.head;
+        else if (size < W.tail) at = 0;
+        else return UINT64_MAX;
+    } else {                        // in use [tail, RING) and [0, head): free [head, tail)
+        if (W.head + size < W.tail) at = W.head;
+        else return UINT64_MAX;
+    }
+    W.head = at + size, W.sub_used = 1;
+    return at;
+}
+
+// The written ranges recorded since the last call get their pre-image place: a range inside one that an earlier part
+// of the submission already has a pre-image (or a whole copy) for needs none.
+static void pre_take(void) {
+    if (nwbl_seen >= nwbl) return;
+    if (!W.tried) wb_init(vk_ctx());
+    for (int i = nwbl_seen; i < nwbl; i++) {
+        PoolRec *r = wbl[i].r;
+        uint64_t lim = r->import_hi - r->import_lo;
+        uint64_t lo = wbl[i].off & ~15ull, hi = (wbl[i].off + wbl[i].size + 15) & ~15ull;
+        if (hi > lim) hi = lim;
+        if (lo >= hi) continue;
+        int covered = 0;
+        for (int k = nwpre - 1; k >= 0 && !covered; k--)
+            covered = wpre[k].r == r && wpre[k].off <= lo && wpre[k].off + wpre[k].size >= hi;
+        if (covered) continue;
+        uint64_t pre = W.ok && hi - lo + W.align <= W.max_range ? ring_take(hi - lo) : UINT64_MAX;
+        if (nwpre == cwpre) grow((void **)&wpre, &cwpre, sizeof *wpre);
+        wpre[nwpre++] = (PreRange){r, lo, hi - lo, pre};
+    }
+    nwbl_seen = nwbl;
+}
+
+// The merge of one range (wb_merge.comp), bound at offsets rounded down to the storage buffer alignment.
+static int merge_record(VkCommandBuffer cb, const PreRange *e) {
+    uint64_t a0 = e->off & ~(W.align - 1), a1 = e->pre & ~(W.align - 1);
+    VkDescriptorBufferInfo bi[3] = {{e->r->mbuf, a0, e->off + e->size - a0}, {W.ring, a1, e->pre + e->size - a1},
+                                    {e->r->buf, a0, e->off + e->size - a0}};
+    VkWriteDescriptorSet w[3];
+    for (int i = 0; i < 3; i++)
+        w[i] = (VkWriteDescriptorSet){.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .dstBinding = (uint32_t)i,
+                                      .descriptorCount = 1, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                      .pBufferInfo = &bi[i]};
+    vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_COMPUTE, W.pipe);
+    rec_push(W.push, cb, VK_PIPELINE_BIND_POINT_COMPUTE, W.layout, 0, 3, w);
+    int rec = 2;
+    uint64_t words = e->size / 4;
+    for (uint64_t done = 0; done < words;) {
+        uint64_t n = words - done < 65535ull * 64 ? words - done : 65535ull * 64;
+        uint32_t pc[4] = {(uint32_t)((e->off - a0) / 4 + done), (uint32_t)((e->pre - a1) / 4 + done), (uint32_t)n, 0};
+        vkCmdPushConstants(cb, W.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof pc, pc);
+        vkCmdDispatch(cb, (uint32_t)((n + 63) / 64), 1, 1);
+        rec += 2, done += n;
+    }
+    return rec;
+}
+
+static void wb_release(VkCtx *c) {
+    if (W.pipe) vkDestroyPipeline(c->device, W.pipe, NULL);
+    if (W.layout) vkDestroyPipelineLayout(c->device, W.layout, NULL);
+    if (W.dsl) vkDestroyDescriptorSetLayout(c->device, W.dsl, NULL);
+    if (W.ring) vmaDestroyBuffer(c->vma, W.ring, W.ring_alloc);
+    memset(&W, 0, sizeof W);
+    nwpre = npre_copied = nwbl_seen = 0;
+}
+
 void vk_mem_mirror_begin(void) {
     if (!vk_mirror_on) {   // import mode: the texture checks' snapshots still skip frozen regions
         if (!freeze_idle) return;
@@ -1470,6 +1633,7 @@ void vk_mem_mirror_begin(void) {
         return;
     }
     uint64_t t0 = qpc();
+    nwpre = npre_copied = 0;   // the previous submission's last prologue copied its pre-images
     uint32_t prev = msub;
     msub = msub + 1 ? msub + 1 : 1;
     __atomic_add_fetch(&mirror_gen, 1, __ATOMIC_RELEASE);
@@ -1501,17 +1665,41 @@ void vk_mem_mirror_begin(void) {
     mrep.presnap_t += qpc() - t0;
 }
 
-int vk_mem_mirror_pending(void) { return npend; }
+int vk_mem_mirror_pending(void) {
+    pre_take();   // the part just recorded: its written ranges' pre-images go into its prologue
+    int copies = 0;
+    for (int i = npre_copied; i < nwpre && !copies; i++) copies = wpre[i].pre != UINT64_MAX;
+    if (!copies) npre_copied = nwpre;
+    return npend || copies;
+}
 
+// The sync copies (guest memory -> mirror), then the pre-images of the ranges the part writes (mirror -> ring).
 void vk_mem_mirror_prologue(VkCommandBuffer cb) {
-    if (!npend) return;
+    int copies = 0;
+    for (int i = npre_copied; i < nwpre; i++) copies += wpre[i].pre != UINT64_MAX;
+    if (!npend && !copies) return;
     mbarrier(cb, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT, VK_PIPELINE_STAGE_2_COPY_BIT,
              VK_ACCESS_2_TRANSFER_READ_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT);
-    copy_ranges(cb, pend, npend, 1, &mrep.upload_bytes, &mrep.upload_copies);
+    if (npend) {
+        copy_ranges(cb, pend, npend, 1, &mrep.upload_bytes, &mrep.upload_copies);
+        mrep.prologues++;
+    }
+    if (copies) {
+        if (npend)   // the pre-images hold the synced bytes
+            mbarrier(cb, VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_COPY_BIT,
+                     VK_ACCESS_2_TRANSFER_READ_BIT);
+        for (int i = npre_copied; i < nwpre; i++) {
+            const PreRange *e = &wpre[i];
+            if (e->pre == UINT64_MAX) continue;
+            VkBufferCopy c = {e->off, e->pre, e->size};
+            vkCmdCopyBuffer(cb, e->r->mbuf, W.ring, 1, &c);
+            mrep.pre_bytes += e->size;
+        }
+    }
     mbarrier(cb, VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
              VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT);
     npend = 0;
-    mrep.prologues++;
+    npre_copied = nwpre;
 }
 
 // ---- verify mode
@@ -1603,19 +1791,50 @@ static int verify_record(VkCommandBuffer cb, uint64_t fence) {
     return j->n + 2;
 }
 
+// The write-back, after the submission's last barrier: ranges with a pre-image are merged (precise write-back above),
+// the others copied whole. The ranges keep their pre-image entries until the last part's prologue records the copies.
 int vk_mem_mirror_end(VkCommandBuffer cb, uint64_t fence) {
     if (!vk_mirror_on) return 0;
     int rec = 0;
     if (nwbl) {
-        mbarrier(cb, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT, VK_PIPELINE_STAGE_2_COPY_BIT,
-                 VK_ACCESS_2_TRANSFER_READ_BIT);
+        pre_take();
         for (int i = 0; i < nwbl; i++) wbl[i].r->wb_sub = msub;
         mrep.wb_ranges += (uint64_t)nwbl;
-        rec += copy_ranges(cb, wbl, nwbl, 0, &mrep.wb_bytes, &mrep.wb_copies) + 2;
-        mbarrier(cb, VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
+        int nwhole = 0, nmerge = 0;
+        for (int i = 0; i < nwpre; i++) {   // wbl holds the whole copies from here on
+            if (wpre[i].pre != UINT64_MAX) { nmerge++; continue; }
+            wbl[nwhole++] = (MRange){wpre[i].r, wpre[i].off, wpre[i].size};
+        }
+        mbarrier(cb, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT,
+                 VK_PIPELINE_STAGE_2_COPY_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                 VK_ACCESS_2_TRANSFER_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
+        rec++;
+        if (nwhole) {
+            rec += copy_ranges(cb, wbl, nwhole, 0, &mrep.wb_bytes, &mrep.wb_copies);
+            mrep.wb_whole += (uint64_t)nwhole;
+            if (nmerge) {   // a merged range may overlap a copied one: one write after the other
+                mbarrier(cb, VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
+                         VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
+                rec++;
+            }
+        }
+        for (int i = 0; i < nwpre; i++)
+            if (wpre[i].pre != UINT64_MAX) {
+                rec += merge_record(cb, &wpre[i]);
+                mrep.wb_bytes += wpre[i].size;
+                mrep.wb_merged++;
+            }
+        mbarrier(cb, VK_PIPELINE_STAGE_2_COPY_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                 VK_ACCESS_2_TRANSFER_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
                  VK_PIPELINE_STAGE_2_HOST_BIT | VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
                  VK_ACCESS_2_HOST_READ_BIT | VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT);
-        nwbl = 0;
+        rec++;
+        nwbl = nwbl_seen = 0;
+    }
+    if (W.sub_used) {   // the ring bytes this submission took come back at its fence
+        W.fifo[(W.f0 + W.nf) % PRE_FIFO].end = W.head;
+        W.fifo[(W.f0 + W.nf) % PRE_FIFO].fence = fence;
+        W.nf++, W.sub_used = 0;
     }
     if (mirror_verify) rec += verify_record(cb, fence);
     plat_mutex_lock(&mirror_stat_lock);
@@ -1660,12 +1879,14 @@ static void mirror_log(uint64_t frame) {
                  (long long)plat_xchg64(&v_mismatch, 0));
     rt_log("mem: mirror frame %llu: pools %lld, %.1f MiB device-local; stay imported: budget %lld (%.1f MiB), untracked "
            "%lld, overlapping %lld, failed %lld; per frame: submits %.2f, syncs %.1f, upload %.3f MiB in %.1f ranges, "
-           "first use %.2f pools %.3f MiB, write-back %.3f MiB in %.1f ranges, flush calls %.1f (%.3f MiB), queries "
+           "first use %.2f pools %.3f MiB, write-back %.3f MiB in %.1f ranges (merged %.1f, copied whole %.1f, "
+           "pre-images %.3f MiB), flush calls %.1f (%.3f MiB), queries "
            "%.1f pre-snap (%.1f MiB) + %.1f sync, prologues %.2f, tracking cpu %.3f ms (pre-snap %.3f, syncs %.3f)%s",
            (unsigned long long)frame, (long long)m_live_n, m_live_bytes / M, (long long)m_refused_n[MR_BUDGET],
            m_refused_bytes[MR_BUDGET] / M, (long long)m_refused_n[MR_UNTRACKED], (long long)m_refused_n[MR_OVERLAP],
            (long long)m_refused_n[MR_ALLOC], a.subs / f, a.syncs / f, a.upload_bytes / f / M, a.upload_copies / f,
-           a.first_n / f, a.first_bytes / f / M, a.wb_bytes / f / M, a.wb_copies / f, fc / f, fb / f / M,
+           a.first_n / f, a.first_bytes / f / M, a.wb_bytes / f / M, a.wb_copies / f, a.wb_merged / f, a.wb_whole / f,
+           a.pre_bytes / f / M, fc / f, fb / f / M,
            a.presnap_queries / f, a.presnap_bytes / f / M, a.sync_queries / f, a.prologues / f, qpc_ms(a.presnap_t + a.sync_t) / f,
            qpc_ms(a.presnap_t) / f, qpc_ms(a.sync_t) / f, ver);
 }
@@ -2017,6 +2238,7 @@ void vk_mem_shutdown(void) {
     for (int i = 0; i < pool_index.n; i++) destroy_rec(c, pool_index.e[i].buf);
     pool_index.n = 0;
     nm = npend = nwbl = 0;   // mirrors went with their pools
+    wb_release(c);
     plat_mutex_lock(&shadow_lock);
     nstouch = nspend = 0;   // shadows too
     s_live_n = s_live_bytes = 0;

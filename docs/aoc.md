@@ -268,3 +268,16 @@ Pontos que o boot do AoC expôs no runtime herdado (corrigidos):
 - **Tela do notebook**: área de trabalho de 1600×900 pixels físicos a 100 % (`--probe-dpi` com o manifesto novo e
   `GetSystemMetrics` de um processo ciente de DPI; o adaptador Intel informa o painel em 1920×1080 a 120 Hz).
   `AOC_WINDOW_SIZE=1920x1080` vira janela de 1604×881 (limite de arraste da tela); tela cheia, 1600×900.
+
+## Partículas da GPU (2026-11-06, primeira batalha)
+
+- **Cadeia por frame** (uma submissão; dump do frame 4400): computes `d569a09d` (zeram contadores de 4 bytes),
+  `0f4d1eac`, `124c7d24`, `d6c20785`, `839e11e4`, `3721fb58`, `e770dcf4` (estado das partículas em
+  `0x192e9d800+0x19658`, tabelas de emissores em buffer textures de 256 elementos), depois `0a66de99` (21×1×1) monta o
+  vertex buffer dos quads em `0x192eb6e80+0x14500` (32 bytes por vértice, 4 por partícula) e `3430bd16` o de um quad só
+  (`0x80`). Os quads indiretos (`DrawArraysIndirect`, VS `9fc66795`, FS `0c242df8`) leem esses buffers como atributos.
+- **Append por warp**: `0a66de99` e `d6c20785` reservam espaço com um ballot antes de `if (lane == findMSB(ballot))` e
+  `atomicAdd(contador, bitCount(ballot) * 4)` no líder. O ballot tem de ser o de antes do `if` (patch 0013 do tradutor).
+- **Rastros**: 20–28 frames com rastro em 201 (capturas a cada 0,1 s, 140–160 s) antes do patch, 0 depois.
+- **Mirror na batalha** (RTX 3050): ~30 faixas escritas por frame (10,3 MiB), devolução precisa com GPU de 4,28 ms por
+  frame contra 5,97 ms da cópia inteira; sobe ~102 MiB por frame da memória do jogo para a VRAM (páginas sujas).

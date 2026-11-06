@@ -230,3 +230,44 @@ O Deck saiu da rede numa corrida longa; o dono pediu para seguir testando no not
   ciente de DPI), então não havia esticamento. Vale para telas com escala (o Windows esticaria uma janela de tamanho
   lógico) e para pastas com nome não-ASCII (as funções de arquivo estreitas passam a falar UTF-8, que é o que
   `platform/win32.c` e `fs_host.c` supõem). Na tela cheia deste notebook o swapchain é 1600×900.
+
+### Retângulo branco no centro
+
+- Nenhuma captura da janela da sessão (cinco corridas, menu fechado, overlay desligado) tem algo que não esteja na
+  imagem do jogo: a diferença máxima é ≤ 1 em todos os pixels. Com o menu fechado e o overlay desligado o ImGui não
+  desenha nada; o copyright frame buffer do jogo não é desenhado em lugar nenhum. Sem o relato de quando ele aparece
+  (cena, entrada, overlay), não há o que medir: fica como pergunta ao dono.
+
+### Rastros brancos dos efeitos: o tradutor movia um voto de warp para dentro de um `if`
+
+- Linha de base com capturas a cada 0,1 s entre 140 e 160 s (`C:\aoc-win\streaks.py`): 20 frames com rastro em 201.
+  `AOC_SKIP_DRAW_IND=1` (só diagnóstico): 0 → todos vêm dos quads indiretos. `AOC_MEMORY=import` (sem mirror): 0, mas
+  a 17 fps — pista falsa de memória que custou várias corridas (abaixo).
+- Os quads indiretos leem os vértices de um vertex buffer (`0x192eb6e80+0x14500`, 32 bytes por vértice) que o compute
+  `0a66de99` monta a partir do estado das partículas, com um append agregado por warp: `líder = findMSB(ballot)`;
+  `se lane == líder: base = atomicAdd(contador, bitCount(ballot) * 4)`; `base = shuffle(base, líder)`;
+  `índice = bitCount(LtMask & ballot) * 4 + base`. No SPIR-V do cache havia **três** `OpGroupNonUniformBallot`, um
+  dentro do `if` do líder, onde só o líder está ativo: a contagem dava 1, o contador avançava 4 vértices por warp em
+  vez de 4×N e os warps seguintes escreviam por cima dos mesmos quads (vértices de partículas diferentes num quad).
+- Prova: o SPIR-V de `0a66de99` e `d6c20785` remendado à mão no cache (o voto interno trocado pelo de antes do `if`):
+  **0 rastros em 201**. A primeira tentativa no tradutor (um `VOTE` com predicado de guarda votando no warp inteiro)
+  gerou SPIR-V idêntico e foi descartada. A causa real: o otimizador da AST do Ryujinx propaga uma operação unária de
+  operando constante (`Ballot(true)`) para todos os usos. Patch `tools/xlate/patches/0013-subgroup-ops-stay-in-place`:
+  ballot, voto e shuffle ficam onde o shader os calcula (como o patch 0003 faz com atômicos). Com o tradutor novo
+  (identidade `d10880c4…`): **0 rastros em 201**; os shaders de partículas passam a ter um ballot só, e outros
+  shaders com o mesmo padrão também (21 → 7, 9 → 4 ballots).
+- Pistas descartadas com medição: devolução de faixa inteira do mirror sobre escritas da CPU (a devolução precisa,
+  abaixo, não mudou os rastros: 28 em 201), buffer textures lendo a memória do jogo (elas usam o mirror), escrita por
+  storage texel buffer sem devolução (nenhum `imageStore` nesses shaders), escrita da GPU por DMA acendendo o
+  write-watch do Windows (teste isolado `ww_dma.c`: não acende; só a importação inicial acende todas as páginas).
+
+### Devolução precisa do mirror
+
+- No modo mirror (GPU dedicada) a devolução VRAM → memória do jogo copiava cada faixa escrita inteira; um SSBO
+  vinculado cobre mais do que o shader grava, e a CPU do jogo pode escrever no resto com a submissão em voo (no Switch a
+  GPU só grava os bytes que grava). Agora cada faixa ganha uma pré-imagem no prólogo da parte que a escreve primeiro
+  (anel de 64 MiB na VRAM) e, no fim da submissão, `shaders/wb_merge.comp` grava na memória do jogo só as palavras que
+  mudaram. Faixa sem lugar no anel cai na cópia inteira; `AOC_MIRROR_WB=whole` volta a ela.
+- Batalha, cache quente: GPU 4,28 ms por frame contra 5,97 ms da cópia inteira; fps igual (a batalha aqui é limitada
+  pela CPU). `AOC_MEMORY=verify`: 0 divergências em ~30 milhões de comparações de página; nenhuma faixa caiu na cópia
+  inteira. No Deck (UMA) o mirror não existe e nada disso roda.

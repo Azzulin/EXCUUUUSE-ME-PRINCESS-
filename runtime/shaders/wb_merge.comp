@@ -1,0 +1,24 @@
+#version 450
+// Precise write-back of a VRAM mirror range (runtime/vk_memory.c, "precise write-back"): the words of the range that the
+// submission changed on the GPU (the mirror's word differs from the pre-image taken before the submission's first write
+// into the range) are stored into guest memory, the imported pool buffer; the other words are left alone, so a CPU
+// write made into them while the submission was in flight stays. On the Switch the GPU stores only the bytes it writes.
+// Our own shader.
+layout(local_size_x = 64) in;
+
+layout(std430, set = 0, binding = 0) readonly buffer Post { uint post[]; };    // the mirror
+layout(std430, set = 0, binding = 1) readonly buffer Pre { uint pre[]; };      // the pre-image ring
+layout(std430, set = 0, binding = 2) writeonly buffer Host { uint host[]; };   // guest memory, same layout as the mirror
+
+layout(push_constant) uniform P {
+    uint post_word;   // the range's first word in Post (and in Host)
+    uint pre_word;    // its first word in Pre
+    uint words;       // words in the range
+} pc;
+
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    if (i >= pc.words) return;
+    uint v = post[pc.post_word + i];
+    if (v != pre[pc.pre_word + i]) host[pc.post_word + i] = v;
+}

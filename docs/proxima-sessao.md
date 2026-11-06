@@ -12,18 +12,16 @@ corridas limpas).
 A apresentação lê a imagem do jogo por uma view UNORM num draw que substituiu o `vkCmdBlitImage` (`vk_blit.c`); a
 janela é igual à imagem do jogo no mesmo frame (diferença máxima ≤ 1). Números em `historico.md`, sessão 4.
 
-### Fase B — retângulo branco fixo no centro
+### Fase B — retângulo branco fixo no centro — sem reprodução
 
-Depois da A, capturar a janela com `AOC_PRESENT_SHOT` e olhar o centro. Ele não está na imagem do jogo (dump/`--shot`):
-é desenhado depois dela (apresentação, overlay) ou depende da sessão (mouse/teclado). Achar qual passo o desenha
-(ajuste de cor → FSR/blit → overlay ImGui).
+Em todas as capturas da janela da sessão 4 a janela é igual à imagem do jogo (diferença máxima ≤ 1); com o menu
+fechado e o overlay desligado nada mais é desenhado. Falta o dono dizer quando ele aparece (cena, entrada, overlay
+ligado, foto da tela).
 
-### Fase C — linhas brancas (rastros)
+### Fase C — linhas brancas (rastros) — FEITA na sessão 4
 
-Vêm dos efeitos guiados pela GPU (quads indiretos convertidos por `vk_quad_ind.c`): com `AOC_SKIP_DRAW_IND=1` (só
-diagnóstico) caem de 11 para 2 em 200 frames. Detector: `C:\aoc-win\streaks.py` sobre capturas a cada 0,1 s
-(`AOC_SHOTS=w140-160:0.1`). Pegar um frame com linha (janela de `AOC_DUMP_LOG` + `AOC_DUMP_LOG_VKFMT`, ou dump
-disparado pelo detector) e olhar os vértices desse draw e o comando indireto convertido.
+O otimizador da AST do tradutor movia um voto de warp para dentro do `if` do líder nos computes de partículas
+(append atômico errado). Patch 0013 do tradutor: 20–28 frames com rastro em 201 → 0. Detalhes em `historico.md`.
 
 ### Fase D — véu claro (imagem real do jogo)
 

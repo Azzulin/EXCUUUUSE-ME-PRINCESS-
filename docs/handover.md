@@ -170,14 +170,23 @@ partir de 100 s, `AOC_TRACE=perf`, vigia de travada).
      gravava → perdas de dispositivo na entrada da batalha. Agora vai por `rec_push`; 3 de 3 corridas limpas com o
      gravador ligado. `rec_records(cb)` (vk_rec.h) diz se o gravador grava aquele buffer; os breadcrumbs por draw
      (`AOC_CRUMB_DRAWS`) se recusam a rodar com ele.
-   - **Rastros (linhas brancas):** vêm dos efeitos guiados pela GPU (quads indiretos convertidos por `vk_quad_ind.c`):
-     com `AOC_SKIP_DRAW_IND=1` (só diagnóstico) caem de 11 para 2 em 200 frames (detector `C:\aoc-win\streaks.py`,
-     capturas a cada 0,1 s). Duram um frame; os draws são os mesmos de todo frame (o problema está nos dados). Não é
-     corrida de tempo (replay assíncrono não aumenta). Parâmetros de vértice/instância conferidos (VertexId absoluto,
-     InstanceId = índice − base da GPU). Próximo: dump do frame com linha e olhar os vértices dos draws de quad indireto.
-   - **Rastros:** na rota, as linhas longas no céu aparecem junto da fala "Fire the cannons" (frames ~4480–4540 numa
-     corrida com capturas) — podem ser os rastros das balas de canhão. O momento varia entre corridas; para pegar o
-     frame, disparar o dump pelo shader do efeito (ou `AOC_DUMP_LOG` numa janela) em vez do número do frame.
+   - **Rastros (linhas brancas) — CORRIGIDOS na sessão 4.** Causa no tradutor de shaders: o otimizador da AST do
+     Ryujinx (`StructuredIr/AstOptimizer.cs`) propagava um `Ballot(true)` (operação unária de operando constante) para
+     todos os usos, e um deles fica dentro de `if (lane == líder)`. Os computes de partículas que montam os quads
+     indiretos (`0a66de99`, `d6c20785` no dump) fazem um append atômico agregado por warp: dentro do `if` só o líder
+     está ativo, o voto contava 1, o contador avançava 4 vértices por warp em vez de 4×N e warps escreviam por cima dos
+     quads uns dos outros (quads com vértices de partículas diferentes). Patch `tools/xlate/patches/0013`: ballot, voto e
+     shuffle ficam onde o shader os calcula. Medido (capturas a cada 0,1 s entre 140 e 160 s, `C:\aoc-win\streaks.py`):
+     20–28 frames com rastro em 201 → **0 em 201**; com o SPIR-V remendado à mão no cache, também 0. Tradutor novo:
+     identidade `d10880c4…` (o cache de shaders esfria uma vez; o Deck precisa do `aoc_xlate` novo).
+   - **Devolução precisa do mirror (sessão 4):** no modo mirror (GPU dedicada) a devolução VRAM → memória do jogo
+     copiava cada faixa escrita inteira; agora grava só as palavras que a GPU mudou (pré-imagem num anel de 64 MiB,
+     `shaders/wb_merge.comp`). Não era a causa dos rastros; ficou porque segue a semântica do Switch (a CPU pode
+     escrever no resto da faixa com a submissão em voo) e tira GPU: batalha 4,28 ms × 5,97 ms por frame. Coerência
+     conferida com `AOC_MEMORY=verify`: 0 divergências em ~30 milhões de páginas. `AOC_MIRROR_WB=whole` volta à cópia
+     inteira. Descartados no caminho: buffer textures lendo memória velha (usam o mirror), escrita por storage texel
+     buffer sem devolução (nenhum `imageStore` nesses shaders), escrita da GPU por DMA acendendo o write-watch (teste
+     isolado: não acende).
    - O cubo de origem do filtro é outra imagem (`0x1d5646600`, mips dos passes 141–146); o destino (`0x19e7ac800`)
      tem o nível 0 = captura nítida e 1–6 filtrados — sem leitura de si mesmo. Como, sem o cubo, as sombras ficam
      pretas e, com ele, quase tão claras quanto o sol, a aposta seguinte é o **peso** que a iluminação dá ao ambiente
@@ -192,10 +201,6 @@ partir de 100 s, `AOC_TRACE=perf`, vigia de travada).
      — é a aposta principal. Os dois shaders usam layouts de c3 diferentes (o do cubo deslocado uma linha) e unidades
      diferentes (Rayleigh `2,03e-8` no cubo × `2,03e-18` na vista, mesma proporção 1 : 2,34 : 5,7). Dumps em
      `C:\aoc-win\dumps` (carga, com `AOC_DUMP_UBO=24`) e `C:\aoc-win\dumpf` (frame 4400 sem pular passes).
-   - **Riscos/rastros** (o dono vê linhas atravessando a imagem): intermitentes; nas capturas aparecem linhas finas
-     longas e cunhas brancas translúcidas saindo do chão — perfil de geometria de efeito com vértice jogado longe.
-     Não estão no frame 4400. Próximo passo: capturas frequentes (`AOC_SHOTS=w100-175:1`), achar um frame com linha e
-     fazer o dump dele; os passes de efeito ficam entre o 61 e o 82 do dump completo (inclusive o de meia resolução).
    - **Denormais:** a RTX 3050 informa `shaderDenormPreserveFloat32 = false`; o SPIR-V do Ryujinx carrega inteiros
      em variáveis float (ex.: o índice do laço do filtro do cubo começa como a constante float 2,8e-45). Não explicou
      o véu, mas é um risco real; no Deck (RADV) dá para pedir `DenormPreserve`.

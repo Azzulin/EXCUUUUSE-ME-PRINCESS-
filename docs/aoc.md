@@ -306,16 +306,22 @@ Pontos que o boot do AoC expôs no runtime herdado (corrigidos):
 
 ## Steam Deck na batalha (2026-11-06, runtime da sessão 4)
 
-| Item | Medido |
-|---|---|
-| Imagem | igual à do PC: luma média 176 no fim da rota (PC 174–175), sem rastros; o retângulo branco aparece igual |
-| Até a batalha | 30 fps travados |
-| Batalha, com `AOC_TRACE=perf,sched` **e o censo ligado** | 12,8 fps (78 ms por frame); GPU ocupada 29,6 ms por frame |
-| Thread principal (0x1001) | 64 % código do jogo (~50 ms por frame; notebook ~16 ms), 20–21 % esperando núcleo virtual, 15 % host; 14,9 % em `nvnSyncWait` (`exe+0x96ac0e`, `nvn_api_core.c:488`) |
-| Workers | girando em `main+0x17496a0` |
-| Write-watch com o censo | 516 consultas por frame sobre 41 GB, 62,7–63,8 ms por frame; 8,4 consultas acham ~3 030 páginas escritas (7,5–8 ms) |
-| Memória | classe UMA, modo import: 3 pools importados, 1 826 MiB; heap 0 3 072 MiB, heap 1 6 144 MiB `DEVICE_LOCAL` |
+Rota de 175 s até a batalha, cache quente, `AOC_TRACE=perf,sched` (`C:\aoc-win\cmp\deckbattle.sh`). Duas corridas: a
+primeira com o censo de páginas sujas ligado (o trace de perf o ligava sozinho), a segunda sem ele (21h45).
 
-- O censo (`AOC_DIRTY_CENSUS=1` desde o fim da sessão 4) é o que o trace de perf ligava sozinho antes; esses fps não
-  são o desempenho real do Deck. No notebook em modo import, desligá-lo levou as consultas de 23,7 GB / 25 ms para
-  2 MiB / 0,027 ms por frame. Falta a medição limpa no Deck.
+| Item | Com o censo | **Sem o censo** |
+|---|---|---|
+| Batalha (frames ~4260–4860) | 12,8 fps, intervalo 78–80 ms | **24,3–24,6 fps**, intervalo 40,6–41,1 ms (máx. ~60 ms; pior frame 125 ms, replay 88 ms) |
+| GPU ocupada por frame | 29,4–29,6 ms | 24,6–26,8 ms; ociosa 16,5 ms (9,8 ms à espera da próxima submissão, 6,7 ms com ela na fila); submit → início 7,0 ms |
+| Thread principal (0x1001, máscara só do núcleo 0) | 64 % jogo, 20–21 % esperando núcleo virtual, 15 % host (14,9 % `nvnSyncWait`) | 68 % jogo (~27,6 ms por frame; notebook ~16 ms), 20 % esperando núcleo virtual, 12 % host (11,6 % em `nvnSyncWait`, `exe+0x96ac0e` = `nvn_api_core.c:488`); nunca dorme |
+| Write-watch por frame | 516 consultas sobre 41 GB, 62,7–63,8 ms | 437–449 consultas sobre 17,5–18,0 GB, 28,1–28,7 ms; 7,5 delas acham ~3 010 páginas escritas (2,5 ms) |
+| Sombra dos pools (por frame) | — | ~35 sincronizações de pool, ~440 consultas, 11,5 MiB copiados para a sombra, 10,3 MiB devolvidos, **~30 ms** (1,81 s a cada 60 frames) |
+| Imagem | luma 176 | luma 173; 4 906 frames, 0 erros de validação, 0 falhas de shader |
+
+- Até a batalha: 30 fps travados. Workers: o spin wait de `main+0x17496a0` está na tabela de `recomp/patches-v130.txt`
+  (passa pelo `rt_spin_gate`: 506 passadas e 23 cessões de núcleo num worker na janela).
+- Memória: classe UMA; no Linux os pools visíveis à CPU usam **sombra** (`vk_memory.c`, "shadow storage": cópia
+  host-visible da memória do jogo, sincronizada antes de cada submit), 3 pools, 1 826 MiB; heap 0 3 072 MiB, heap 1
+  6 144 MiB `DEVICE_LOCAL`; 314 MiB congelados.
+- O que sobra de write-watch sem o censo é da sombra: cada sincronização consulta o pool inteiro (menos as regiões
+  congeladas), ~35 vezes por frame, e só ~2 % das consultas acham páginas escritas.

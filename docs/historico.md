@@ -356,5 +356,27 @@ O Deck saiu da rede numa corrida longa; o dono pediu para seguir testando no not
 - Medido no notebook em modo import (`AOC_MEMORY=import`, o caminho do Deck), batalha: consultas de write-watch por
   frame **23,7 GB / 25 ms → 2 MiB / 0,027 ms**; intervalo de frame 58,6 → 52,2 ms (o modo import numa GPU dedicada
   continua lento: a GPU lê a memória do jogo do lado do host).
-- Pasta do Deck remontada e enviada às 21h24 com a correção. A medição nova no Deck não foi feita: às 21h30 o dono
-  estava jogando o TotK lá (`pgrep totk`), e a regra é não disputar o Deck com ele.
+- Pasta do Deck remontada e enviada às 21h24 com a correção. Às 21h30 o dono estava jogando o TotK lá
+  (`pgrep totk`); às ~21h45 o Deck ficou livre e a medição foi refeita (abaixo).
+
+### Deck sem o censo: 24,6 fps na batalha; o que sobra é a sombra dos pools
+
+- Corrida com `C:\aoc-win\cmp\deckbattle.sh limpa` (rota de 175 s, cache quente, `AOC_TRACE=perf,sched`; o script se
+  recusa a rodar se `totk` ou `aoc` estiverem abertos). Batalha: **24,3–24,6 fps** (intervalo 40,6–41,1 ms) contra
+  12,8 com o censo; GPU 24,6–26,8 ms por frame; luma 173; 4 906 frames, 0 erros de validação, 0 falhas de shader.
+- Thread principal: 68 % no código do jogo (~27,6 ms por frame; com o censo parecia ~50 ms, e no notebook são ~16 ms,
+  1,7×), 20 % esperando um núcleo virtual (~8 ms), 12 % no host (11,6 % em `nvnSyncWait`, ~4,7 ms). Ela nunca dorme:
+  é o caminho crítico. A GPU fica ociosa 16,5 ms por frame, 9,8 ms deles à espera da próxima submissão.
+- O write-watch ainda custa **28 ms por frame** (437–449 consultas sobre 17,5–18 GB). Não é mais o censo: é a
+  **sombra dos pools** (`vk_memory.c`, "shadow storage", padrão no Linux porque reproteger páginas importadas como
+  userptr invalida o buffer no amdgpu). A cada 60 frames: ~2 130 sincronizações de pool, ~26 400 consultas, 690 MiB
+  copiados para a sombra, 618 MiB devolvidos, ~1,81 s → **~30 ms por frame** na thread que submete. Causa:
+  `shadow_sync_pool` consulta o pool inteiro (de `import_lo` a `import_hi`, menos as regiões congeladas) em cada uma das
+  ~35 sincronizações por frame, e só ~7,5 das ~440 consultas acham páginas escritas.
+- Correção pensada para a próxima rodada (não feita): consultar só as regiões de 2 MiB que o replay resolveu desde a
+  última sincronização, com um `sgen` **por região** em vez de por pool. Com o `sgen` por pool, pular uma região
+  perderia escritas: uma consulta da checagem de textura pode carimbar a página antes da sincronização e, quando a
+  região for usada de novo, o carimbo já estaria abaixo do `sgen` do pool. Testável no notebook com
+  `AOC_MEMORY=import AOC_SHADOW=1` antes de ir ao Deck.
+- O spin wait dos workers (`main+0x17496a0`) já está na tabela de `recomp/patches-v130.txt` e passa pelo
+  `rt_spin_gate`, que cede o núcleo virtual depois de 50 µs se alguém espera (`AOC_SPIN_HANDOFF_US`).

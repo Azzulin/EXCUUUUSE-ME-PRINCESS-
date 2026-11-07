@@ -1,6 +1,6 @@
 # Próxima sessão — plano de ação e prompt
 
-Escrito em 2026-11-06, 21h40 (fim da sessão 4). Detalhes e números em `docs/handover.md` §6, `docs/historico.md`
+Escrito em 2026-11-06, 21h50 (fim da sessão 4). Detalhes e números em `docs/handover.md` §6, `docs/historico.md`
 (sessão 4) e `docs/aoc.md` ("Steam Deck na batalha", "Material de UI do retângulo branco").
 
 ## Estado
@@ -11,10 +11,9 @@ Escrito em 2026-11-06, 21h40 (fim da sessão 4). Detalhes e números em `docs/ha
   as palavras que a GPU mudou (−1,7 ms de GPU por frame na RTX 3050); o `aoc.exe` leva manifesto; o censo de páginas
   sujas só roda com `AOC_DIRTY_CENSUS=1`.
 - **Deck**: runtime e tradutor da sessão 4 enviados às 21h24 (identidade do tradutor `d10880c4…`, cache já traduzido
-  lá). Imagem igual à do PC (luma 176, sem rastros). A batalha mediu **12,8 fps** com GPU 29,6 ms por frame, mas
-  **com o censo ligado** (516 consultas de write-watch sobre 41 GB, 63 ms por frame, na thread do replay): o número
-  real ainda não existe. No notebook em modo import, desligar o censo levou as consultas de 23,7 GB / 25 ms para
-  2 MiB / 0,027 ms por frame.
+  lá). Imagem igual à do PC (luma 173–176, sem rastros). Batalha medida sem o censo (21h45): **24,3–24,6 fps**
+  (com o censo eram 12,8), GPU 24,6–26,8 ms por frame e 16,5 ms ociosa, limitado pela CPU. O maior custo que sobra é a
+  **sombra dos pools**: ~30 ms por frame na thread que submete (~440 consultas de write-watch sobre 17,7 GB).
 - **Retângulo branco**: localizado (programa 720 do HUD, modo 12) e com tradução e `BRX` conferidos: o shader faz o
   que o código Maxwell diz. O defeito está no que chega ao draw (posição/escala, uniformes) ou na visibilidade.
 
@@ -23,38 +22,43 @@ Escrito em 2026-11-06, 21h40 (fim da sessão 4). Detalhes e números em `docs/ha
 Ordem: medir antes de mexer. Imagem certa antes de desempenho, mas o retângulo é um elemento de HUD e não bloqueia a
 frente do Deck; as duas podem andar juntas (o Deck só quando estiver livre).
 
-### Fase A — Deck: medição limpa da batalha (primeiro, só com o Deck livre)
+### Fase A — Deck: medição limpa da batalha — FEITA na sessão 4
 
-1. `bash /c/aoc-win/cmp/deckbattle.sh limpa` (Git Bash). O script se recusa a rodar se `totk` ou `aoc` estiverem
-   abertos lá; roda a rota de 175 s com `AOC_TRACE=perf,sched`, traz `run.log` e `shot.png` para
-   `C:\aoc-win\cmp\deck-limpa` e resume fps, write-watch, intervalo/GPU, a thread principal e a luma.
-2. Esperado: linha `mem: write-watch` com poucos MiB por frame (antes 41 GB). Registrar em `docs/aoc.md`, tabela
-   "Steam Deck na batalha" (trocar a linha "com o censo ligado").
-3. Se a batalha já fechar 30 fps: medições do Portão F (`docs/plano.md`, Fase 5: 1 % low, W da APU, temperatura,
-   1 h sem crash). Se não: Fase B com os números novos.
+`bash /c/aoc-win/cmp/deckbattle.sh <etiqueta>` (Git Bash; recusa rodar se `totk` ou `aoc` estiverem abertos; rota de
+175 s com `AOC_TRACE=perf,sched`; traz `run.log` e `shot.png` para `C:\aoc-win\cmp\deck-<etiqueta>` e resume fps,
+write-watch, intervalo/GPU, a thread principal e a luma). Resultado em `docs/aoc.md`, "Steam Deck na batalha":
+24,3–24,6 fps. Usar o mesmo script para medir cada mudança da Fase B.
 
-### Fase B — CPU do Deck na batalha (se ficar abaixo de 30 fps)
+### Fase B — CPU do Deck na batalha (24,6 fps → 30)
 
-Números da medição contaminada, para comparar: thread principal 64 % no código do jogo (~50 ms por frame contra ~16 ms
-no notebook), 20–21 % esperando núcleo virtual, 15 % no host, quase tudo em `nvnSyncWait` (`exe+0x96ac0e`,
-`nvn_api_core.c:488`); workers girando em `main+0x17496a0`.
+Hoje (medição limpa): intervalo 40,6 ms. Thread principal (caminho crítico, nunca dorme): 68 % código do jogo
+(~27,6 ms), 20 % esperando núcleo virtual (~8 ms), 12 % no host (11,6 % em `nvnSyncWait`, ~4,7 ms). GPU ociosa
+16,5 ms por frame, 9,8 deles à espera da próxima submissão. Faltam ~7 ms por frame.
 
-1. **`nvnSyncWait`**: o que a thread principal espera — o replay (`REPLAY_ASYNC`, que agora não carrega mais o censo)
-   ou a GPU. A linha `perf: ... fence wait per frame` e o `render thread blocked: fence/drain` separam os dois.
-2. **Código do jogo 3× mais lento que no notebook**: o Zen 2 do Deck não explica sozinho. Medir as faltas de página do
-   write-watch (`userfaultfd` com WP assíncrono: cada primeira escrita numa página protegida é uma falta) por frame;
-   `/proc/<pid>/stat` (minflt) antes e depois de uma janela da batalha basta. Conferir também a frequência das CPUs
-   durante a batalha (`/sys/devices/system/cpu/cpu*/cpufreq/scaling_cur_freq`) e o limite de TDP do Deck.
-3. **Spin wait em `main+0x17496a0`**: ver se está na tabela de `recomp/patches-v130.txt` (1 112 spin waits); se não
-   estiver e girar sem yield, ele rouba núcleo da thread principal (os 20 % de espera por núcleo virtual). Conferir os
-   bytes originais no dump antes de qualquer patch (patch do lifter, nunca edição da saída).
-4. Só depois disso: replay (binds de textura e dispatches por frame) — medir com `AOC_TRACE=perf` qual parte do
-   replay pesa, sem alocação por frame nos caminhos quentes.
+1. **Sombra dos pools por região** (`vk_memory.c` `shadow_sync_pool` / `vk_mem_shadow_sync`): hoje cada uma das ~35
+   sincronizações por frame consulta o pool inteiro (menos as regiões congeladas): ~440 consultas sobre 17,7 GB,
+   ~28 ms de write-watch e ~30 ms no total por frame, na thread que submete; só ~2 % das consultas acham páginas
+   escritas. Proposta: anotar as regiões de 2 MiB que o replay resolve (onde hoje marca o pool em `shadow_touch`) e
+   consultar e copiar só essas, com um `sgen` **por região** (com o `sgen` por pool, pular uma região perde escritas
+   que uma checagem de textura carimbou antes; ver `historico.md`, sessão 4). Testar primeiro no notebook com
+   `AOC_MEMORY=import AOC_SHADOW=1` (mesma imagem, mesma luma, rastros 0 em 201, nenhuma falta de dado), depois no
+   Deck. Esperado: menos CPU no host (núcleo livre para a thread principal) e a GPU recebendo as submissões antes.
+2. **Espera por núcleo virtual (20 %)**: a thread principal só roda no núcleo 0 (máscara 1). Ver quem ocupa o núcleo 0
+   na batalha (as linhas `sched:` de cada thread, `preempted`), se o `rt_spin_gate` (cede depois de 50 µs,
+   `AOC_SPIN_HANDOFF_US`; o spin de `main+0x17496a0` já passa por ele) devia ceder mais cedo, e se threads de máscara
+   larga (m7) estão caindo no núcleo 0 com os outros livres.
+3. **`nvnSyncWait` (11,6 %)**: o que a thread principal espera — o replay (`REPLAY_ASYNC`) ou a GPU. A linha
+   `perf: ... fence wait per frame` e o `render thread blocked: fence/drain` separam os dois; deve cair junto com o
+   item 1 se for o replay.
+4. Só depois disso: o código do jogo em si (1,7× o notebook) e o replay (binds de textura e dispatches por frame),
+   sem alocação por frame nos caminhos quentes. Conferir a frequência das CPUs na batalha
+   (`/sys/devices/system/cpu/cpu*/cpufreq/scaling_cur_freq`) e o limite de TDP antes de culpar o código.
 
 ### Fase C — GPU do Deck
 
-GPU 29,6 ms por frame na batalha com a saída do jogo sempre em 1920×1080 (o gerador não tem os patches de resolução;
-`AOC_OPERATION_MODE=handheld` e `AOC_OUTPUT_RES` não a mudam). Com a CPU resolvida, a GPU fica no limite dos 33 ms.
+GPU 24,6–26,8 ms por frame na batalha com a saída do jogo sempre em 1920×1080 (o gerador não tem os patches de
+resolução; `AOC_OPERATION_MODE=handheld` e `AOC_OUTPUT_RES` não a mudam). Com a CPU resolvida, sobra pouca folga até
+os 33 ms (e nenhuma para 40 fps).
 
 1. Descobrir por que o modo portátil não muda a resolução do jogo: o que o jogo lê (`nn::oe::GetOperationMode`,
    `GetDefaultDisplayResolution`) e o que respondemos. No Switch portátil o jogo renderiza menos que 1080p.
@@ -121,8 +125,9 @@ Ambiente (Windows nativo, MSYS2 UCRT64):
 - Armadilha: em heredoc com Python, "\a" e "\b" viram caracteres de controle; caminhos C:\aoc-win em strings Python
   precisam de barra dupla ou raw string. Para texto com barras invertidas, use a ferramenta de edição, não heredoc.
 
-Tarefa 1: Fase A de docs/proxima-sessao.md — medição limpa da batalha no Deck (só com o Deck livre), e Fase B/C conforme
-os números.
+Tarefa 1: Fase B de docs/proxima-sessao.md — sombra dos pools por região (testar no notebook com AOC_MEMORY=import
+AOC_SHADOW=1, depois medir no Deck com deckbattle.sh; hoje 24,6 fps na batalha, ~30 ms por frame só da sombra), e os
+itens seguintes da Fase B/C conforme os números.
 Tarefa 2: Fase D — retângulo branco: uniformes do VS do programa 720 (c3[6..8]) e por que o elemento está visível.
 Depois: Fase E (shaders antecipados) e Fase F (som do vídeo).
 

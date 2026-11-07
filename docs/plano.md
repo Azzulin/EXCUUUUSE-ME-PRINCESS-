@@ -108,7 +108,9 @@ classificadas.
 - [ ] Layout de instalação no cartão SD; Mesa cache ao lado do jogo; "Add to Steam".
 - [ ] Medições: FPS médio/1 % low, frame time, W da APU, temperatura, em rota fixa (Hyrule Field + uma batalha cheia).
 - [x] Trace de perf que não pesa no Deck: o censo de páginas sujas (63 ms por frame na batalha) só com
-      `AOC_DIRTY_CENSUS=1` — sessão 4. Falta a medição limpa da batalha (a de 12,8 fps tinha o censo junto).
+      `AOC_DIRTY_CENSUS=1` — sessão 4. Batalha medida sem ele: 24,6 fps (com ele, 12,8).
+- [ ] Sombra dos pools por região (hoje cada sincronização consulta o pool inteiro: ~30 ms por frame na batalha
+      do Deck).
 
 **Portão F (Deck):** 30 fps estáveis na primeira batalha em 1280×800 (render scale a definir) com ≤ 15 W; sem stutter
 de shader após a instalação; 1 h de sessão sem crash.

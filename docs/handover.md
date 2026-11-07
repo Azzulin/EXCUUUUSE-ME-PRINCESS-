@@ -149,8 +149,10 @@ partir de 100 s, `AOC_TRACE=perf`, vigia de travada).
    procedural, exposição, denormais) está no `historico.md`, sessão 3; descartado também na sessão 4: o otimizador da
    AST do tradutor (traduzir tudo em modo debug não mudou o véu: luma 233 nos dois).
    **Retângulo branco fixo no centro (relato do dono):** com a cor certa ele aparece **na imagem do jogo**: branco
-   puro, ~20×38 px em 1920×1080, exatamente no centro da tela, parado com a câmera andando. Próximo passo: dump de
-   um frame da batalha e achar o draw que o pinta (provavelmente HUD/mira com textura branca).
+   puro, ~20×38 px em 1920×1080, no centro exato da tela. Localizado: é o **programa 720** do pass do HUD (VS
+   `bc173f45`, FS `a57f4e05`, blend aditivo), material de UI no modo 12 (distorção) cujo alfa sai 1 (o da máscara
+   RGBA8, 255 em todo texel) sobre o fundo transparente de um ícone BC3 que guarda RGB branco. Falta decidir pelo
+   código Maxwell do FS se o alfa certo é o do ícone (defeito de tradução) — detalhes no `historico.md`, sessão 4.
    - Ferramentas de diagnóstico de imagem: `AOC_CRUMB_DRAWS=1` + `AOC_VK_RECORDER=0` (breadcrumb por draw),
      `AOC_TEXEL_ZERO=<slots>` com `AOC_TEXEL_ZERO_FS=<prefixos de chave>` (zera buffer textures só nesses fragment
      shaders; o log diz quais casaram), `AOC_TEXEL_LOG_FS=<prefixo>` (endereço, formato, 16 palavras e o c3 do

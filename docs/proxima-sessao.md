@@ -32,10 +32,11 @@ As views sRGB dos mapas de cor (BC7/BC3/BC1 UNORM lidos por views sRGB) eram ign
 
 ### Fase B — retângulo branco fixo no centro
 
-Com a cor certa ele aparece na **imagem do jogo**: branco puro, ~20×38 px em 1920×1080, no centro exato da tela, parado
-com a câmera andando (capturas `AOC_SHOTS` a partir de ~140 s). Fazer o dump de um frame da batalha
-(`AOC_DUMP=4300 AOC_DUMP_DIR=C:/aoc-win/dumpq AOC_DUMP_SKIP_RUNS=1 AOC_VK_RECORDER=0`), achar o primeiro pass em que o
-pixel central fica branco e o draw que o pinta (HUD, mira; textura ou shader).
+Com a cor certa ele aparece na **imagem do jogo**: branco puro, ~20×38 px em 1920×1080, no centro exato da tela.
+Localizado na sessão 4: programa 720 do pass do HUD (FS `a57f4e05`, modo 12 de distorção, blend aditivo), com o alfa
+vindo de uma máscara RGBA8 de alfa 255 sobre o fundo transparente (RGB branco) de um ícone BC3. Próximo: ler o código
+Maxwell desse FS (a máscara de componentes do TEX `.xyw`, o ramo da constante c1 `_127`) e decidir se o alfa final
+deveria ser o do ícone; dados e números em `historico.md`, sessão 4 ("Retângulo branco: localizado").
 
 ## Prompt para colar numa sessão nova
 

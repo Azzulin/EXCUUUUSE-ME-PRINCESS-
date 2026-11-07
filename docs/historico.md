@@ -289,3 +289,20 @@ O Deck saiu da rede numa corrida longa; o dono pediu para seguir testando no not
   certas (configurações, abertura, cinemáticas do Rei Rhoam e dos Bokoblins, batalha); 0 erros de validação.
 - Com a cor certa aparece o **retângulo branco no centro** que o dono relatou: está na imagem do jogo (não na
   apresentação), branco puro, ~20×38 px, fixo no centro da tela.
+
+### Retângulo branco: localizado (causa ainda aberta)
+
+- Pulando draws por programa só na batalha (código temporário, já removido): o retângulo some ao pular o **programa
+  720** do pass do HUD (pass 95, alvo 1920×1080 RGBA8_SRGB): VS `bc173f45`, FS `a57f4e05`, blend aditivo
+  (`SRC_ALPHA, ONE`), um draw de quad.
+- Vértices (stride 44): posição ±2 (RGB32F), cor `ffffffff`, UV0 (RG32F) de 0 a 1, UV1 e UV2 em (0, 0). Uniformes do
+  FS: `c3[0] = (3, 1, 12, 1)` como inteiros → **modo 12** (distorção), `c3[1] = (0,16; 0,16; 1; 1)`, `c3[4].x = -1`,
+  `c3[5].x = -FLT_MAX` (sem descarte por alfa).
+- Texturas: slot 0 = BC3 64×128 (view sRGB) com RGB **branco e alfa 0–5 no fundo** (primeiro bloco: alfa `00 05`, cor
+  `ffff 0000`); slot 1 = BC3 128×128 (view sRGB); slot 2 = RGBA8 64×128 com view `B,G,R,A`, uma linha ondulada,
+  **alfa 255 em todos os texels**, lida em UV (0, 0). No modo 12 o shader traduzido pega a cor do slot 0 e o alfa do
+  slot 2 (`_86 = _78.w; _86 = _52.z;`), e depois `min(_227, _122)`: com alfa 1 o fundo transparente do ícone vira um
+  bloco branco opaco somado à cena.
+- Próximo: ver no código Maxwell desse FS de onde vem o alfa final (a máscara de componentes do TEX que lê `.xyw`, a
+  ordem dos registradores, e o ramo escolhido pela constante c1 `_127` = 1240 / 1792 / ...), e comparar com o
+  tradutor. Se o alfa certo é o do slot 0, o defeito é de tradução; se é o do slot 2, o defeito está nos dados.

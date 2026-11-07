@@ -20,7 +20,7 @@ por isso não serve direto para x86).
 | 1 — lifter | **Fechada na prática.** Build completo rodou (~48 min no notebook, 0 falhas), `aoc --selftest` passa, tabela de 1 112 spin waits (`recomp/patches-v130.txt`). Pendentes menores: 1 jump table superconjunto no `subsdk0`, funções gigantes no gerador. |
 | 2 — host/boot | **Portão B2 cumprido.** Runtime do Astral Chain + porta Linux do TotK em `runtime/`. Com `AOC_GPU=null`: laço principal a 30 fps (relógio 1×), 8 756 programas NVN, RomFS e save, **som não-silencioso** depois das telas do primeiro boot (A por `AOC_INPUT_SCRIPT`) e **vídeo de abertura decodificado** (VP9, ~1,3 ms/frame). |
 | 3 — gráficos | **Em andamento.** Deck (SSH) e, desde a sessão 3, **build nativo do Windows** (RTX 3050). A primeira batalha roda **175 s inteiros a 30 fps sem travar** no notebook (antes: travada de CPU ~frame 570 e perda do dispositivo na entrada da batalha; as duas corrigidas, seção 6). Sessão 4: a janela mostra os bytes do jogo como estão, os efeitos de partículas não têm mais rastros e a **imagem da batalha deixou de sair lavada** (views sRGB respeitadas na amostragem: luma 233 → 175). Aberto: um retângulo branco no centro da tela (na imagem do jogo). |
-| 5 — Deck | `tools/build.py dist --with-romfs` monta a pasta única `dist/aoc-deck/` (sysroot sniper, GLIBC_2.29, romfs por hardlink, LEIA-ME, `aoc.ini`, saves em `profile/` ao lado do executável), testada de ponta a ponta no WSL. **Menu rápido** (L3+R3 segurado): 30 fps, resolução interna portátil/TV ao vivo, overlay. Falta rodar no Deck. |
+| 5 — Deck | `tools/build.py dist --with-romfs` monta a pasta única `dist/aoc-deck/` (sysroot sniper, GLIBC_2.29, romfs por hardlink, LEIA-ME, `aoc.ini`, saves em `profile/` ao lado do executável), testada de ponta a ponta no WSL. **Menu rápido** (L3+R3 segurado): 30 fps, resolução interna portátil/TV ao vivo, overlay. **Roda no Deck** (SteamOS 3.9.5, RADV): imagem igual à do PC, 30 fps até a batalha; na batalha 12,8 fps medidos com o censo de páginas sujas ligado (63 ms por frame só dele; desligado por padrão desde o fim da sessão 4) — falta a medição limpa. |
 
 Números-chave (detalhes em `docs/aoc.md`):
 
@@ -115,9 +115,14 @@ partir de 100 s, `AOC_TRACE=perf`, vigia de travada).
 
 ## 6. Próximos passos (em ordem)
 
-0. **Levar as correções da sessão 3 ao Deck** (offline desde a tarde de 2026-11-05; o dono acha que travou numa
-   corrida longa). Ao voltar: `journalctl -k -b -1` (o que aconteceu), `tools/build.py dist` no WSL (o guest não
-   mudou; só o runtime) e `tools/deck/deploy.sh`. Esperado: sem a travada ~frame 570 e sem o "ring gfx timeout".
+0. **Deck: medir a batalha sem o censo** (primeiro item da próxima rodada; plano em `docs/proxima-sessao.md`). O
+   runtime da sessão 4 já está no Deck (enviado às 21h24 de 2026-11-06) e a imagem lá é a do PC (luma 176, sem
+   rastros). A única medição de batalha (12,8 fps, GPU 29,6 ms por frame, thread principal 64 % no código do jogo e
+   15 % em `nvnSyncWait`) foi feita com o **censo de páginas sujas** ligado, que o `AOC_TRACE=perf` ligava sozinho e
+   custava 516 consultas de write-watch sobre 41 GB, 63 ms por frame, na thread do replay. Agora o censo só roda com
+   `AOC_DIRTY_CENSUS=1`; no notebook em modo import as consultas caíram de 23,7 GB / 25 ms para 2 MiB / 0,027 ms por
+   frame. Os 16–21 fps da sessão 3 provavelmente têm o mesmo vício. Números em `docs/aoc.md` ("Steam Deck na
+   batalha"). `journalctl -b -1` de 2026-11-06: desligamento normal, sem erro de GPU.
 1. **Cor da janela — CORRIGIDA na sessão 4.** O jogo termina num alvo `RGBA8_SRGB` (NVN 0x38, pass 91/94) e codifica
    uma vez só (o tonemap sai linear: `c5[1].y = 0` pula o `pow(1/2,2)` dele, `c5[7].x = 1`, `c5[8].z = 1`); o Switch
    mostra esses bytes como estão. A apresentação agora lê a imagem do jogo por uma **view UNORM**
@@ -130,10 +135,6 @@ partir de 100 s, `AOC_TRACE=perf`, vigia de travada).
    é a imagem verdadeira; o véu (item 2) é o que sobra. Atenção: a saída do jogo é sempre 1920×1080 (o gerador não
    tem os patches de resolução; `AOC_OUTPUT_RES` e o modo portátil não a mudam), então no Deck e no notebook o caminho
    é a redução bilinear; o FSR só entra numa janela maior que 1920×1080.
-   **Retângulo branco fixo no centro** (relato do dono, sessão 3): não aparece em nenhuma captura da janela da sessão 4
-   (todas iguais à imagem do jogo, pixel a pixel, com menu fechado e overlay desligado; com eles fechados o ImGui não
-   desenha nada). Ou depende da sessão do dono (cursor, overlay, entrada), ou de uma cena que as rotas não mostraram.
-   Próximo passo: o dono dizer quando e onde aparece (foto ou captura).
    **Manifesto do Windows (sessão 4):** o `aoc.exe` agora leva `runtime/aoc.manifest` (DPI por monitor v2 e página de
    código UTF-8, via `runtime/aoc.rc` e `llvm-windres` no `tools/build.py`); `--probe-dpi` passa. No notebook não muda a
    imagem: a área de trabalho é 1600×900 físicos a 100 % (a janela pedida de 1920×1080 fica em 1604×881; tela cheia,
@@ -151,8 +152,14 @@ partir de 100 s, `AOC_TRACE=perf`, vigia de travada).
    **Retângulo branco fixo no centro (relato do dono):** com a cor certa ele aparece **na imagem do jogo**: branco
    puro, ~20×38 px em 1920×1080, no centro exato da tela. Localizado: é o **programa 720** do pass do HUD (VS
    `bc173f45`, FS `a57f4e05`, blend aditivo), material de UI no modo 12 (distorção) cujo alfa sai 1 (o da máscara
-   RGBA8, 255 em todo texel) sobre o fundo transparente de um ícone BC3 que guarda RGB branco. Falta decidir pelo
-   código Maxwell do FS se o alfa certo é o do ícone (defeito de tradução) — detalhes no `historico.md`, sessão 4.
+   RGBA8, 255 em todo texel) sobre o fundo transparente de um ícone BC3 que guarda RGB branco. O FS escolhe o modo
+   por um `BRX` com tabela na c1 (`[1240, 2352, 1792, ...]`, entrada do cache `in/6575db294819747a`); o modo 12 cai no
+   destino 1792, onde o alfa final é `_167.z` = o **alfa** da máscara (`_167` é o `.xyw` da textura C empacotado num
+   `vec3`). Conferido: a tradução desse ramo e o mapeamento do `BRX` estão certos, então com esses dados o shader do
+   Switch também pintaria o quad opaco. No Deck aparece igual (não é GPU nem driver). O defeito está no que chega ao
+   draw: posição/escala do elemento (matriz `c3[6..8]` do VS; o `c3[8]` não saiu no dump), um uniforme que o jogo
+   reescreve e nós lemos velho, ou um elemento que o jogo esconde por outro caminho — detalhes no `historico.md`,
+   sessão 4, e em `docs/aoc.md` ("Material de UI do retângulo branco").
    - Ferramentas de diagnóstico de imagem: `AOC_CRUMB_DRAWS=1` + `AOC_VK_RECORDER=0` (breadcrumb por draw),
      `AOC_TEXEL_ZERO=<slots>` com `AOC_TEXEL_ZERO_FS=<prefixos de chave>` (zera buffer textures só nesses fragment
      shaders; o log diz quais casaram), `AOC_TEXEL_LOG_FS=<prefixo>` (endereço, formato, 16 palavras e o c3 do
@@ -189,27 +196,33 @@ partir de 100 s, `AOC_TRACE=perf`, vigia de travada).
    - **Denormais:** a RTX 3050 informa `shaderDenormPreserveFloat32 = false`; o SPIR-V do Ryujinx carrega inteiros
      em variáveis float (ex.: o índice do laço do filtro do cubo começa como a constante float 2,8e-45). Não explicou
      o véu, mas é um risco real; no Deck (RADV) dá para pedir `DenormPreserve`.
-2. **Desempenho na batalha.** No notebook (i5-11400H) a batalha fica em 30 fps com folga: `AOC_TRACE=sched` mostra a
+3. **Desempenho na batalha.** No notebook (i5-11400H) a batalha fica em 30 fps com folga: `AOC_TRACE=sched` mostra a
    thread principal 51% dormindo (`SleepThread(1 ms)` à espera do próximo frame) e os núcleos virtuais ocupados 1,09
    de 3; o maior custo dela era o replay (`nvnQueueSubmitCommands`, 21%). O perfil do Deck agora liga
-   `REPLAY_ASYNC` (host 21% → 1%, mesma imagem). No Deck eram 16–21 fps antes da correção do yield — **medir de novo
-   lá** antes de mexer em mais nada. E **shaders antecipados**: a entrada da batalha ainda
+   `REPLAY_ASYNC` (host 21% → 1%, mesma imagem). **No Deck** (sessão 4, ainda com o censo ligado; item 0): 12,8 fps,
+   GPU 29,6 ms por frame e ~48 ms ociosa (limitado pela CPU); thread principal 64 % no código do jogo (~50 ms por
+   frame contra ~16 ms no notebook), 20–21 % esperando núcleo virtual, 15 % no host, quase tudo em `nvnSyncWait`
+   (`exe+0x96ac0e`, `nvn_api_core.c:488`); workers girando em `main+0x17496a0`. Com a medição limpa, as frentes são:
+   (a) por que o código do jogo leva 3× o do notebook (o Zen 2 de 3,5 GHz não explica sozinho; suspeita: faltas de
+   página do write-watch por `userfaultfd` contadas como tempo do jogo — medir faltas por frame); (b) o que o
+   `nvnSyncWait` espera (replay atrasado ou GPU); (c) o spin wait de `main+0x17496a0` (está na tabela de
+   `recomp/patches-v130.txt`?). E **shaders antecipados**: a entrada da batalha ainda
    trava 20 s com o cache frio (pipeline 13,6 s, tradução 4 s; 13,5 s no Deck). O repositório do dono `Deck Zelda/totk-recomp-main` (TotK no Deck) resolve
    isso com um pacote de todos os programas VS+FS dos arquivos do jogo (`tools/shader_pack.py`) e um warm-up uma vez
    (`tools/linux/warmup.sh`, todos os núcleos menos um, retomável) — fazer o equivalente com o `census_shaders.py` e
    o `shader_pairs.tsv` do nxnative, no formato de semente do runtime (`--prepare-shaders`). Lá também: memory guard
    do GTT (o Deck deles congelou duas vezes com o GTT cheio) e pools de imagens.
-3. **Som do vídeo de abertura** (silêncio enquanto o VP9 toca; medido com `AOC_TRACE=audio`: rms 0,0000 durante os
+4. **Som do vídeo de abertura** (silêncio enquanto o VP9 toca; medido com `AOC_TRACE=audio`: rms 0,0000 durante os
    ~80 s do `movie/Movie001.webm`, música normal antes). O `.webm` **não tem faixa de áudio** (só `V_VP9`; os 97
    vídeos estão em `movie/` e `movie_logo/`) e o jogo não cria `movie::Decoder` de áudio; o som vem de um stream do
    motor de som do KTGL dentro dos RDB. Saída exatamente zero (nem efeitos) sugere que o motor espera um sinal de
    sincronia do player de vídeo (relógio/timestamps do nosso decodificador VP9 do host) — começar por aí.
-3. **Fase 3 — shaders**: .NET 10 no WSL, tradutor Ryujinx 1.3.2 do Astral Chain (`tools/build_xlate.py`,
+5. **Fase 3 — shaders**: .NET 10 no WSL, tradutor Ryujinx 1.3.2 do Astral Chain (`tools/build_xlate.py`,
    `tools/xlate/`, `tools/vendor/ryujinx`) e extração KTGL (`nxnative dm/gfx/tools/shader_split.py`); `spirv-val`.
-4. Correções de NVN do AoC (lista em `docs/plano.md`, Fase 3) quando houver imagem.
-5. Jump table do `subsdk0+0x5da14` (superconjunto seguro) e funções gigantes no gerador (`musttail`), se o tempo de
+6. Correções de NVN do AoC (lista em `docs/plano.md`, Fase 3) quando houver imagem.
+7. Jump table do `subsdk0+0x5da14` (superconjunto seguro) e funções gigantes no gerador (`musttail`), se o tempo de
    build incomodar (hoje ~48 min do zero; incremental leva 1–2 min).
-6. DLC: `nn::aoc` hoje responde "nenhum DLC" (`ov_system.c`); montar os RomFS dos DLCs fica para a Fase 6.
+8. DLC: `nn::aoc` hoje responde "nenhum DLC" (`ov_system.c`); montar os RomFS dos DLCs fica para a Fase 6.
 
 ## 7. Armadilhas já encontradas
 

@@ -2299,7 +2299,7 @@ static void bind_vertex_buffers(VkExec *ex) {
     ex->recorded++;
     for (int b = 0; b < 17; b++)
         if (vcls[b]) vk_mem_count(vcls[b], VK_MUSE_VB, vsz[b]);
-    if (rt_trace & RT_TRACE_PERF)
+    if (vk_mem_census_on > 0)
         for (int b = 0; b < 17; b++)
             if (vpool[b]) vk_mem_bound_note(vpool[b]);
     memcpy(B.vb, vb, sizeof vb), memcpy(B.vo, vo, sizeof vo), memcpy(B.vsz, vsz, sizeof vsz), memcpy(B.vstr, vstr, sizeof vstr);

@@ -99,12 +99,16 @@ classificadas.
 
 ## Fase 5 — Steam Deck · ~2–3 semanas
 
-- [ ] Build Linux contra o sysroot *sniper* ✔ (`tools/build.py dist`, pede no máximo GLIBC_2.29); falta rodar no SteamOS 3.8 em Desktop e Game Mode.
+- [x] Build Linux contra o sysroot *sniper* (`tools/build.py dist`, pede no máximo GLIBC_2.29); roda no SteamOS 3.9.5
+      (sessões 3 e 4: pelo Steam e por SSH, imagem igual à do PC).
 - [ ] Write-watch por `userfaultfd` + `PAGEMAP_SCAN`; pools sombra.
-- [ ] Texturas: BC1–BC7 direto no RDNA2 (o AoC não usa ASTC); conferir deswizzle block-linear e sRGB.
+- [ ] Texturas: BC1–BC7 direto no RDNA2 (o AoC não usa ASTC); conferir deswizzle block-linear e sRGB (as views
+      sRGB dos mapas de cor já são respeitadas, sessão 4).
 - [ ] Perfil `deck`: 1280×800, render scale + FSR1, limitador 30 fps, vsync.
 - [ ] Layout de instalação no cartão SD; Mesa cache ao lado do jogo; "Add to Steam".
 - [ ] Medições: FPS médio/1 % low, frame time, W da APU, temperatura, em rota fixa (Hyrule Field + uma batalha cheia).
+- [x] Trace de perf que não pesa no Deck: o censo de páginas sujas (63 ms por frame na batalha) só com
+      `AOC_DIRTY_CENSUS=1` — sessão 4. Falta a medição limpa da batalha (a de 12,8 fps tinha o censo junto).
 
 **Portão F (Deck):** 30 fps estáveis na primeira batalha em 1280×800 (render scale a definir) com ≤ 15 W; sem stutter
 de shader após a instalação; 1 h de sessão sem crash.

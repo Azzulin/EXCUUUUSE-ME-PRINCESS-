@@ -290,3 +290,32 @@ Pontos que o boot do AoC expôs no runtime herdado (corrigidos):
   batalha).
 - Exposição do frame: textura 2×1 RGBA32F escrita pela CPU (`0x18d58dbc0`, reenviada todo frame), copiada no pass 0
   para a que os passes leem (slot 25): `(0,0103; 0; 0; 1)` e `(0,5; 2,80; 0; 0)` com a imagem lavada.
+
+## Material de UI do retângulo branco (2026-11-06)
+
+- Programa 720 do pass 95 (HUD): VS `bc173f45`, FS `a57f4e05` (hash FNV-1a do SPIR-V no dump); entrada do cache do
+  tradutor `in/6575db294819747a` (fragment, 4 608 bytes de código Maxwell, c1 de 256 bytes). Blend `SRC_ALPHA, ONE`.
+- O FS escolhe o modo por um `BRX` com tabela na c1: `[1240, 2352, 1792, 2352, 3072, 2960, 3032, 3184, 3224, 3328,
+  3408, 3544, 3680, 3776]`, depois `0x3f000000` (0,5). Uniformes do draw: `c3[0] = (3, 1, 12, 1)` (modo 12),
+  `c3[1] = (0,16; 0,16; 1; 1)`, `c3[4].x = -1`, `c3[5].x = -FLT_MAX`. A posição vem de uma matriz em `c3[6..8]` do VS.
+- Texturas: slot 0 BC3 64×128 (ícone, RGB branco e alfa 0–5 no fundo), slot 1 BC3 128×128, slot 2 RGBA8 64×128
+  (máscara de distorção: cinza, R = G = B de 0 a 253, média 88, 17 % dos texels em 0; alfa 255 em todos os texels).
+- No modo 12 o alfa final é o alfa da máscara (o `TEX .xyw` da textura C, componente w) e a cor é a do ícone: o quad
+  sai opaco com o RGB branco do fundo do ícone. A tradução e o `BRX` foram conferidos; o defeito está nos dados do
+  draw (posição, uniformes) ou na visibilidade do elemento.
+
+## Steam Deck na batalha (2026-11-06, runtime da sessão 4)
+
+| Item | Medido |
+|---|---|
+| Imagem | igual à do PC: luma média 176 no fim da rota (PC 174–175), sem rastros; o retângulo branco aparece igual |
+| Até a batalha | 30 fps travados |
+| Batalha, com `AOC_TRACE=perf,sched` **e o censo ligado** | 12,8 fps (78 ms por frame); GPU ocupada 29,6 ms por frame |
+| Thread principal (0x1001) | 64 % código do jogo (~50 ms por frame; notebook ~16 ms), 20–21 % esperando núcleo virtual, 15 % host; 14,9 % em `nvnSyncWait` (`exe+0x96ac0e`, `nvn_api_core.c:488`) |
+| Workers | girando em `main+0x17496a0` |
+| Write-watch com o censo | 516 consultas por frame sobre 41 GB, 62,7–63,8 ms por frame; 8,4 consultas acham ~3 030 páginas escritas (7,5–8 ms) |
+| Memória | classe UMA, modo import: 3 pools importados, 1 826 MiB; heap 0 3 072 MiB, heap 1 6 144 MiB `DEVICE_LOCAL` |
+
+- O censo (`AOC_DIRTY_CENSUS=1` desde o fim da sessão 4) é o que o trace de perf ligava sozinho antes; esses fps não
+  são o desempenho real do Deck. No notebook em modo import, desligá-lo levou as consultas de 23,7 GB / 25 ms para
+  2 MiB / 0,027 ms por frame. Falta a medição limpa no Deck.

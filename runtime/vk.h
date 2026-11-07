@@ -204,12 +204,13 @@ enum { VK_MCLS_NONE, VK_MCLS_HOST_NOACC, VK_MCLS_HOST_UNC, VK_MCLS_HOST_CACHED, 
 enum { VK_MUSE_VB, VK_MUSE_IB, VK_MUSE_UBO, VK_MUSE_SSBO, VK_MUSE_IND, VK_MUSE_COPY_SRC, VK_MUSE_GPU_WRITE,
        VK_MUSE_CPU_READ, VK_MUSE_N };
 void vk_mem_count(int cls, int use, uint64_t bytes);
-// AOC_TRACE=perf dirty census (vk_memory.c): the replay notes each imported pool it binds as a vertex, index, uniform,
-// storage or indirect buffer; at the start of every submit the pages the CPU wrote in such pools since the previous
-// submit are counted from the shared page generations and logged as `mem: dirty` every 60 frames. Nothing when tracing
-// is off: VK_MEM_BOUND is one flag test at the call site.
+// Dirty census (vk_memory.c, AOC_TRACE=perf with AOC_DIRTY_CENSUS=1, import mode): the replay notes each imported pool
+// it binds as a vertex, index, uniform, storage or indirect buffer; at the start of every submit the pages the CPU wrote
+// in such pools since the previous submit are counted from the shared page generations and logged as `mem: dirty`
+// every 60 frames. Off by default even when tracing (it costs tens of ms a frame): VK_MEM_BOUND is one flag test then.
+extern int vk_mem_census_on;   // 1 on, 0 off, -1 not read yet (the first submit reads it)
 void vk_mem_bound_note(void *pool);
-#define VK_MEM_BOUND(sp) do { if ((rt_trace & RT_TRACE_PERF) && (sp).pool) vk_mem_bound_note((sp).pool); } while (0)
+#define VK_MEM_BOUND(sp) do { if (vk_mem_census_on > 0 && (sp).pool) vk_mem_bound_note((sp).pool); } while (0)
 void vk_mem_dirty_submit(void);                   // vk_sync_submit, under its lock, before the replay
 // VRAM mirror of buffer-bound pools (vk_memory.c). vk_mirror_on: AOC_MEMORY=mirror|verify, or the
 // device class is discrete and AOC_MEMORY is unset or auto; set at device selection. The replay (submitting thread

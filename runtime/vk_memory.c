@@ -504,7 +504,7 @@ static void vram_log(uint64_t frame);
 void vk_mem_census(uint64_t frame) {
     static uint64_t window_start;
     if ((rt_trace & RT_TRACE_PERF) && frame % 600 == 0) vram_log(frame);
-    if ((rt_trace & RT_TRACE_PERF) && !vk_mirror_on) dirty_frame(frame);
+    if (!vk_mirror_on && vk_mem_census_on > 0) dirty_frame(frame);
     if ((rt_trace & RT_TRACE_PERF) ? frame % 60 == 0 : frame == 600 || frame == 1800)
         mirror_log(frame), shadow_log(frame);   // mirror_log also logs the write-watch line
     if (frame == 1200) {   // loading is over: the first window starts here
@@ -766,8 +766,11 @@ void vk_mem_snap_stats(uint64_t *checks, uint64_t *calls, uint64_t *untracked) {
     *untracked = __atomic_exchange_n(&n_snap_untracked, 0, __ATOMIC_RELAXED);
 }
 
-// ---------------------------------------------------------------- dirty census (AOC_TRACE=perf)
-// What a device-local mirror of the buffer-bound pools would upload. The replay notes every
+// ---------------------------------------------------------------- dirty census (AOC_TRACE=perf + AOC_DIRTY_CENSUS=1)
+// What a device-local mirror of the buffer-bound pools would upload; import mode only, and only on request: it queries
+// the write watch over every buffer-bound pool at every submit, which in Age of Calamity's first battle on the Steam
+// Deck was 516 queries over 41 GB a frame, 63 ms, and turned a perf measurement into a measurement of the census
+// (12.8 fps). The replay notes every
 // imported pool it binds as a vertex, index, uniform, storage or indirect buffer (vk_mem_bound_note). At the start of
 // each submit one write-watch query per run of such pools stamps the pages written since with a new generation, in the
 // shared generation table (no second consumer of the OS bits: texture checks see the stamps), and the pages of those
@@ -996,8 +999,18 @@ static void shadow_log(uint64_t frame) {
     plat_mutex_unlock(&shadow_lock);
 }
 
+int vk_mem_census_on = -1;   // AOC_DIRTY_CENSUS=1 with AOC_TRACE=perf; -1 until read
+
+static int census_on(void) {
+    if (vk_mem_census_on < 0) {
+        const char *e = cfg_get("AOC_DIRTY_CENSUS");
+        vk_mem_census_on = (rt_trace & RT_TRACE_PERF) && e && !strcmp(e, "1");
+    }
+    return vk_mem_census_on;
+}
+
 void vk_mem_dirty_submit(void) {
-    if (!(rt_trace & RT_TRACE_PERF) || vk_mirror_on) return;   // the mirror's own line replaces the census
+    if (vk_mirror_on || !census_on()) return;   // the mirror's own line replaces the census
     uint64_t t0 = kern_now_ns();
     uint32_t prev = dirty_sub;   // the submit whose replay noted the bindings
     dirty_sub = prev + 1 ? prev + 1 : 1;

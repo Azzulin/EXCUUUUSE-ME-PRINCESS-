@@ -306,3 +306,55 @@ O Deck saiu da rede numa corrida longa; o dono pediu para seguir testando no not
 - Próximo: ver no código Maxwell desse FS de onde vem o alfa final (a máscara de componentes do TEX que lê `.xyw`, a
   ordem dos registradores, e o ramo escolhido pela constante c1 `_127` = 1240 / 1792 / ...), e comparar com o
   tradutor. Se o alfa certo é o do slot 0, o defeito é de tradução; se é o do slot 2, o defeito está nos dados.
+- **Tabela de ramos (depois do commit 52cb12c):** o FS é um `BRX` do Maxwell; o destino sai de uma tabela na c1, que o
+  tradutor emula comparando (`_127 = c1[_125 >> 2][_125 & 3]`, depois `if (_127 == 1240) ... else if (_127 == 1792)`).
+  No cache só um programa tem essa tabela (entrada `in/6575db294819747a`, fragment, 4 608 bytes de código, c1 de 256
+  bytes): `[1240, 2352, 1792, 2352, 3072, 2960, 3032, 3184, 3224, 3328, 3408, 3544, 3680, 3776, ...]`. O modo 12 cai
+  no destino 1792, o ramo que faz `_165 = _189.w; _165 = _167.z;`.
+- **O tradutor está certo nesse ramo** (conferido no fim da sessão): `_167 = texture(fp_t_tcb_C, ...).xyw` é um `vec3`
+  com x, y e **w** da textura C (o `TEX` com máscara `.xyw` empacota três componentes), então `_167.z` é o **alfa** da
+  máscara; a cor vem do ícone (`_189`, textura A). O `x`/`y` da máscara (cinza, R = G = B de 0 a 253, uma linha
+  ondulada; alfa 255 em todos os texels; texel (0,0) = `(0, 0, 0, 255)`, `dumpr3/pass_0095_tex373_64x128x1_37_rgba8.png`)
+  é o deslocamento da distorção. E o mapeamento dos destinos do `BRX` é consistente: o decodificador do Ryujinx
+  (`Decoders/Decoder.cs` `FindBrxTargets`) e o emissor (`Instructions/InstEmitFlowControl.cs` `Brx`) somam o mesmo
+  endereço do `BRX` (`InstOp.GetAbsoluteAddress`, pc + 8 + imediato) ao valor da c1, e os 14 valores da tabela são
+  múltiplos de 8 abaixo dos 4 608 bytes de código (endereços de instrução). Ou seja: com esses dados e esses
+  uniformes, o shader do Switch também pintaria um quad opaco com o RGB branco do ícone. O defeito está no que chega
+  ao draw: a posição/escala do elemento (matriz do VS), um uniforme que o jogo reescreve e nós lemos velho, ou um
+  elemento que o jogo esconde por outro caminho.
+- A posição do quad vem de uma matriz por elemento em `c3[6..8]` do VS; o `c3[8]` não apareceu no dump do frame
+  (falta conferir o tamanho do bloco vinculado ao VS; um bloco reescrito por `UpdateUniformBuffer` aparece com o valor
+  de antes da submissão, `vk_dump.c`), então ainda não dá para dizer se o elemento devia estar fora da tela ou
+  escondido.
+- No Deck o retângulo aparece igual (abaixo): não depende de GPU nem de driver.
+
+### Steam Deck: o runtime novo e a primeira medição da batalha
+
+- O Deck voltou às ~21h. `journalctl -b -1`: o boot anterior terminou num desligamento normal às 20h59, sem erro de
+  GPU nem travada; o boot da travada da sessão 3 é mais antigo e não foi lido (`journalctl --list-boots`). Envio com
+  `tools/deck/deploy.sh --no-build` e a rota com `tools/deck/deck_run.sh` (duas corridas: a primeira traduz tudo de
+  novo, o tradutor mudou).
+- **Imagem**: igual à do PC (luma média 176 no fim da rota; no PC 174–175), sem rastros e com as cores certas. O
+  retângulo branco aparece no mesmo lugar.
+- **Desempenho medido** (com `AOC_TRACE=perf,sched`): 30 fps travados até a batalha; na batalha **12,8 fps** (78 ms por
+  frame) com a GPU ocupada 29,6 ms por frame (~48 ms ociosa) → limitado pela CPU. A thread principal (0x1001) passa
+  64 % rodando código do jogo (~50 ms por frame; no notebook ~16 ms), 20–21 % esperando um núcleo virtual e 15 % no
+  host, sem dormir nunca; 14,9 % num ponto só, `exe+0x96ac0e` = `nvn_api_core.c:488` (`nvnSyncWait`). Os workers
+  giram em `main+0x17496a0`.
+- **A medição estava contaminada**: a linha `mem: write-watch` da batalha dava **516 consultas por frame cobrindo
+  41 GB, 62,7–63,8 ms por frame** (8,4 delas acham ~3 030 páginas escritas, 7,5–8 ms). Quem consultava era o censo de
+  páginas sujas (`vk_memory.c` `vk_mem_dirty_submit`), que rodava em todo submit sempre que `AOC_TRACE=perf` estava
+  ligado e não havia mirror (modo import, o do Deck), na thread do replay e dentro do lock do submit. No notebook o
+  mesmo aparece com `AOC_MEMORY=import`: 23,7 GB e 25 ms por frame, contra 0,66 GB e 0,9 ms no mirror. Logo, os fps
+  do Deck medidos com `AOC_TRACE=perf` (estes e provavelmente os 16–21 fps da sessão 3) mediam o censo junto.
+
+### Censo de páginas sujas só a pedido
+
+- O censo agora exige `AOC_DIRTY_CENSUS=1` além de `AOC_TRACE=perf` (`vk_memory.c` `census_on`, lido no primeiro
+  submit); `VK_MEM_BOUND` e o `bind_vertex_buffers` (`vk_exec_draw.c`) testam só `vk_mem_census_on`. O trace de perf
+  continua com a linha de fps, a de GPU e a de write-watch.
+- Medido no notebook em modo import (`AOC_MEMORY=import`, o caminho do Deck), batalha: consultas de write-watch por
+  frame **23,7 GB / 25 ms → 2 MiB / 0,027 ms**; intervalo de frame 58,6 → 52,2 ms (o modo import numa GPU dedicada
+  continua lento: a GPU lê a memória do jogo do lado do host).
+- Pasta do Deck remontada e enviada às 21h24 com a correção. A medição nova no Deck não foi feita: às 21h30 o dono
+  estava jogando o TotK lá (`pgrep totk`), e a regra é não disputar o Deck com ele.

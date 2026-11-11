@@ -1,7 +1,7 @@
 # Handover — estado do projeto para o próximo agente
 
 Leia isto primeiro, depois `AGENTS.md` (regras) e `docs/plano.md` (fases). O plano de ação imediato e um prompt pronto
-para uma sessão nova estão em `docs/proxima-sessao.md`. Atualizado em 2026-11-09 (sessão 5, no
+para uma sessão nova estão em `docs/proxima-sessao.md`. Atualizado em 2026-11-11 (sessão 6, no
 notebook, build nativo do Windows na RTX 3050). Tudo aqui foi medido no dump do próprio dono do projeto; nada é
 estimativa salvo onde está dito.
 
@@ -130,9 +130,11 @@ partir de 100 s, `AOC_TRACE=perf`, vigia de travada).
   (`shortcuts.vdf`; iniciar o `aoc` por SSH não serve: a janela fecha sem foco do gamescope).
 - **Resolução "estranha" explicada:** o jogo renderiza sempre 1920×1080 (cena 1440×810), fixos em `nnMain`; o modo
   portátil não muda isso, e a janela do Deck mostra a redução bilinear de 1,5×.
-- **Retângulo branco:** 45 partículas de UI (quads aditivos idênticos) empilhadas no centro porque as 45 matrizes da
-  paleta do VS são iguais; o shader está certo. Falta achar por que não se movem nem somem (`aoc.md`, "Partículas de
-  UI do retângulo branco").
+- **Retângulo branco (sessão 6, 2026-11-11): causa achada, correção por fazer.** É o efeito de recuperação de
+  coração do HUD (45 instâncias em repouso, que deviam sair transparentes). O shader original faz
+  `alfa = min(alfa, alfa da máscara)` com um `SYNC` condicional; a tradução otimizada perde a condição e o quad sai
+  opaco. Reproduzido fora do jogo (`C:\aoc-win\retangulo`; com `"debug": true` traduz certo). Falta achar o passo
+  da IR do tradutor que apaga o desvio e fazer o patch 0014 (`historico.md`, sessão 6, tem o passo a passo).
 - **Meta do dono:** consumo perto de 12 W no Deck, sem esquentar. Ainda não há medição de potência.
 - **Do HWDER (outro projeto do dono, 2026-11-11):** inverter eixos (aba Controles), Mudo e Mudo em segundo plano (aba
   Som), teclas I J K L = X B A Y. O menu do F1 já existia (F1, Esc ou Menos+Mais). Compila e o `--probe-cfg` passa;

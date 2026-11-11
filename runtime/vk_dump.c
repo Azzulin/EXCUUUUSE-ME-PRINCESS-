@@ -40,7 +40,7 @@
 #define PNG_CAP (2ull << 30)
 #define INFLIGHT_CAP (3ull << 30)   // host buffers waiting for their submission
 #define MAX_ENTS 48                 // distinct pipeline + texture sets listed per pass
-#define MAX_LUTS 256                // 3D textures and small sampled 8-bit 2D textures dumped per frame
+#define MAX_LUTS 4096               // 3D textures and small sampled 8-bit 2D textures dumped per frame
 #define TEX2D_CAP (1u << 20)        // texels of a sampled 2D texture that is dumped
 
 int vk_dump_armed;
@@ -260,12 +260,18 @@ static void write_images(const Job *j) {
         snprintf(path, sizeof path, "%s/%s%s.png", dir, j->name, pass ? "_tm" : "");
         rt_write_png(path, out, pw, ph);
     }
-    // AOC_DUMP_RAW=1: float images also as <name>.f32, the decoded RGBA float32 texels row by row (pw x ph as the PNG),
+    // AOC_DUMP_RAW=1: integer images also as <name>.bin (a BC texture's blocks, row by row); float images also as <name>.f32, the decoded RGBA float32 texels row by row (pw x ph as the PNG),
     // for measuring HDR values the 8-bit PNGs clamp (the _tm one saturates near 250).
     static int raw = -1;
     if (raw < 0) {
         const char *e = cfg_get("AOC_DUMP_RAW");
         raw = e && *e && strcmp(e, "0");
+    }
+    if (raw && mode == M_INT) {   // integer images (the raw blocks of a BC texture among them): the bytes as copied
+        char path[600];
+        snprintf(path, sizeof path, "%s/%s.bin", dir, j->name);
+        FILE *rf = fopen(path, "wb");
+        if (rf) fwrite(j->map, j->f->bytes, (size_t)j->w * j->h * j->d, rf), fclose(rf);
     }
     if (raw && mode == M_FLOAT) {
         char path[600];
@@ -790,11 +796,11 @@ void vk_dump_draw(VkExec *ex, const VkPipeState *s, VkPipeline p, const VkPipeIn
     // 1 keep, 2 zero, 3 replace, ...), stencil ref/compare/write masks per face, blend enables and target 0's factors.
     const ds_st *d = &s->ds;
     sp(&b, "      ds: depth test %d write %d func %d | stencil %d func f%d b%d ops f(fail %d zfail %d zpass %d) "
-           "ref %u/%u vmask %#x/%#x wmask %#x/%#x | blend en %#x t0 src %d dst %d eq %d | chmask %#x\n",
+           "ref %u/%u vmask %#x/%#x wmask %#x/%#x | blend en %#x t0 src %d dst %d eq %d | chmask %#x | alpha func %d ref %g\n",
        (int)d->dt, (int)d->dw, (int)d->df, (int)d->st, (int)d->sf_f, (int)d->sf_b, (int)d->fail_f, (int)d->zfail_f,
        (int)d->zpass_f, ex->st_ref[0], ex->st_ref[1], ex->st_vmask[0], ex->st_vmask[1], ex->st_wmask[0],
        ex->st_wmask[1], (unsigned)s->color.blend_en, (int)s->blend[0].src_rgb, (int)s->blend[0].dst_rgb,
-       (int)s->blend[0].eq_rgb, s->chmask.mask);
+       (int)s->blend[0].eq_rgb, s->chmask.mask, (int)s->color.alpha_func, (double)ex->alpha_ref);
     describe_bindings(&b, ex, info);
     if (dump_ubo) describe_vertex_input(&b, ex, s);
     ents[nents++] = (Ent){p, th, 1, b.s};
@@ -865,7 +871,9 @@ void vk_dump_pass_end(VkExec *ex) {
         free(ents[i].text);
     }
     if (ents_over) fprintf(passes_f, "  ... %d more draws with other pipeline/texture sets\n", ents_over);
-    if (!pass_skip) flush_luts(ex, n);
+    // The sampled textures are copied also when the targets are not (AOC_DUMP_SKIP_RUNS: the HUD pass draws into the
+    // target of the pass before it, and its textures are the ones a HUD question needs); the pass cap still holds.
+    if (copied < MAX_PASSES) flush_luts(ex, n);
     else nluts = 0;
     buf_snap(ex, n);
     fflush(passes_f);

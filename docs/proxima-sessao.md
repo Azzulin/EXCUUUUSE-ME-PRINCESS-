@@ -1,6 +1,6 @@
 # Próxima sessão — plano de ação e prompt
 
-Escrito em 2026-11-09 (fim da sessão 5). Detalhes em `docs/historico.md` (sessão 5), `docs/handover.md` §6 e
+Escrito em 2026-11-09 (fim da sessão 5); atualizado em 2026-11-11 (sessão 6: retângulo branco). Detalhes em `docs/historico.md` (sessão 5), `docs/handover.md` §6 e
 `docs/aoc.md` ("Áudio: streams e grafo de mixes", "Resolução do jogo", "Partículas de UI do retângulo branco").
 
 ## Estado
@@ -16,8 +16,10 @@ Escrito em 2026-11-09 (fim da sessão 5). Detalhes em `docs/historico.md` (sess�
 - **No Deck está o binário da sessão 4** (sem nada disto). Atalho "Hyrule Warriors: Age of Calamity" criado no Modo
   Jogo. O dono reclama de: retângulo branco, resolução estranha, falta de música; quer consumo na casa de 12 W sem
   esquentar.
-- **Retângulo branco:** são 45 partículas de UI (quads idênticos, aditivos) empilhadas no centro porque as 45
-  matrizes da paleta do VS são iguais (escala 0,3, translação (0, 7)). Falta descobrir por que não se movem nem somem.
+- **Retângulo branco (sessão 6):** causa achada — o tradutor de shaders perde a condição de um `SYNC` condicional
+  do shader do efeito de recuperação de coração (FS `a57f4e05`), e o alfa sai 1. Reproduzido fora do jogo em
+  `C:\aoc-win\retangulo` (`aoc_xlate jobs.json out`: `dbg` certo, `opt` errado). **Falta o patch do tradutor.**
+- **Do HWDER (2026-11-11):** inverter eixos, mudo e teclas IJKL; falta abrir o menu e olhar.
 
 ## Regras da rodada (pedido do dono)
 
@@ -52,14 +54,13 @@ atacar então, pela ordem do perfil (`AOC_TRACE=perf,sched`): espera por núcleo
 governador e o limite de TDP do Deck (o dono pode fixar o TDP no menu rápido do SteamOS; medir a 30 fps estáveis qual
 TDP basta). Shaders antecipados (Fase E antiga) tiram os picos de CPU das travadas.
 
-### 3. Retângulo branco (partículas de UI)
+### 3. Retângulo branco — PRIMEIRA TAREFA (a última que o dono pediu)
 
-1. No dump (`AOC_DUMP_UBO=24`), comparar a paleta de matrizes dos corações (programa 718, mesmo VS `bc173f45`) com a
-   do programa 720.
-2. Achar no `main` quem escreve a paleta desse elemento (o bloco c3 do VS tem 0xd00 bytes: 64 matrizes de 48 bytes a
-   partir de +96) e de onde vêm posição, vida e alfa de cada partícula. Suspeitas: passo de tempo ou relógio constante,
-   número aleatório constante, ou uma visibilidade que não chega. `C:\aoc-win\a64.py`, `dref.py`, `plt.py` ajudam.
-3. Corrigir na causa (serviço, relógio ou replay); nunca pular o draw.
+Passo a passo em `docs/historico.md`, sessão 6, "Próximo passo (correção)": achar na IR do tradutor (cópia
+instrumentada: `wsl -d archlinux -- bash /mnt/c/aoc-win/retangulo/xldbg.sh`, que reconstrói `/tmp/xldbg` e traduz o
+job) o passo que apaga o desvio do `SYNC` condicional; patch `tools/xlate/patches/0014`; reconstruir o tradutor
+(`python3 tools/build_xlate.py --out ~/aoc-build/xlate --sysroot ~/aoc-build/toolchain/sniper` no WSL, depois
+`bash /mnt/c/aoc-win/xlate_win.sh`); uma corrida da rota para conferir o centro da tela, os rastros e a luma.
 
 ### 4. Depois
 
@@ -105,10 +106,11 @@ Ambiente (Windows nativo, MSYS2 UCRT64):
 - Armadilha: em heredoc, "\\n" chega como quebra de linha e "\a"/"\b" como controle; para texto com barras invertidas
   use a ferramenta de escrita/edição, não heredoc.
 
+Tarefa 0 (primeira): retângulo branco — patch do tradutor para o SYNC condicional (passo 3 de docs/proxima-sessao.md
+e docs/historico.md, sessão 6); material em C:\aoc-win\retangulo. Depurador: gdb -p <pid> -batch -x <script>.
 Tarefa 1: passo 1 de docs/proxima-sessao.md inteiro (Windows com o C novo → corrida A de resolução 1280x720 → corrida B
 de sombra em modo import → dist → Deck → logsum com watts e temperatura).
 Tarefa 2: consumo (passo 2), guiado pelos números da tarefa 1.
-Tarefa 3: retângulo branco (passo 3): por que as 45 matrizes das partículas de UI são iguais.
 
 Ao terminar cada tarefa: atualizar docs/handover.md, docs/historico.md, docs/aoc.md, docs/plano.md e este arquivo;
 commitar. Fale com o dono em pt-BR, direto, com números medidos; não declare corrigido sem medir.

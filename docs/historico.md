@@ -516,3 +516,67 @@ O dono pediu para olhar o outro projeto dele, `Downloads\Hyrule Warrios DE\HWDER
 - Úteis para depois, só anotados: a lista `pipeline_warmup.bin` montada antes da tela inicial (casa com a Fase E,
   shaders antecipados) e o minidump em crash com rotação dos 5 mais novos.
 - **Não conferido na tela**: as linhas novas do menu compilam no Windows e no Linux, mas ninguém abriu o menu ainda.
+
+## Sessão 6 — 2026-11-11 (notebook): retângulo branco — causa encontrada, correção por fazer
+
+Sessão dedicada ao retângulo. **Não está corrigido**; a causa está localizada e reproduzida fora do jogo.
+
+### O que o retângulo é
+
+- É o **efeito de recuperação de coração** do HUD: o layout tem os painéis `_10_heart_recov_effect`,
+  `_10_heart_recov_flare`, `_10_heart_recov_mask`, `_10_heart_recov_yugami` (distorção) e as animações
+  `stay_heart_recoverable`, `loop_heart_recoverable`, `shot_recoveriable_add` (nomes lidos da memória do jogo).
+  São **45 instâncias** do efeito (objetos de 0x5df0 bytes, um comando de sprite cada), todas na pose de repouso:
+  escala 0,3, posição (0, 7). O jogo as desenha sempre; em repouso elas deviam sair **transparentes**.
+- Texturas decodificadas (BC3 lido dos blocos brutos do dump): a "flare" 128×128 tem a forma da chama no **alfa**
+  (fundo cinza no RGB); a "mask" 64×128 é RGB branco com **degradê vertical de alfa** (0 no topo); a "yugami" 64×128
+  RGBA8 é a onda de distorção com alfa 255. O quad amostra a máscara em v ≈ 0 (alfa ≈ 0): o alfa certo é
+  `min(alfa da chama, alfa da máscara distorcida)` ≈ 0 em repouso.
+
+### A causa: uma condição perdida na tradução do shader
+
+- FS `a57f4e05` (entrada do cache `in/6575db29…`), código Maxwell do ramo do modo 12, depois de amostrar a textura:
+  `HSETP2 P0 = (R3 > R9)` · **`SYNC` com predicado `!P0`** · `MOV R3 = R9` · `SYNC`. O `SYNC` condicional pula o
+  `MOV`: `if (alfa > alfa_da_onda) alfa = alfa_da_onda`. O mesmo padrão aparece no primeiro estágio (`HSETP2 P1`,
+  `SYNC !P1`, `MOV R5 = R3`). No ramo padrão o compilador usou um `MOV` com predicado, e esse sai certo.
+- O SPIR-V que usamos faz o `MOV` **sempre** (`_165 = _189.w; _165 = _167.z;`): o alfa vira o da onda (1) e cada
+  quad sai opaco; 45 quads aditivos somam branco.
+- Reproduzido fora do jogo com o `aoc_xlate` (pasta `C:\aoc-win\retangulo`: `code.bin`, `jobs.json`): com
+  `"debug": true` a tradução **mantém** a condição (`bool _622 = _620 > _510; … if (…) _492 = _510`); com
+  `"debug": false` (o que o jogo usa) ela some. Um tradutor instrumentado (`xldbg.sh`, cópia em `/tmp/xldbg` do WSL)
+  mostrou que **antes** do otimizador da AST já só existe uma comparação `CompareGreater FP32` (a do ramo padrão): a
+  condição dos ramos 10 e 12 se perde antes, na IR, e não no `AstOptimizer` (os patches 0003/0013 não são a causa).
+  A diferença do modo debug fora do `AstOptimizer` é `Translator.cs` `EmitOps`, que em debug emite um comentário
+  por instrução.
+- Descartado com medição: teste de alfa fixo do Maxwell (o jogo usa `ALWAYS`, ref 0, em todos os draws do HUD); o
+  tradutor ler o `BRX` errado; matrizes/visibilidade (os 45 quads iguais são o estado normal do efeito).
+- Correção de registro: a sessão 4 anotou "alfa 255" para a máscara a partir de um PNG do dump, que descarta o
+  alfa; o número certo (alfa 255 na onda) veio do `images.txt`, e a máscara de verdade é a textura BC3 64×128.
+
+### Próximo passo (correção)
+
+1. Em `/tmp/xldbg` (ou cópia nova do `~/aoc-build/xlate`), achar o passo que apaga o desvio do `SYNC` condicional
+   quando o alvo dele é o mesmo do `SYNC` seguinte: candidatos `Translation/Optimizations/*` (eliminação de desvios,
+   simplificação de blocos) e `Decoders/Decoder.cs` (propagação SSY/SYNC). Teste: o `opt.glsl` do job tem de ganhar
+   a comparação `_189.w > _167.z` nos ramos 1240 e 1792 e no bloco do modo 12.
+2. Virar patch `tools/xlate/patches/0014-…`, reconstruir o tradutor (WSL + `xlate_win.sh`); o cache de shaders esfria
+   uma vez. Conferir quantos shaders mudam (o padrão `HSETP2`/`SYNC` condicional/`MOV` deve existir em outros
+   materiais de UI e efeitos).
+3. Rota até a batalha: centro da tela sem bloco branco (`centre white 0.00` nas capturas), rastros 0 em 201, luma
+   ~175. Só então mandar ao Deck (junto com o resto da sessão 5).
+
+### Ferramentas novas desta sessão
+
+- No runtime: `AOC_DUMP_UBO` lista também a função e a referência do teste de alfa por draw (op novo
+  `OP_ALPHA_REF`, o valor chega ao replay; o teste em si continua sem aplicar, o jogo não o usa no trecho medido);
+  `AOC_DUMP_RAW=1` grava os blocos brutos das texturas comprimidas (`.bin`), e as texturas de um passe com alvos
+  repetidos passam a ser copiadas; `AOC_UBO_TRACE=<tam>:<float>` (pilha do jogo de quem vincula um bloco de uniformes
+  com conteúdo conhecido); `AOC_SCAN_SEQ=1` (sequência de floats na memória; lento, o depurador é melhor).
+- Depurador no build do Windows: `gdb -p <pid> -batch -x <script>` funciona (símbolos `f_<endereço do jogo>`,
+  watchpoints de hardware, Python). Scripts em `C:\aoc-win\retangulo`: `gdbl.py` (para no momento em que a paleta de
+  matrizes é escrita e percorre a lista de comandos de UI), `gdbn.py` (nomes de painéis na memória), `gdbw.txt`.
+  A pilha do jogo se acha pelo `Cpu` de `rt_original` (`c->sp` em +256).
+- `C:\aoc-win\mxdis.py`: lista instruções Maxwell de uma entrada do cache pela tabela do Ryujinx vendorizado
+  (código = os `length` bytes antes do `c1`; palavras de escalonamento a cada 32 bytes).
+- `--probe-nvn` falha em 2 de 794 casos ("device ABI 53.313" e o op `DRAW_IND` sem caso no teste); não foi
+  conferido se já falhava antes desta sessão.

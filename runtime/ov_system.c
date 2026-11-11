@@ -224,8 +224,9 @@ void ov_peek_tick(void) {
 
 // Diagnosis, at every present: AOC_SCAN_F32=<value>[,<value>...] with AOC_SCAN_FRAME=<n> (default 4400) walks the
 // guest's readable regions once at that present and logs where each float lies (within 1e-4 relative), with the 16
-// words around it: the CPU-side struct a GPU constant was copied from.
-static float scan_want[8];
+// words around it: the CPU-side struct a GPU constant was copied from. AOC_SCAN_SEQ=1: the values (up to 16) are one
+// sequence of consecutive floats instead, matched exactly.
+static float scan_want[16];
 static int scan_nwant;
 static void scan_main(void *arg);
 
@@ -238,7 +239,7 @@ void ov_scan_tick(void) {
         const char *e = cfg_get("AOC_SCAN_F32"), *f = cfg_get("AOC_SCAN_FRAME");
         state = e && *e;
         at = f && *f ? strtoull(f, NULL, 10) : 4400;
-        for (const char *p = e; state && p && *p && nwant < 8; p = strchr(p, ','), p = p ? p + 1 : NULL)
+        for (const char *p = e; state && p && *p && nwant < 16; p = strchr(p, ','), p = p ? p + 1 : NULL)
             want[nwant++] = strtof(p, NULL);
         scan_nwant = nwant;
     }
@@ -261,7 +262,25 @@ static void scan_main(void *arg) {
                 if (!plat_mem_readable(pg, 0x1000)) continue;
                 scanned += 0x1000;
                 const float *w = (const float *)(uintptr_t)pg;
-                for (int i = 0; i < 1024; i++) {
+                static int seq = -1;   // AOC_SCAN_SEQ=1: the values as one run of consecutive floats (a matrix, say);
+                static uint64_t last, run;   // repeats one after the other are logged once, with their count
+                if (seq < 0) seq = cfg_get("AOC_SCAN_SEQ") != NULL;
+                for (int i = 0; seq && i + scan_nwant <= 1024; i++) {
+                    int k = 0;
+                    while (k < scan_nwant && w[i + k] == scan_want[k]) k++;
+                    if (k < scan_nwant) continue;
+                    uint64_t h = pg + 4ull * i;
+                    if (h == last + 4ull * scan_nwant) {
+                        run++;
+                    } else {
+                        if (last) rt_log("scan: ... %llu repeats in a row", (unsigned long long)run);
+                        rt_log("scan: sequence at %#llx (state %#x, perm %#x)", (unsigned long long)h, mi.state, mi.perm);
+                        run = 1, hits++;
+                    }
+                    last = h;
+                    i += scan_nwant - 1;
+                }
+                for (int i = 0; !seq && i < 1024; i++) {
                     float v = w[i];
                     for (int k = 0; k < scan_nwant; k++)
                         if (v == v && fabsf(v - scan_want[k]) <= 1e-4f * fabsf(scan_want[k])) {

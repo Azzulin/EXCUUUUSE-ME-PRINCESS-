@@ -434,6 +434,8 @@ static uint64_t record_all(void) {
     fv(1, 2.5f);
     fv(2, 3.5f);
     REC(OP_POLY_OFFSET, CALL(nvnCommandBufferSetPolygonOffsetClamp, U(c)));
+    fv(0, 0.25f);
+    REC(OP_ALPHA_REF, CALL(nvnCommandBufferSetAlphaRef, U(c)));
     REC(OP_DRAW, CALL(nvnCommandBufferDrawArrays, U(c), NVN_DRAW_PRIMITIVE_TRIANGLES, 0, 6));
     REC(OP_DRAW_IDX, CALL(nvnCommandBufferDrawElementsInstanced, U(c), NVN_DRAW_PRIMITIVE_TRIANGLES, NVN_INDEX_TYPE_UNSIGNED_SHORT, 12,
                           0x8000, I(-3), 2, 5));
@@ -601,6 +603,9 @@ static void parse_all(uint64_t h) {
             CHECK(p->face == NVN_FACE_FRONT && p->ref == 9 && p->which == 2, "STENCIL payload");
             break;
         }
+        case OP_ALPHA_REF:
+            CHECK(((const p_alpha_ref *)a)->ref == 0.25f, "ALPHA_REF payload");
+            break;
         case OP_POLY_OFFSET: {
             const p_poly_offset *p = a;
             CHECK(p->factor == 1.5f && p->units == 2.5f && p->clamp == 3.5f, "POLY_OFFSET payload");

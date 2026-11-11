@@ -358,3 +358,13 @@ primeira com o censo de páginas sujas ligado (o trace de perf o ligava sozinho)
   (fov vertical 45°, distância 1303,68 = 540/tan 22,5°). No dump todas as matrizes da paleta valem escala 0,3 e
   translação (0, 7): 45 quads de 19×38 px sobrepostos no centro, somados (blend `SRC_ALPHA, ONE`) até o branco.
 - Fixo na tela com a câmera girando e o personagem andando (capturas a cada 3 s entre 142 e 175 s).
+
+## Efeito de recuperação de coração = o retângulo branco (2026-11-11)
+
+- Painéis `_10_heart_recov_effect/_flare/_mask/_yugami`; 45 instâncias (objetos a 0x5df0 bytes um do outro), comandos
+  de sprite de vtable `main+0x274ff30`, matriz no comando em +0x70, montados em lote por `main+0x18f6630` (a matriz
+  de cada comando vem do método virtual +0x28; paleta de 48 bytes por sprite).
+- FS `a57f4e05`, ramo do modo 12: amostra a textura A com `TEXS`, depois `HSETP2 P0 (R3 > R9)`, `SYNC !P0`,
+  `MOV R3 = R9`, `SYNC`. Primeiro estágio: `HSETP2 P1`, `SYNC !P1`, `MOV R5 = R3`. Tabela do `BRX`: modo 10 → 1240,
+  11 → 2352, 12 → 1792, demais → 2352.
+- Teste de alfa do Maxwell: função `ALWAYS` (8) e referência 0 nos 193 pipelines listados num frame da batalha.

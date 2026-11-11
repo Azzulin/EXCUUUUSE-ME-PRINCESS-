@@ -14,9 +14,11 @@
 // OP_CALL or OP_JUMP.
 #include <stddef.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
+#include "cfg.h"
 #include "gfx.h"
 #include "host.h"
 #include "nvn_api.h"
@@ -759,8 +761,44 @@ static void bind_buffers(const Cpu *c, uint32_t op) {   // (cmd, stage, first, n
         hw_fix(o, 20);
     }
 }
+// AOC_UBO_TRACE=<size>:<float>[:<float index>] (diagnosis): the guest call stack of the first uniform buffer binds of
+// that size (hex) whose 32-bit float at that index (default 24) has that value: who binds a block with known contents
+// (a UI matrix palette, say), to find in the game's code where the contents come from.
+static void ubo_trace(const Cpu *c) {
+    static int state, left = 3, index = 24;   // state 0 unread, 1 on, -1 off
+    static uint64_t size;
+    static float want;
+    if (state < 0) return;
+    if (!state) {
+        const char *e = cfg_get("AOC_UBO_TRACE");
+        double v = 0;
+        unsigned long long sz = 0;
+        state = e && sscanf(e, "%llx:%lf:%d", &sz, &v, &index) >= 2 ? 1 : -1;
+        size = sz, want = (float)v;
+        if (state < 0) return;
+    }
+    uint64_t addr = arg_x(c, 3);
+    if (arg_x(c, 4) != size || !addr || (uint64_t)(index + 1) * 4 > size) return;
+    float f;
+    memcpy(&f, (const void *)(uintptr_t)(addr + 4ull * (unsigned)index), 4);
+    if (f != want || __atomic_fetch_sub(&left, 1, __ATOMIC_RELAXED) <= 0) return;
+    char d[160];
+    rt_log("nvn: ubo trace: stage %d slot %d addr %#llx, bound from %s", (int)arg_x(c, 1), (int)arg_x(c, 2),
+           (unsigned long long)addr, ldr_describe(c->x[30], d, sizeof d));
+    uint64_t fp = c->x[29];
+    for (int n = 0; n < 16 && fp && !(fp & 7) && fp < RT_ADDRESS_LIMIT - 16; n++) {
+        uint64_t next, lr;
+        memcpy(&next, (const void *)(uintptr_t)fp, 8);
+        memcpy(&lr, (const void *)(uintptr_t)(fp + 8), 8);
+        rt_log("nvn: ubo trace:   guest frame %2d: %s", n, ldr_describe(lr, d, sizeof d));
+        if (next <= fp || next - fp > (64u << 20)) break;
+        fp = next;
+    }
+}
+
 static void bind_buffer(const Cpu *c, uint32_t op) {    // (cmd, stage, index, NVNbufferAddress address, size_t size)
     cmd_t *o = cmd_of(c);
+    if (op == OP_BIND_UBO) ubo_trace(c);
     *REC(o, op, p_bind_buf) = (p_bind_buf){(int)arg_x(c, 1), (int)arg_x(c, 2), arg_x(c, 3), arg_x(c, 4)};
     hw_fix(o, 20);
 }
@@ -829,6 +867,11 @@ NVN_API(nvnCommandBufferSetStencilMask) {
 }
 NVN_API(nvnCommandBufferSetStencilRef) {
     *REC(cmd_of(c), OP_STENCIL, p_stencil) = (p_stencil){(int)arg_x(c, 1), 0, 0, (int)arg_x(c, 2), 2};
+}
+// void nvnCommandBufferSetAlphaRef(NVNcommandBuffer *cmd, float ref): the reference of the fixed-function alpha test
+// (nvnColorStateSetAlphaTest; vk_exec_draw.c alpha test)
+NVN_API(nvnCommandBufferSetAlphaRef) {
+    *REC(cmd_of(c), OP_ALPHA_REF, p_alpha_ref) = (p_alpha_ref){arg_s(c, 0)};
 }
 // void nvnCommandBufferSetPolygonOffsetClamp(NVNcommandBuffer *cmd, float factor, float units, float clamp)
 NVN_API(nvnCommandBufferSetPolygonOffsetClamp) {
@@ -1100,6 +1143,7 @@ const char *nvn_op_name(uint32_t op) {
         "DRAW_IDX", "DISPATCH", "BARRIER", "SET_TEX_POOL", "SET_SAMP_POOL", "COPY_B2T", "COPY_STRIDE", "BLEND_COLOR",
         "COPY_T2B", "BIND_IMG", "COPY_T2T", "RESET_COUNTER", "CLEAR_TEX", "DEPTH_CLAMP", "RENDER_ENABLE",
         "RASTER_DISCARD", "RENDER_COND", "PRIM_RESTART", "DRAW_IDX_IND", "DISPATCH_IND", "CLEAR_BUF", "DRAW_IND",
+        "ALPHA_REF",
     };
     _Static_assert(sizeof names / sizeof *names == OP_COUNT_, "one name per op");
     return op < OP_COUNT_ ? names[op] : "?";

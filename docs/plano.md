@@ -81,7 +81,8 @@ os primeiros shaders/programas NVN.
 - [x] Efeitos de partículas sem rastros: o tradutor mantém ballot, voto e shuffle no lugar (patch 0013) — sessão 4.
 - [x] Imagem da batalha lavada: as views sRGB dos mapas de cor eram ignoradas na amostragem (luma 233 → 175) —
       sessão 4.
-- [ ] Retângulo branco no centro da tela: 45 partículas de UI com a mesma matriz (sessão 5; `handover.md` §6).
+- [ ] Retângulo branco no centro da tela: efeito de recuperação de coração opaco porque o tradutor perde a condição de
+      um `SYNC` condicional (sessão 6); falta o patch 0014 do tradutor.
 
 **Portão C:** vídeo de abertura, título e menus corretos; **primeira batalha (Hyrule Field) com soldados, skinning,
 luzes, decals e efeitos** — comparada com captura de referência do Switch/emulador; zero falhas de shader não

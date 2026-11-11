@@ -857,6 +857,9 @@ static void walk(VkExec *ex, const op_hdr *h, int depth) {
             ex->dirty |= VK_EXEC_DIRTY_STENCIL;
             break;
         }
+        case OP_ALPHA_REF:
+            ex->alpha_ref = ((const p_alpha_ref *)a)->ref;
+            break;
         case OP_POLY_OFFSET:
             ex->poly_offset = *(const p_poly_offset *)a;
             ex->dirty |= VK_EXEC_DIRTY_DEPTH_BIAS;

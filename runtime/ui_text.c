@@ -191,6 +191,12 @@ static const char *const text_en[UI_TEXT_COUNT] = {
     [UI_MENU_MODS_UNUSED] = "not used",
 
     [UI_MENU_VOLUME] = "Volume", [UI_MENU_VOLUME_DESC] = "Master volume of the game.",
+    [UI_MENU_MUTE] = "Mute", [UI_MENU_MUTE_DESC] = "Silences the game without changing the volume.",
+    [UI_MENU_MUTE_BG] = "Mute in the background",
+    [UI_MENU_MUTE_BG_DESC] = "Silences the game while another window is active.",
+    [UI_MENU_INVERT_LX] = "Invert left stick X", [UI_MENU_INVERT_LY] = "Invert left stick Y",
+    [UI_MENU_INVERT_RX] = "Invert right stick X (camera)", [UI_MENU_INVERT_RY] = "Invert right stick Y (camera)",
+    [UI_MENU_INVERT_DESC] = "Mirrors this axis of the gamepad's stick.",
 
     [UI_MENU_MOTION] = "Motion controls", [UI_MENU_MOTION_DESC] = "Aiming with the controller's gyroscope.",
     [UI_MENU_RUMBLE_STRENGTH] = "Vibration strength",
@@ -615,6 +621,13 @@ static const char *const text_ru[UI_TEXT_COUNT] = {
     [UI_MENU_MODS_UNUSED] = "не используется",
 
     [UI_MENU_VOLUME] = "Громкость", [UI_MENU_VOLUME_DESC] = "Общая громкость игры.",
+    [UI_MENU_MUTE] = "Без звука", [UI_MENU_MUTE_DESC] = "Отключает звук игры, не меняя громкость.",
+    [UI_MENU_MUTE_BG] = "Без звука в фоне",
+    [UI_MENU_MUTE_BG_DESC] = "Отключает звук, пока активно другое окно.",
+    [UI_MENU_INVERT_LX] = "Инвертировать левый стик по X", [UI_MENU_INVERT_LY] = "Инвертировать левый стик по Y",
+    [UI_MENU_INVERT_RX] = "Инвертировать правый стик по X (камера)",
+    [UI_MENU_INVERT_RY] = "Инвертировать правый стик по Y (камера)",
+    [UI_MENU_INVERT_DESC] = "Зеркально отражает эту ось стика геймпада.",
 
     [UI_MENU_MOTION] = "Управление движением", [UI_MENU_MOTION_DESC] = "Прицеливание гироскопом контроллера.",
     [UI_MENU_RUMBLE_STRENGTH] = "Сила вибрации",
@@ -983,6 +996,13 @@ static const char *const text_pt_br[UI_TEXT_COUNT] = {
     [UI_MENU_MODE_DOCKED] = "Modo TV", [UI_MENU_MODE_HANDHELD] = "Modo portátil",
 
     [UI_MENU_VOLUME] = "Volume", [UI_MENU_VOLUME_DESC] = "Volume geral do jogo.",
+    [UI_MENU_MUTE] = "Mudo", [UI_MENU_MUTE_DESC] = "Silencia o jogo sem mudar o volume.",
+    [UI_MENU_MUTE_BG] = "Mudo em segundo plano",
+    [UI_MENU_MUTE_BG_DESC] = "Silencia o jogo enquanto outra janela estiver ativa.",
+    [UI_MENU_INVERT_LX] = "Inverter analógico esquerdo X", [UI_MENU_INVERT_LY] = "Inverter analógico esquerdo Y",
+    [UI_MENU_INVERT_RX] = "Inverter analógico direito X (câmera)",
+    [UI_MENU_INVERT_RY] = "Inverter analógico direito Y (câmera)",
+    [UI_MENU_INVERT_DESC] = "Espelha este eixo do analógico do controle.",
 
     [UI_MENU_MOTION] = "Controles de movimento", [UI_MENU_MOTION_DESC] = "Mirar com o giroscópio do controle.",
     [UI_MENU_RUMBLE_STRENGTH] = "Intensidade da vibração",
@@ -1485,6 +1505,12 @@ static const char *const text_zh_hans[UI_TEXT_COUNT] = {
                                   "这样被打断的读取可能会永久卡住。",
     [UI_MENU_VOLUME] = "音量",
     [UI_MENU_VOLUME_DESC] = "游戏的主音量。",
+    [UI_MENU_MUTE] = "静音", [UI_MENU_MUTE_DESC] = "不改变音量，直接关闭游戏声音。",
+    [UI_MENU_MUTE_BG] = "后台静音",
+    [UI_MENU_MUTE_BG_DESC] = "其他窗口处于活动状态时关闭游戏声音。",
+    [UI_MENU_INVERT_LX] = "反转左摇杆 X 轴", [UI_MENU_INVERT_LY] = "反转左摇杆 Y 轴",
+    [UI_MENU_INVERT_RX] = "反转右摇杆 X 轴（镜头）", [UI_MENU_INVERT_RY] = "反转右摇杆 Y 轴（镜头）",
+    [UI_MENU_INVERT_DESC] = "镜像手柄摇杆的这个轴。",
     [UI_MENU_MOTION] = "体感操作",
     [UI_MENU_MOTION_DESC] = "用手柄的陀螺仪瞄准。",
     [UI_MENU_RUMBLE_STRENGTH] = "振动强度",

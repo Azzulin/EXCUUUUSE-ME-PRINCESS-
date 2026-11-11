@@ -21,7 +21,11 @@
     {KEY_SPACE, B_X}, {KEY_LSHIFT, B_B}, {KEY_E, B_A}, {KEY_Q, B_L}, {KEY_R, B_R}, \
     {KEY_LCTRL, B_STICK_L}, {KEY_C, B_STICK_R}, \
     {KEY_1, B_LEFT}, {KEY_2, B_UP}, {KEY_3, B_RIGHT}, {KEY_4, B_DOWN}, \
-    {KEY_TAB, B_PLUS}, {KEY_M, B_MINUS}
+    {KEY_TAB, B_PLUS}, {KEY_M, B_MINUS}, \
+    /* I J K L as X B A Y: the right-hand cluster of HWDER's keyboard, each face button's second key */ \
+    {KEY_K, B_A}, {KEY_J, B_B}, {KEY_I, B_X}, {KEY_L, B_Y}
+// The Buttons page shows and edits two keys per action, so the defaults give no action a third (ZL and ZR keep
+// their two).
 
 // By position: south is Switch B, east A, west Y, north X (Nintendo layout); the Xbox layout swaps A with B and X with Y
 // (south A, as the Xbox labels; cross A on a PlayStation pad). The triggers are ZL and ZR.
@@ -32,7 +36,7 @@
     {PAD_ZR, B_ZR}
 #define NINTENDO_PADS DEFAULT_PADS(B_B, B_A, B_Y, B_X)
 #define XBOX_PADS DEFAULT_PADS(B_A, B_B, B_X, B_Y)
-enum { DEFAULT_KEY_COUNT = 26, DEFAULT_PAD_COUNT = 16 };
+enum { DEFAULT_KEY_COUNT = 30, DEFAULT_PAD_COUNT = 16 };
 _Static_assert(sizeof (Binding[]){DEFAULT_KEYS} / sizeof (Binding) == DEFAULT_KEY_COUNT, "DEFAULT_KEY_COUNT");
 
 static const InputMap defaults = {{DEFAULT_KEYS}, DEFAULT_KEY_COUNT, {{NINTENDO_PADS}, {XBOX_PADS}},

@@ -134,6 +134,9 @@ partir de 100 s, `AOC_TRACE=perf`, vigia de travada).
   paleta do VS são iguais; o shader está certo. Falta achar por que não se movem nem somem (`aoc.md`, "Partículas de
   UI do retângulo branco").
 - **Meta do dono:** consumo perto de 12 W no Deck, sem esquentar. Ainda não há medição de potência.
+- **Do HWDER (outro projeto do dono, 2026-11-11):** inverter eixos (aba Controles), Mudo e Mudo em segundo plano (aba
+  Som), teclas I J K L = X B A Y. O menu do F1 já existia (F1, Esc ou Menos+Mais). Compila e o `--probe-cfg` passa;
+  falta abrir o menu e olhar. Detalhes no `historico.md`, "Comparação com o HWDER".
 - Ferramentas novas: censo de vozes e mixes em `AOC_TRACE=audio`; `AOC_DUMP_UBO` lista índices e vértices de cada
   draw; no notebook `C:oc-win64.py`, `plt.py`, `dref.py`, `immscan.py`, `diag1.sh`, `wsl_gen.sh`, `wsl_build.sh`.
 

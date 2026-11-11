@@ -490,3 +490,29 @@ O dono quer o jogo rodando no Deck sem esquentar, na casa dos 12 W. Não há med
 primeira peça. As três frentes que baixam consumo já estão escritas e esperam medição: resolução nativa 1280×720 com
 cena 960×540 (menos da metade dos pixels de hoje), sombra dos pools (um núcleo ocupado ~26–30 ms por frame) e, depois,
 shaders antecipados (as travadas de tradução seguram a CPU no máximo).
+
+### Comparação com o HWDER (2026-11-11) — o que veio de lá
+
+O dono pediu para olhar o outro projeto dele, `Downloads\Hyrule Warrios DE\HWDER-main` (HWDER v0.3.5, MIT: port do
+*Hyrule Warriors: Definitive Edition*, da mesma Koei Tecmo), e trazer o menu do F1 e os mapeamentos de botão.
+
+- **O menu do F1 já existe aqui** e cobre mais que o de lá: abre com **F1**, **Esc** ou **Menos+Mais** no controle
+  (`ui/menu_sdl.cpp`, `input_map.c` `input_menu_gate`); abas Tela, Jogo, Som, Controles (com remapeamento de teclado e
+  controle, zonas mortas, vibração, giroscópio), Menu, Avançado e Mods; menu rápido segurando L3+R3; F10 = overlay de
+  desempenho; F11 = tela cheia.
+- Faltava e foi trazido (ideias, nenhum código copiado — o HWDER é C++ com outra estrutura):
+  - **Inverter eixos** dos analógicos do controle, quatro chaves na aba Controles (`AOC_INVERT_LX/LY/RX/RY`,
+    `input.c` `poll_merged`; só o controle, teclado e mouse têm as próprias teclas);
+  - **Mudo** e **Mudo em segundo plano** na aba Som (`AOC_MUTE`, `AOC_MUTE_BACKGROUND`, `audio_mixer.c`
+    `host_volume`);
+  - teclas **I J K L = X B A Y** do teclado do HWDER como segunda tecla de cada botão de face (`input_map.c`
+    `DEFAULT_KEYS`). U/O (ZL/ZR), Enter e Backspace não entraram: a página de botões mostra e edita duas teclas por
+    ação, e ZL, ZR já têm duas.
+  - Textos nas quatro línguas do menu. `--probe-cfg` passa (um caso do teste atualizado para a segunda tecla de A).
+- Não trazido, com motivo: "segurar Select para abrir o menu" (aqui o Menos é botão do jogo e já há Menos+Mais e
+  L3+R3); contraste/brilho/saturação, nitidez, FXAA, filtro anisotrópico, abrir log/pasta, cheats e mods (já existem);
+  bloom, 120 fps com frame intermediário, ultrawide e co-op de 2 jogadores (dependem de patches e estruturas do
+  outro jogo); instalador Setup.exe (fora do alvo: aqui o build é no PC do dono).
+- Úteis para depois, só anotados: a lista `pipeline_warmup.bin` montada antes da tela inicial (casa com a Fase E,
+  shaders antecipados) e o minidump em crash com rotação dos 5 mais novos.
+- **Não conferido na tela**: as linhas novas do menu compilam no Windows e no Linux, mas ninguém abriu o menu ainda.

@@ -709,6 +709,8 @@ static void tab_game(float scale) {
 static void tab_sound(float scale) {
     opt_begin("##sound", scale);
     opt_slider("AOC_VOLUME", UI_MENU_VOLUME, 0, 100, UI_MENU_VOLUME_DESC, 5, "%.0f %%");
+    opt_toggle("AOC_MUTE", UI_MENU_MUTE, UI_MENU_MUTE_DESC);
+    opt_toggle("AOC_MUTE_BACKGROUND", UI_MENU_MUTE_BG, UI_MENU_MUTE_BG_DESC);
     opt_end();
 }
 
@@ -845,6 +847,10 @@ static void tab_controls(float scale) {
                pad ? stick_note[0] : nullptr, "AOC_STICK_DEADZONE");
     opt_slider("AOC_RSTICK_DEADZONE", UI_MENU_RSTICK_DEADZONE, 0, 50, UI_MENU_STICK_DEADZONE_DESC, 1, "%.0f %%",
                pad ? stick_note[1] : nullptr, "AOC_STICK_DEADZONE");
+    opt_toggle("AOC_INVERT_RX", UI_MENU_INVERT_RX, UI_MENU_INVERT_DESC);
+    opt_toggle("AOC_INVERT_RY", UI_MENU_INVERT_RY, UI_MENU_INVERT_DESC);
+    opt_toggle("AOC_INVERT_LX", UI_MENU_INVERT_LX, UI_MENU_INVERT_DESC);
+    opt_toggle("AOC_INVERT_LY", UI_MENU_INVERT_LY, UI_MENU_INVERT_DESC);
     opt_slider("AOC_STICK_SENS", UI_MENU_STICK_SENS, 0.1f, 3, UI_MENU_STICK_SENS_DESC, 0.05f, "%.2f");
     opt_slider("AOC_MOUSE_SENS", UI_MENU_MOUSE_SENS, 0, 10, UI_MENU_MOUSE_SENS_DESC, 0.1f, "%.1f");
     row_walk_key();

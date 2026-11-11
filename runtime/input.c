@@ -504,7 +504,23 @@ static void poll_merged(uint64_t *buttons, int32_t *lx, int32_t *ly, int32_t *rx
     if (!state) start();
     if (state > 0) {
         binds_refresh();
-        if (state == 1) pad_read(&b, sl, sr);
+        if (state == 1) {
+            pad_read(&b, sl, sr);
+            // AOC_INVERT_LX / LY / RX / RY: the gamepad's stick axes mirrored (the camera's, mostly), before the
+            // sticks become direction buttons. Keyboard and mouse keep their directions: they have bindings.
+            static unsigned inv_seen = ~0u;
+            static int inv[4];
+            unsigned ver = cfg_version();
+            if (ver != inv_seen) {
+                inv_seen = ver;
+                inv[0] = cfg_bool("AOC_INVERT_LX"), inv[1] = cfg_bool("AOC_INVERT_LY");
+                inv[2] = cfg_bool("AOC_INVERT_RX"), inv[3] = cfg_bool("AOC_INVERT_RY");
+            }
+            if (inv[0]) sl[0] = -sl[0];
+            if (inv[1]) sl[1] = -sl[1];
+            if (inv[2]) sr[0] = -sr[0];
+            if (inv[3]) sr[1] = -sr[1];
+        }
         if (ikb_foreground()) {
             uint8_t down[KEY_COUNT] = {0};
             // Mouse buttons count only while the cursor is captured, and a button already held when the capture began

@@ -375,7 +375,7 @@ int probe_cfg(void) {
     CHECK(!line[0], "edit: an action at its defaults needs no line");
     CHECK(input_map_set_key(&mp, B_A, 0, KEY_F) == B_ZR, "edit: F taken from ZR");
     input_map_line(&mp, B_A, line, sizeof line);
-    CHECK(!strcmp(line, "key:f, pad:default"), "edit: A's line is key:f, pad:default");
+    CHECK(!strcmp(line, "key:f, key:k, pad:default"), "edit: A's line is key:f, key:k, pad:default (K: A's second default key)");
     input_map_line(&mp, B_ZR, line, sizeof line);
     CHECK(!strcmp(line, "key:x, pad:default"), "edit: ZR keeps X");
     CHECK(input_map_set_key(&mp, B_ZL, 1, KEY_NONE) == -1, "edit: clearing a key takes from no one");

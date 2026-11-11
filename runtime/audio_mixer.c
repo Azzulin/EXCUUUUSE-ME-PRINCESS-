@@ -72,17 +72,22 @@ static _Atomic float device_volume = 1.0f;
 
 float audio_device_volume(void) { return atomic_load(&device_volume); }
 
-// AOC_VOLUME: the player's volume in percent (0..100) on top of the game's own; a live setting (the
-// menu), parsed again when cfg_version changes. Render thread only.
+// AOC_VOLUME: the player's volume in percent (0..100) on top of the game's own; AOC_MUTE silences it, and
+// AOC_MUTE_BACKGROUND does while another window has the focus (as HWDER's Sound options). Live settings (the menu),
+// parsed again when cfg_version changes. Render thread only.
+int gfx_window_focused(void);   // gfx_present.c
 static float host_volume(void) {
     static float v = 1.0f;
+    static int mute_bg;
     static unsigned seen = ~0u;
     unsigned ver = cfg_version();
-    if (ver == seen) return v;
-    seen = ver;
-    double pct = cfg_double("AOC_VOLUME");
-    v = (float)((pct < 0 ? 0 : pct > 100 ? 100 : pct) / 100);
-    return v;
+    if (ver != seen) {
+        seen = ver;
+        double pct = cfg_double("AOC_VOLUME");
+        v = cfg_bool("AOC_MUTE") ? 0.0f : (float)((pct < 0 ? 0 : pct > 100 ? 100 : pct) / 100);
+        mute_bg = cfg_bool("AOC_MUTE_BACKGROUND");
+    }
+    return mute_bg && !gfx_window_focused() ? 0.0f : v;
 }
 static unsigned audio_revision(const AudioRenderer *r) { unsigned byte = r->revision >> 24; return byte >= '0' ? byte - '0' : 0; }
 static void report_once(Mixer *m, unsigned bit, const char *msg, int value) {

@@ -380,3 +380,113 @@ O Deck saiu da rede numa corrida longa; o dono pediu para seguir testando no not
   `AOC_MEMORY=import AOC_SHADOW=1` antes de ir ao Deck.
 - O spin wait dos workers (`main+0x17496a0`) já está na tabela de `recomp/patches-v130.txt` e passa pelo
   `rt_spin_gate`, que cede o núcleo virtual depois de 50 µs se alguém espera (`AOC_SPIN_HANDOFF_US`).
+
+## Sessão 5 — 2026-11-09 (notebook; pedido do dono: retângulo, resolução, música, consumo no Deck, ferramentas)
+
+Sessão curta (o dono encerrou antes do fim da rodada). Fechou a música; o resto ficou escrito e compilado, **sem
+medição** — está marcado assim em cada item.
+
+### Atalho no Modo Jogo
+
+- O `aoc` iniciado por SSH no Deck abre e fecha quando o gamescope não lhe dá foco ("window closed; exiting" depois de
+  15 s): não serve para o dono jogar. Criado o atalho **"Hyrule Warriors: Age of Calamity"** direto no
+  `~/.local/share/Steam/userdata/86581947/config/shortcuts.vdf` (VDF binário; entrada modelada na do TotK, `exe` =
+  `aoc.sh` da pasta do cartão SD, appid 4106951061), com o Steam fechado durante a gravação. Cópia da lista antiga ao
+  lado: `shortcuts.vdf.bak-20261109-194144`. O Deck estava no Modo Desktop naquele minuto; o Steam foi reaberto.
+- O dono jogou 77 s pelo atalho (`logs/aoc.log`, 1 886 frames, 23–28 fps nos menus com cache frio). Relatou: retângulo
+  branco no centro, resolução "estranha", jogo sem música.
+
+### Música e som das cinemáticas — CORRIGIDO (medido no notebook)
+
+- Medido antes (`AOC_TRACE=audio`, rota de 175 s): 21 das 37 janelas de 5 s em silêncio exato (rms 0,0000), dos 25 s
+  aos 125 s — o vídeo de abertura e as cinemáticas; na batalha só efeitos (rms ~0,02).
+- Ferramenta nova, **censo de vozes e de mixes** (`audio_mixer.c` `voice_census`, junto de cada linha `audio: level`):
+  vozes em uso/tocando por formato, as dez mais tocadas com pico decodificado, volume e ganho da rota, e cada mix com
+  sinal (pico antes e depois dos efeitos, destino, ganho, efeitos).
+- O censo mostrou as trilhas tocando: vozes **PCM16 48 kHz de 6 canais** (mixes 12 e 14) e **de 2 canais** (mix 10),
+  pico decodificado até 0,44, centenas de buffers consumidos — o Opus do jogo decodifica (decoder de software do SDK,
+  código levantado; o serviço `hwopus` nunca é aberto) e o streaming anda. Os mixes 10 e 12 tinham sinal e saíam por
+  **splitter** (3 e 5); nenhum mix depois deles recebia nada.
+- Causa: `mix_depth` ordenava os submixes só pelo `dest_mix_id`. Um mix que sai por splitter ficava com profundidade 1
+  e podia ser somado aos destinos **depois** de eles já terem sido processados. O DSP ordena o grafo pelas arestas,
+  incluídas as de splitter (Ryujinx.Audio `MixContext.Sort`/`NodeStates`). Agora a profundidade é 1 + a maior entre os
+  destinos (mix ou todos os destinos do splitter), com memo por frame.
+- Medido depois, mesma rota: **1 janela em silêncio em 37** (a do boot); rms 0,04–0,25 no vídeo, nas cinemáticas e na
+  batalha (0,06–0,08 contra ~0,02). Isto resolve também o "som do vídeo de abertura" (handover antigo, item 4): o som
+  dele é um stream do KTSL, não uma faixa do `.webm`. **Falta ouvir no Deck** (o binário de lá ainda é o da sessão 4).
+
+### Retângulo branco — causa localizada um nível abaixo, não corrigido
+
+- É **fixo na tela**: girando a câmera e andando (rota `C:\aoc-win\route-cam.txt`, `RSTICK` aos 150 s e `LSTICK` aos
+  156 s) o bloco branco continua no centro em todas as capturas.
+- Dump com a ferramenta nova (`AOC_DUMP_UBO` agora lista o draw, os atributos, os índices e os vértices que eles
+  apontam; `vk_dump.c` `describe_vertex_input`): o draw do programa 720 é **indexado, 270 índices = 45 quads**. Os 45
+  quads são idênticos — posição (±32, ±64), UV0 só com `u` (0 a 1; `v` = 0 em todos), UV1 = metade esquerda da
+  textura 128×128, UV2 = máscara repetida (-0,5 a 1,5 × -1 a 3), cor `(255, 102, 102, 255)` — e só mudam no **índice de
+  matriz** (atributo 0, R32F, 0, 1, 2, ...).
+- O VS (`bc173f45`) usa esse índice numa paleta de matrizes no bloco c3 (48 bytes cada, a partir de c3[6]); c3[2..5] é
+  a câmera de UI (perspectiva de 45°, distância 1303,68 = 540 / tan 22,5°, 1 unidade = 1 pixel de 1080p no plano
+  z = 0). **As matrizes da paleta são todas iguais**: escala 0,3, translação (0, 7). Logo os 45 quads caem um em cima
+  do outro, 19×38 px no centro, e a soma aditiva de 45 camadas satura em branco. É um sistema de partículas de UI
+  (chama vermelha com distorção ondulada) cujas partículas estão todas na pose inicial, visíveis.
+- O FS (`a57f4e05`) lido inteiro: no modo 12 as duas camadas tiram o alfa do `.w` da máscara (255 em todo texel), a
+  mistura é o modo 3 (multiplica as cores) e o alfa final é `min` dos dois × alfa do vértice. Com esses dados cada
+  quad é opaco; o defeito não está no shader.
+- Aberto: por que as 45 matrizes são iguais e as partículas não somem. Suspeitas a testar na ordem: (1) a simulação
+  dessas partículas depende de algo que devolvemos constante (relógio, passo de tempo, número aleatório — conferir o
+  que o jogo chama quando monta a paleta); (2) o elemento devia estar escondido e a visibilidade vem de outro bloco;
+  (3) os dois ramos do `BRX` (1240 e 1792) saem idênticos na tradução — conferir contra o código Maxwell. Os draws dos
+  corações usam o mesmo VS (programa 718) e saem certos: comparar a paleta deles no mesmo dump.
+
+### Resolução — explicada; patch escrito e compilado, não testado
+
+- O jogo fixa as duas resoluções em `nnMain`: a configuração do dispositivo KTGL `{1920, 1080, ...}`
+  (`main+0x8d9490`, entregue a `main+0x17c34f0`) e a cena 3D **1440×810** (`main+0x8d94d0`, gravada em `[x20+0x368]`).
+  O modo portátil não muda nenhuma das duas, e o jogo nunca chama `nvnWindowSetCrop`. No Switch portátil é o sistema
+  que reduz o quadro de 1080p para a tela de 720p.
+- No Deck fazemos o mesmo: 1920×1080 reduzido 1,5× por bilinear para 1280×720. É isso que o dono viu como resolução
+  "estranha" (nitidez irregular na UI e no texto); não vem da correção de cor.
+- O que os modos mudam (lido no `main`): `main+0x277f77f` = docked, `main+0x277f77e` = desempenho "boost";
+  `main+0xb057e0` escolhe um nível de qualidade 1–4 a partir do modo de desempenho numa tabela de registros de 64
+  bytes (dados do jogo). Não é a resolução.
+- Escrito: conjuntos de patch **`output`** e **`scene`** em `recomp/patches-v130.txt` (os dois pares passam a vir da
+  página de patches, +32 e +40; bytes originais conferidos), `runtime/resolution.c` adaptado ao AoC (base 1920×1080,
+  cena 3/4; `AOC_OUTPUT_RES` de 960×540 a 1920×1080, `AOC_RENDER_SCALE` até 100), perfil do Deck com
+  `OUTPUT_RES=1280x720` (cena 960×540), menu só com os tamanhos suportados.
+- Gerado e compilado no WSL: `gen` em 100 s, só `main_0119.c` mudou, guest em 3 s, host do Linux sem erro
+  (`patches.h`: `RT_PATCH_COUNT 2`). **Nunca rodou**: falta levar o `generated` para `C:\aoc-win`, recompilar o guest
+  do Windows e conferir a imagem (HUD inteiro? os oito outros `1920×1080` em `main+0x1583db8..0x1584798` são câmeras
+  de UI e podem precisar do mesmo tratamento) antes de mandar ao Deck.
+
+### Sombra dos pools — causa mais simples que a do plano; correção escrita, não medida
+
+- No log do dono a sombra custa 25,8 ms por frame mesmo nos menus (600 frames: 18 830 sincronizações, 204 402
+  consultas, 11,8 GB copiados, 15 470 ms).
+- O mecanismo de **congelar regiões paradas** já existe (`memory.c` `mem_freeze`, 2 MiB somente leitura até a primeira
+  escrita), mas só as checagens de textura indicavam candidatas. `shadow_sync_pool` consulta o pool inteiro e nunca
+  indicava: por isso só 314 dos 1 826 MiB estavam congelados. Agora ela indica as regiões sem escrita há
+  `freeze_idle` submissões (`vk_memory.c`), e as consultas seguintes as pulam. É bem menos código que a "sombra por
+  região com `sgen` por região" do plano antigo e usa um caminho já testado.
+- **Não medido.** Testar no notebook com `AOC_MEMORY=import AOC_SHADOW=1` (mesma imagem, 0 rastros) e depois no Deck
+  (linha `mem: write-watch`: MiB congelados e ms por frame; linha `mem: shadow`).
+
+### Ferramentas de acompanhamento
+
+- **`runtime/sysmon.c`** (Linux, sempre ligado): a cada 10 s uma linha `sys:` no log com fps, potência da APU
+  (`amdgpu` `power1_average`), bateria (W, estado, %), temperaturas de CPU e GPU, ventoinha, GPU ocupada, carga da CPU,
+  núcleos usados pelo jogo e clocks. Assim uma sessão jogada pelo dono no Modo Jogo deixa consumo e temperatura no
+  `logs/aoc.log`. Sensores conferidos por SSH (todos existem no Deck); compila no Linux; **ainda não rodou lá**.
+- **`tools/deck/logsum.py`**: resume um log (sessão do dono ou medição): máquina (linhas `sys:`), frame, GPU, sombra,
+  write-watch, áudio, erros; destaca o minuto mais pesado. Escrito contra os formatos reais das linhas; as `sys:` só
+  serão conferidas com o primeiro log do Deck.
+- No notebook (fora do repositório, `C:\aoc-win\`): `a64.py` (desmonta um trecho de `main`/`sdk`/`subsdk0`, lê
+  palavras e strings), `plt.py` (imports por nome → stub da PLT → chamadores), `dref.py` (quem lê/escreve um endereço
+  de dados via `adrp`), `immscan.py` (constantes `movz`+`movk`, ex.: resoluções), `diag1.sh` (rota com traço de áudio,
+  capturas e dump; variáveis `ROUTE`, `SECS`, `LOG`), `wsl_gen.sh` e `wsl_build.sh` (regenerar o C e recompilar no WSL).
+
+### Meta de consumo (12 W) — ainda sem número
+
+O dono quer o jogo rodando no Deck sem esquentar, na casa dos 12 W. Não há medição de potência ainda: o `sysmon` é a
+primeira peça. As três frentes que baixam consumo já estão escritas e esperam medição: resolução nativa 1280×720 com
+cena 960×540 (menos da metade dos pixels de hoje), sombra dos pools (um núcleo ocupado ~26–30 ms por frame) e, depois,
+shaders antecipados (as travadas de tradução seguram a CPU no máximo).

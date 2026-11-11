@@ -17,6 +17,7 @@
 
 // ---- logging and results
 void rt_log(const char *fmt, ...) __attribute__((format(printf, 1, 2)));   // "[host] <msg>\n" to the log, one write
+void sysmon_start(void);   // sysmon.c: starts the machine telemetry lines ("sys:"), once; a no-op off Linux
 // The log is stderr plus, in a game run whose stderr is not a file, logs\aoc.log next to aoc (main.c log_open).
 // rt_logf and rt_log_raw write to both without the prefix and the newline: crash reports, fatal errors, guest output.
 void rt_logf(const char *fmt, ...) __attribute__((format(printf, 1, 2)));

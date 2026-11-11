@@ -1,7 +1,7 @@
 # Handover — estado do projeto para o próximo agente
 
 Leia isto primeiro, depois `AGENTS.md` (regras) e `docs/plano.md` (fases). O plano de ação imediato e um prompt pronto
-para uma sessão nova estão em `docs/proxima-sessao.md`. Atualizado em 2026-11-06 (sessão 4, no
+para uma sessão nova estão em `docs/proxima-sessao.md`. Atualizado em 2026-11-09 (sessão 5, no
 notebook, build nativo do Windows na RTX 3050). Tudo aqui foi medido no dump do próprio dono do projeto; nada é
 estimativa salvo onde está dito.
 
@@ -114,6 +114,28 @@ partir de 100 s, `AOC_TRACE=perf`, vigia de travada).
 | `tools/` | `nx.py` (NSP/NCA/ticket/ExeFS/RomFS em Python), `extract.py`, `inspect_dump.py`, `census_*.py`, `build.py` (gen/guest/host/dist), `romfs_index.py`, `spin_waits.py`, `setup_wsl.sh`, `check_content.py`, `fetch_refs.sh`, `windows/*.bat/.ps1` |
 
 ## 6. Próximos passos (em ordem)
+
+**Sessão 5 (2026-11-09) — ler primeiro; o plano passo a passo está em `docs/proxima-sessao.md`.**
+
+- **Música e som das cinemáticas: corrigidos e medidos no notebook** (`audio_mixer.c` `mix_depth`: submixes que saem
+  por splitter eram somados fora de ordem). 21 de 37 janelas de 5 s mudas → 1. O item 4 abaixo (som do vídeo de
+  abertura) era o mesmo defeito. Falta ouvir no Deck.
+- **Escrito e compilado, SEM medição:** (a) resolução nativa — patch sets `output`/`scene` em
+  `recomp/patches-v130.txt`, `resolution.c` do AoC, perfil do Deck 1280×720 com cena 960×540; o C novo só existe no
+  WSL (`~/aoc-build`), o guest do Windows em `C:oc-win` está atrasado; (b) sombra dos pools — `shadow_sync_pool`
+  indica regiões paradas para congelar (substitui a ideia do `sgen` por região do item 0); (c) telemetria — linhas
+  `sys:` a cada 10 s (`runtime/sysmon.c`: watts da APU, bateria, temperaturas, ventoinha, GPU, CPU) e
+  `tools/deck/logsum.py`.
+- **O Deck ainda roda o binário da sessão 4.** Atalho "Hyrule Warriors: Age of Calamity" criado no Modo Jogo
+  (`shortcuts.vdf`; iniciar o `aoc` por SSH não serve: a janela fecha sem foco do gamescope).
+- **Resolução "estranha" explicada:** o jogo renderiza sempre 1920×1080 (cena 1440×810), fixos em `nnMain`; o modo
+  portátil não muda isso, e a janela do Deck mostra a redução bilinear de 1,5×.
+- **Retângulo branco:** 45 partículas de UI (quads aditivos idênticos) empilhadas no centro porque as 45 matrizes da
+  paleta do VS são iguais; o shader está certo. Falta achar por que não se movem nem somem (`aoc.md`, "Partículas de
+  UI do retângulo branco").
+- **Meta do dono:** consumo perto de 12 W no Deck, sem esquentar. Ainda não há medição de potência.
+- Ferramentas novas: censo de vozes e mixes em `AOC_TRACE=audio`; `AOC_DUMP_UBO` lista índices e vértices de cada
+  draw; no notebook `C:oc-win64.py`, `plt.py`, `dref.py`, `immscan.py`, `diag1.sh`, `wsl_gen.sh`, `wsl_build.sh`.
 
 0. **Deck: a sombra dos pools custa ~30 ms por frame na batalha** (primeiro item da próxima rodada; plano em
    `docs/proxima-sessao.md`, Fase B). O runtime da sessão 4 está no Deck (enviado às 21h24 de 2026-11-06); imagem igual

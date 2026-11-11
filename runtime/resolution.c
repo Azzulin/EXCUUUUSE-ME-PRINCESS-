@@ -1,32 +1,21 @@
-// Game resolution: the size the game composes its frame in (its output: canvas, UI and swapchain) and the size of its
-// 3D scene, above the shipped 1920x1080 and 1600x900. The game does the rendering itself, as with the community
-// resolution mods (UltraCam, Visual Fixes): the patch sets output and scene (recomp/patches-v121.txt,
-// patches-v143.txt; MacNativeGames games/totk/runtime/game_patches.c and game_patches_v143.c, MIT, Copyright (c) 2026
-// MacNativeGames contributors) make the game read both sizes from the patch page, and the texture heap that holds the
-// output- and scene-sized render targets grows with them.
+// Game resolution: the size the game composes its frame in (its output: UI and swapchain images) and the size of its
+// 3D scene. Age of Calamity fixes both in nnMain: the KTGL device configuration {1920, 1080, ...} it hands to
+// main+0x17c34f0, and 1440x810 for the scene (3/4 of the output per side), stored right after; the operation mode
+// (docked or handheld) changes neither, so on the Switch's own 720p screen the system scales the 1080p frame down.
+// The output and scene patch sets (recomp/patches-v130.txt) make nnMain read both pairs from the patch page, so the
+// game itself renders at the size asked for: on the Steam Deck 1280x720, shown texel for texel on the 1280x800 screen
+// in place of a 1.5x reduction of a 1080p frame, at less than half the pixels.
 //
-// Settings, read at start: AOC_OUTPUT_RES = <w>x<h> (default 1920x1080, the game's own), AOC_RENDER_SCALE = the
-// scene's size relative to the output: "game" (default, 5/6, the game's 1600x900 at 1080p) or a percentage; above 100
-// the game supersamples its scene, which smooths edges (anti-aliasing) at the cost of GPU time. The game's own final
-// pass (FSR 1 EASU) scales the scene to the output; the present scales the output to the window (vk_fsr.c).
+// Settings, read at start: AOC_OUTPUT_RES = <w>x<h> (default 1920x1080, the game's own; 960x540 to 1920x1080: the
+// texture heaps are the game's, sized for 1920x1080, and larger targets were not measured), AOC_RENDER_SCALE = the
+// scene's size relative to the output: "game" (default, 3/4, the game's 1440x810 at 1080p) or a percentage up to 100.
+// The game's own final passes scale the scene to the output; the present scales the output to the window.
 //
-// Patch page: +16 the scene size {w, h} as floats, +32 the output size and +48 the swapchain size as {w, h} in one
-// 64-bit word, +40 the renderer (1.2.1) or display configuration (1.4.3) the patched code stores there.
-// +56 the camera's aspect ratio as a float when the output is not 16:9 (set aspect), +60 the field-of-view factor
-// (set fov, res_fov_live).
-// 1.4.3 scales the scene it reads by output width / 1920 (a 2560x1440 output renders its 1600x900 scene at 2128x1200;
-// MacNativeGames measured the same), so its page holds the wanted size divided by that factor and the game's 5/6 needs
-// no scene patch. 1.2.1 renders the size it reads (1600x900 on a 2560x1440 output): its page holds the wanted size, and
-// the scene set is on whenever the output differs from 1920x1080.
+// Patch page: +32 the output size and +40 the scene size, each {w, h} in one 64-bit word (width in the low half), the
+// form of the constants the patched instructions built.
 //
-// Heap: agl's DynamicTextureAllocator is one fixed heap, "DynamicTextureAllocatorMem" in
-// System/HeapSize/Product.Nin_NX_NVN.HeapDef.byml.zs (113664 KiB, carved from "Graphics", 201728 KiB). At 2560x1440
-// the shipped size runs out at the title screen. Both heaps grow by the same amount: the shipped size times the output's
-// pixel ratio above 1920x1080 plus the scene's above 1600x900 (MacNativeGames' measurement: a 3440x1440 canvas with a
-// 4620x1935 scene crashed at +258 MiB and loaded at +400 MiB; this formula gives +750 MiB there). romfs.c serves the
-// rewritten table (res_heapdef_build) in place of the original; memory.c adds the amount to the application pool, so
-// no other heap shrinks. Without the rewritten table (a RomFS that lacks it, a format this code does not know) the
-// patch sets stay off and the game keeps its own sizes.
+// The heap, shadow-map, DLSS, aspect and field-of-view code below came with the runtime (TOTK's resolution.c); its
+// patch sets do not exist for this game, so those settings log that and change nothing.
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -37,10 +26,10 @@
 #include "cfg.h"
 #include "host.h"
 
-#define BASE_W 1600
-#define BASE_H 900
-#define SCENE_W 1600
-#define SCENE_H 900
+#define BASE_W 1920
+#define BASE_H 1080
+#define SCENE_W 1440
+#define SCENE_H 810
 #define DTA_KIB 113664u      // DynamicTextureAllocatorMem, shipped
 #define SCENE_MAX 4096       // per side, as MacNativeGames' AOC_RENDER_RES
 #define SHADOW_BASE 960      // the sun shadow map's base size (its cascades: a D16 array of 4 layers)
@@ -63,14 +52,14 @@ static void decide(void) {
     const char *o = cfg_value("AOC_OUTPUT_RES");
     unsigned w = 0, h = 0;
     char tail;
-    if (sscanf(o, "%ux%u%c", &w, &h, &tail) == 2 && w >= 1280 && h >= 720 && w <= 7680 && h <= 4320) {
+    if (sscanf(o, "%ux%u%c", &w, &h, &tail) == 2 && w >= 960 && h >= 540 && w <= BASE_W && h <= BASE_H) {
         R.ow = w & ~1u;
         R.oh = h & ~1u;
     } else {
-        rt_log("resolution: AOC_OUTPUT_RES=%s is not <width>x<height> in 1280x720..7680x4320; 1920x1080", o);
+        rt_log("resolution: AOC_OUTPUT_RES=%s is not <width>x<height> in 960x540..1920x1080; 1920x1080", o);
     }
     const char *s = cfg_value("AOC_RENDER_SCALE");
-    double k = 5.0 / 6.0;
+    double k = (double)SCENE_W / BASE_W;
     const char *m = cfg_value("AOC_DLSS");   // a DLSS mode other than dlaa sets the scene size
     static const struct { const char *name; double k; } dlss[] = {
         {"quality", 2.0 / 3.0}, {"balanced", 0.58}, {"performance", 0.5}};
@@ -83,18 +72,18 @@ static void decide(void) {
     } else if (strcmp(s, "game")) {
         char *end;
         double pct = strtod(s, &end);
-        if (end != s && !*end && pct >= 25 && pct <= 400) {
+        if (end != s && !*end && pct >= 25 && pct <= 100) {
             k = pct / 100.0;
             R.scene_set = 1;
         } else {
-            rt_log("resolution: AOC_RENDER_SCALE=%s is not game or a percentage 25..400; game", s);
+            rt_log("resolution: AOC_RENDER_SCALE=%s is not game or a percentage 25..100; game", s);
         }
     }
     double sw = R.ow * k, sh = R.oh * k;
     double fit = fmin(1.0, fmin(SCENE_MAX / sw, SCENE_MAX / sh));
     if (fit < 1.0) R.scene_set = 1;
-    R.sw = (unsigned)(sw * fit + 0.5);
-    R.sh = (unsigned)(sh * fit + 0.5);
+    R.sw = ((unsigned)(sw * fit + 0.5) + 1) & ~1u;   // even sizes: the game halves the scene for its effect targets
+    R.sh = ((unsigned)(sh * fit + 0.5) + 1) & ~1u;
     const char *sr = cfg_value("AOC_SHADOW_RES");
     if (strcmp(sr, "game")) {
         unsigned n = (unsigned)atoi(sr);
@@ -256,7 +245,7 @@ static void res_shadow_range(void) {
 void res_init(void) {
     res_shadow_range();
     if (!bigger()) {
-        rt_log("resolution: the game's own (output 1920x1080, scene 1600x900)");
+        rt_log("resolution: the game's own (output 1920x1080, scene 1440x810)");
         shadow_init(rt_patch_page());
         return;
     }
@@ -274,10 +263,10 @@ void res_init(void) {
     double k = RT_V143 ? (double)R.ow / BASE_W : 1.0;   // 1.4.3's own scaling of the scene with the output width
     int scene_on = R.scene_set || (!RT_V143 && (R.ow != BASE_W || R.oh != BASE_H));
     float sc[2] = {(float)(R.sw / k), (float)(R.sh / k)};
-    uint64_t out = pack(R.ow, R.oh), none = 0;
+    uint64_t out = pack(R.ow, R.oh), scn = pack(R.sw, R.sh);
     memcpy(page + 16, sc, sizeof sc);
     memcpy(page + 32, &out, 8);
-    memcpy(page + 40, &none, 8);
+    memcpy(page + 40, &scn, 8);
     memcpy(page + 48, &out, 8);
     rt_patch_switch(output, R.ow != BASE_W || R.oh != BASE_H);
     rt_patch_switch(scene, scene_on);
@@ -302,7 +291,7 @@ void res_init(void) {
     }
     shadow_init(page);
     rt_log("resolution: output %ux%u, scene %ux%u%s; texture heap +%llu KiB", R.ow, R.oh, R.sw, R.sh,
-           scene_on ? "" : " (the game's own 5/6 of the output)", (unsigned long long)res_heap_extra_kib());
+           scene_on ? "" : " (the game's own)", (unsigned long long)res_heap_extra_kib());
 }
 
 // DLSS upscaling: textures are sampled for the output's resolution, not the scene's (NVIDIA's DLSS guide: a mip bias

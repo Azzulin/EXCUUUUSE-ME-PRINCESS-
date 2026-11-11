@@ -44,6 +44,9 @@
 #define TEX2D_CAP (1u << 20)        // texels of a sampled 2D texture that is dumped
 
 int vk_dump_armed;
+uint32_t vk_dump_draw_first, vk_dump_draw_count;   // vk_exec_draw.c: the draw being replayed (first vertex or index, count)
+int vk_dump_draw_indexed;                           // 0, or 1 + the NVN index type (0 bytes, 1 shorts, 2 words)
+uint64_t vk_dump_draw_ibuf;                         // guest address of the draw's first index
 static uint64_t dump_frame, log_from;   // log_from: AOC_DUMP_LOG, first frame logged to passes.txt without images
 static char dir[400];
 static FILE *passes_f, *images_f;
@@ -700,6 +703,72 @@ static uint64_t bindings_hash(const VkExec *ex, const VkPipeInfo *info) {
     return h;
 }
 
+// AOC_DUMP_UBO: the vertex input of the entry's first draw: each attribute in use (NVN format, offset, stream), each
+// stream an attribute reads (address, size, stride, divisor) and the stream's first vertices as 32-bit words, read
+// from guest memory when the entry is listed, from the draw's first vertex on (an indexed draw: from its base vertex,
+// its indices are not followed).
+static void describe_vertex_input(Str *b, const VkExec *ex, const VkPipeState *s) {
+    // The vertices listed: a plain draw's first six; an indexed draw's first distinct indices (base vertex added).
+    uint32_t used = 0, list[8], nlist = 0;
+    VkMemSpan ms;
+    if (vk_dump_draw_indexed) {
+        int size = 1 << (vk_dump_draw_indexed - 1);
+        sp(b, "    draw: indexed (%d-byte), base vertex %u, count %u, indices at %#llx:", size, vk_dump_draw_first,
+           vk_dump_draw_count, (unsigned long long)vk_dump_draw_ibuf);
+        if (vk_dump_draw_ibuf && vk_mem_resolve(vk_dump_draw_ibuf, 1, &ms)) {
+            const uint8_t *ip = (const uint8_t *)(uintptr_t)vk_dump_draw_ibuf;
+            for (uint32_t i = 0; i < vk_dump_draw_count && (uint64_t)(i + 1) * (uint32_t)size <= ms.avail; i++) {
+                uint32_t x = size == 1 ? ip[i] : size == 2 ? (uint32_t)(ip[2 * i] | ip[2 * i + 1] << 8) : 0;
+                if (size == 4) memcpy(&x, ip + 4 * i, 4);
+                if (i < 24) sp(b, " %u", x);
+                int seen = 0;
+                for (uint32_t k = 0; k < nlist; k++) seen |= list[k] == x + vk_dump_draw_first;
+                if (!seen && nlist < 8) list[nlist++] = x + vk_dump_draw_first;
+            }
+        } else {
+            sp(b, " (not mapped)");
+        }
+        sp(b, "\n");
+    } else {
+        sp(b, "    draw: first vertex %u, count %u\n", vk_dump_draw_first, vk_dump_draw_count);
+        for (uint32_t i = 0; i < 6 && i < vk_dump_draw_count; i++) list[nlist++] = vk_dump_draw_first + i;
+    }
+    for (int i = 0; i < 16; i++) {
+        va_st a;
+        memcpy(&a, &s->vattr[i], sizeof a);
+        if (!a.fmt) continue;
+        used |= 1u << a.stream;
+        sp(b, "    vattr %d: nvn fmt %#x offset %u stream %u\n", i, (unsigned)a.fmt, (unsigned)a.offset, (unsigned)a.stream);
+    }
+    for (int k = 0; k < 16; k++) {
+        if (!(used & 1u << k)) continue;
+        const NVNbufferRange *r = &ex->vbuf[k];
+        uint32_t stride = s->vstream[k].stride;
+        sp(b, "    vstream %d: addr %#llx size %#llx stride %u divisor %u", k, (unsigned long long)r->address,
+           (unsigned long long)r->size, stride, s->vstream[k].divisor);
+        if (!r->address || !vk_mem_resolve(r->address, 1, &ms)) {
+            sp(b, " (not mapped)\n");
+            continue;
+        }
+        uint64_t n = r->size && r->size < ms.avail ? r->size : ms.avail;
+        uint32_t words = stride ? (stride + 3) / 4 : 4;
+        if (words > 24) words = 24;
+        for (uint32_t j = 0; j < nlist; j++) {
+            uint32_t v = s->vstream[k].divisor ? 0 : list[j];
+            if ((uint64_t)(v + 1) * (stride ? stride : 16) > n) continue;
+            const uint8_t *at = (const uint8_t *)(uintptr_t)r->address + (uint64_t)v * stride;
+            sp(b, "\n      v%u:", v);
+            for (uint32_t i = 0; i < words; i++) {
+                uint32_t x;
+                memcpy(&x, at + 4 * i, 4);
+                sp(b, " %08x", x);
+            }
+            if (s->vstream[k].divisor) break;
+        }
+        sp(b, "\n");
+    }
+}
+
 void vk_dump_draw(VkExec *ex, const VkPipeState *s, VkPipeline p, const VkPipeInfo *info) {
     plat_mutex_lock(&rec_lock);
     if (!active()) goto out;
@@ -727,6 +796,7 @@ void vk_dump_draw(VkExec *ex, const VkPipeState *s, VkPipeline p, const VkPipeIn
        ex->st_wmask[1], (unsigned)s->color.blend_en, (int)s->blend[0].src_rgb, (int)s->blend[0].dst_rgb,
        (int)s->blend[0].eq_rgb, s->chmask.mask);
     describe_bindings(&b, ex, info);
+    if (dump_ubo) describe_vertex_input(&b, ex, s);
     ents[nents++] = (Ent){p, th, 1, b.s};
 out:
     plat_mutex_unlock(&rec_lock);

@@ -63,6 +63,8 @@ typedef struct Mixer {
     unsigned reported;                             // one-time reports
     float voice_scratch[6][MAX_FRAME], filter_scratch[MAX_FRAME], output_scratch[MAX_FRAME * 2];
     double level_sum, level_peak; uint64_t level_count, level_frames; int first_sound_logged;
+    float *voice_peak; uint32_t *voice_frames;     // AOC_TRACE=audio: per voice since the last census (voice_census)
+    float mix_peak_in[256], mix_peak_out[256];     // AOC_TRACE=audio: per mix, before and after its effects
     int prefill;                                   // render blocks
 } Mixer;
 
@@ -235,6 +237,110 @@ static void output_push(Mixer *m, const float *lr, int frames) {
     if (!m->device_ok) atomic_store(&m->rd, wr + (uint64_t)frames);   // no device: the ring only keeps the latest frames
 }
 
+static int mix_valid(AudioRenderer *r, int32_t id);
+static float *mixbuf(Mixer *m, int i);
+static float mix_peak(AudioRenderer *r, Mixer *m, int mix) {
+    float peak = 0;
+    for (int c = 0; c < r->mixes[mix].buffer_count; c++) {
+        const float *b = mixbuf(m, m->offset[mix] + c);
+        for (int k = 0; k < m->frame; k++) if (fabsf(b[k]) > peak) peak = fabsf(b[k]);
+    }
+    return peak;
+}
+static void mix_effects_traced(AudioRenderer *r, Mixer *m, int mix);
+
+// Voice census (AOC_TRACE=audio), with each level line: how many voices the game holds, plays and feeds, by sample
+// format, and the busiest playing ones: what they decode (peak of the samples since the last census), their volume
+// and where they go. Tells a stream that never starts (no voice) from one that plays silence (peak 0) or is muted
+// on the way (volume 0, a mix that leads nowhere).
+static void voice_census(AudioRenderer *r, Mixer *m) {
+    static const char *const fmt_name[] = {"invalid", "pcm8", "pcm16", "pcm24", "pcm32", "float", "adpcm"};
+    int in_use = 0, started = 0, fed = 0, by_fmt[7] = {0}, silent = 0;
+    for (int i = 0; i < r->param.voice_count; i++) {
+        const ServerVoice *v = &r->voices[i];
+        if (!v->in.in_use) continue;
+        in_use++;
+        if (v->state != SV_STARTED) continue;
+        started++;
+        by_fmt[v->in.sample_format < 7 ? v->in.sample_format : 0]++;
+        if (m->voice_frames[i]) {
+            fed++;
+            if (m->voice_peak[i] == 0) silent++;
+        }
+    }
+    rt_log("audio: voices: %d in use, %d started, %d rendered since the last line (%d of them decoded only zeros); "
+           "started by format: pcm16 %d, adpcm %d, float %d, other %d",
+           in_use, started, fed, silent, by_fmt[FMT_PCM16], by_fmt[FMT_ADPCM], by_fmt[FMT_PCMF32],
+           started - by_fmt[FMT_PCM16] - by_fmt[FMT_ADPCM] - by_fmt[FMT_PCMF32]);
+    for (int shown = 0; shown < 10; shown++) {   // the ones rendered longest
+        int best = -1;
+        for (int i = 0; i < r->param.voice_count; i++)
+            if (m->voice_frames[i] && (best < 0 || m->voice_frames[i] > m->voice_frames[best])) best = i;
+        if (best < 0) break;
+        const ServerVoice *v = &r->voices[best];
+        float route = 0;   // the loudest gain towards the voice's mix or splitter destinations
+        if (v->in.splitter_id != SPLITTER_UNUSED && v->in.splitter_id < (uint32_t)m->nsplit) {
+            const SplitInfo *sp = &m->split[v->in.splitter_id];
+            for (int k = 0; k < sp->ndest; k++)
+                for (int b = 0; b < 24; b++)
+                    if (m->dest[sp->ids[k]].used && fabsf(m->dest[sp->ids[k]].vol[b]) > route) route = fabsf(m->dest[sp->ids[k]].vol[b]);
+        } else {
+            for (unsigned c = 0; c < v->in.channel_count && c < 6; c++) {
+                int32_t id = v->in.channel_ids[c];
+                if (id < 0 || id >= r->param.voice_count * 6) continue;
+                for (int b = 0; b < 24; b++) if (fabsf(r->channels[id].mix[b]) > route) route = fabsf(r->channels[id].mix[b]);
+            }
+        }
+        rt_log("audio:   voice %d: %s %u Hz x%u, pitch %.2f, volume %.3f, route gain %.3f (%s %d), %.1f s rendered, "
+               "decoded peak %.4f, buffers consumed %u, played %llu",
+               best, fmt_name[v->in.sample_format < 7 ? v->in.sample_format : 0], v->in.sample_rate, v->in.channel_count,
+               v->in.pitch, v->in.volume, route, v->in.splitter_id != SPLITTER_UNUSED ? "splitter" : "mix",
+               v->in.splitter_id != SPLITTER_UNUSED ? (int)v->in.splitter_id : v->in.mix_id,
+               m->voice_frames[best] / (double)r->param.sample_rate, m->voice_peak[best], v->consumed,
+               (unsigned long long)v->played);
+        m->voice_frames[best] = 0;
+    }
+    memset(m->voice_peak, 0, sizeof(float) * (size_t)r->param.voice_count);
+    memset(m->voice_frames, 0, sizeof(uint32_t) * (size_t)r->param.voice_count);
+    // The mixes that carried signal: level before and after their effects, volume, where they go (the loudest gain
+    // of the matrix to the destination mix, or of the splitter's destinations) and their effects in order.
+    for (int i = 0; i <= r->param.submix_count && i < 256; i++) {
+        const AudrenMixIn *x = &r->mixes[i];
+        if (!x->in_use || (m->mix_peak_in[i] == 0 && m->mix_peak_out[i] == 0)) continue;
+        char fx[200];
+        size_t n = 0;
+        fx[0] = 0;
+        for (int e = 0; e < r->param.effect_count && n + 24 < sizeof fx; e++)
+            if (r->effects[e].type && r->effects[e].mix_id == i)
+                n += (size_t)snprintf(fx + n, sizeof fx - n, " %u%s@%d", r->effects[e].type, r->effects[e].enabled ? "" : "(off)",
+                                      r->effects[e].order);
+        float gain = 0;
+        char to[48];
+        if (x->dest_splitter_id != SPLITTER_UNUSED && x->dest_splitter_id < (uint32_t)m->nsplit) {
+            const SplitInfo *sp = &m->split[x->dest_splitter_id];
+            int used = 0;
+            for (int k = 0; k < sp->ndest; k++) {
+                const SplitDest *d = &m->dest[sp->ids[k]];
+                if (!d->used) continue;
+                used++;
+                for (int b = 0; b < 24; b++) if (fabsf(d->vol[b]) > gain) gain = fabsf(d->vol[b]);
+            }
+            snprintf(to, sizeof to, "splitter %u (%d of %d destinations used)", x->dest_splitter_id, used, sp->ndest);
+        } else if (i == 0) {
+            snprintf(to, sizeof to, "the sinks");
+            gain = 1;
+        } else {
+            for (int c = 0; c < x->buffer_count && c < 24; c++)
+                for (int b = 0; b < 24; b++) if (fabsf(x->mix[c][b]) > gain) gain = fabsf(x->mix[c][b]);
+            snprintf(to, sizeof to, "mix %d%s", x->dest_mix_id, mix_valid(r, x->dest_mix_id) ? "" : " (not in use)");
+        }
+        rt_log("audio:   mix %d: %d buffers, peak %.4f in, %.4f after effects, volume %.3f -> %s, gain %.3f; effects type@order:%s",
+               i, x->buffer_count, m->mix_peak_in[i], m->mix_peak_out[i], x->volume, to, gain, n ? fx : " none");
+    }
+    memset(m->mix_peak_in, 0, sizeof m->mix_peak_in);
+    memset(m->mix_peak_out, 0, sizeof m->mix_peak_out);
+}
+
 // Level meter (AOC_TRACE=audio): one line per 5 s of output, and the first nonzero frame.
 static void level_note(AudioRenderer *r, Mixer *m, const float *lr, int frames) {
     if (!(rt_trace & RT_TRACE_AUDIO)) return;
@@ -260,6 +366,7 @@ static void level_note(AudioRenderer *r, Mixer *m, const float *lr, int frames) 
                (unsigned long long)atomic_load(&m->overruns), (unsigned long long)atomic_load(&m->missing_frames),
                (unsigned long long)atomic_load(&m->callback_frames), (unsigned long long)atomic_load(&m->callback_nonzero),
                queued * 1000.0 / r->param.sample_rate, (unsigned long long)atomic_load(&m->skipped_frames));
+        voice_census(r, m);
         m->level_sum = m->level_peak = 0;
         m->level_count = m->level_frames = 0;
     }
@@ -278,7 +385,9 @@ void audio_mixer_open(AudioRenderer *r) {
     m->ndest = r->param.splitter_destination_count;
     m->split = calloc((size_t)(m->nsplit ? m->nsplit : 1), sizeof *m->split);
     m->dest = calloc((size_t)(m->ndest ? m->ndest : 1), sizeof *m->dest);
-    if (!m->buf || !m->offset || !m->split || !m->dest) rt_fatal("audio mixer tables");
+    m->voice_peak = calloc((size_t)r->param.voice_count, sizeof(float));
+    m->voice_frames = calloc((size_t)r->param.voice_count, sizeof(uint32_t));
+    if (!m->buf || !m->offset || !m->split || !m->dest || !m->voice_peak || !m->voice_frames) rt_fatal("audio mixer tables");
     m->effect = calloc((size_t)(r->param.effect_count ? r->param.effect_count : 1), sizeof *m->effect);
     m->effect_order = calloc((size_t)(r->param.effect_count ? r->param.effect_count : 1), sizeof *m->effect_order);
     if (!m->effect || !m->effect_order) rt_fatal("audio effect tables");
@@ -333,6 +442,8 @@ void audio_mixer_close(AudioRenderer *r) {
     free(m->effect_order);
     free(m->buf);
     free(m->offset);
+    free(m->voice_peak);
+    free(m->voice_frames);
     free(m->split);
     free(m->dest);
     free(m);
@@ -530,13 +641,33 @@ static void accumulate(Mixer *m, int buffer, const float *src, float vol, int fr
     float *d = mixbuf(m, buffer); for (int k = 0; k < frames; k++) d[k] += src[k] * vol;
 }
 static int mix_valid(AudioRenderer *r, int32_t id) { return id >= 0 && id <= r->param.submix_count && r->mixes[id].in_use; }
-static int mix_depth(AudioRenderer *r, int id) {
-    int d = 0;
-    for (int guard = 0; id > 0 && guard < 64; guard++, d++) {
-        if (!mix_valid(r, r->mixes[id].dest_mix_id)) return d + 1;
-        id = r->mixes[id].dest_mix_id;
+// How far a submix is from the final mix: 1 + the deepest of the mixes it feeds, through its destination mix or through
+// every destination of its splitter. Mixes are folded deepest first, so each one is complete (and has run its effects)
+// before it is added to the mixes it feeds: the order the DSP gets from sorting the mix graph by its edges, splitter
+// edges included (Ryujinx.Audio MixContext.Sort / NodeStates). Counting only the destination mix gave every mix that
+// sends through a splitter depth 1, whatever its destinations: Age of Calamity routes its streams (music, cutscene
+// sound: PCM16 voices of 2 and 6 channels) through such mixes, they were folded after the mixes they feed, and the
+// streams never reached the output. memo: -1 not computed, -2 being computed (a cycle counts as the final mix).
+static int mix_depth(AudioRenderer *r, int id, int *memo) {
+    if (id <= 0 || id > r->param.submix_count || id >= 256) return 0;
+    if (memo[id] >= 0) return memo[id];
+    if (memo[id] == -2) return 0;
+    memo[id] = -2;
+    const AudrenMixIn *x = &r->mixes[id];
+    const Mixer *m = r->mixer;
+    int deepest = 0;
+    if (x->dest_splitter_id != SPLITTER_UNUSED && x->dest_splitter_id < (uint32_t)m->nsplit) {
+        const SplitInfo *sp = &m->split[x->dest_splitter_id];
+        for (int k = 0; k < sp->ndest; k++) {
+            const SplitDest *d = &m->dest[sp->ids[k]];
+            if (!d->used || !mix_valid(r, d->dest)) continue;
+            int v = mix_depth(r, d->dest, memo);
+            if (v > deepest) deepest = v;
+        }
+    } else if (mix_valid(r, x->dest_mix_id)) {
+        deepest = mix_depth(r, x->dest_mix_id, memo);
     }
-    return d;
+    return memo[id] = deepest + 1;
 }
 
 /* Guest custom effects exchange int32 samples in two rings. Each ring has CPU and DSP
@@ -681,6 +812,14 @@ static void mix_effects(AudioRenderer *r, int mix) {
     }
 }
 
+// mix_effects, with the mix's level before and after for the census (AOC_TRACE=audio).
+static void mix_effects_traced(AudioRenderer *r, Mixer *m, int mix) {
+    int trace = (rt_trace & RT_TRACE_AUDIO) && mix < 256;
+    if (trace) { float p = mix_peak(r, m, mix); if (p > m->mix_peak_in[mix]) m->mix_peak_in[mix] = p; }
+    mix_effects(r, mix);
+    if (trace) { float p = mix_peak(r, m, mix); if (p > m->mix_peak_out[mix]) m->mix_peak_out[mix] = p; }
+}
+
 static const float *splitter_filter(SplitDest *d,const float *input,float *output,int frames){
     if(!d->biquads[0].enable&&!d->biquads[1].enable)return input;
     memcpy(output,input,(size_t)frames*sizeof *output);
@@ -734,6 +873,12 @@ void audio_mixer_render(AudioRenderer *r, double seconds) {
         if (!v->in.in_use || v->state != SV_STARTED || !v->in.sample_rate || !v->valid[v->index]) continue;
         int cc = (int)v->in.channel_count; if (cc < 1 || cc > 6) { report_once(m, 2, "voice channel count unsupported", cc); continue; }
         voice_render(r, v, vs, frames);
+        if (rt_trace & RT_TRACE_AUDIO) {   // voice_census
+            float peak = m->voice_peak[i];
+            for (int c = 0; c < cc; c++) for (int k = 0; k < frames; k++) if (fabsf(vs[c][k]) > peak) peak = fabsf(vs[c][k]);
+            m->voice_peak[i] = peak;
+            m->voice_frames[i] += (uint32_t)frames;
+        }
         for (int f = 0; f < 2; f++) if (v->in.biquads[f].enable) {
             const AudrenBiquad *b = &v->in.biquads[f];
             const AudrenBiquadFloat *bf=&v->float_biquads[f];
@@ -770,10 +915,12 @@ void audio_mixer_render(AudioRenderer *r, double seconds) {
     }
     /* submixes: deepest first, so every mix is complete before it is folded into its destination */
     int order[256], n = 0, depth[256];
-    for (int i = 1; i < mc && n < 256; i++) if (r->mixes[i].in_use) { depth[n] = mix_depth(r, i); order[n++] = i; }
+    int memo[256];
+    for (int i = 0; i < 256; i++) memo[i] = -1;
+    for (int i = 1; i < mc && n < 256; i++) if (r->mixes[i].in_use) { depth[n] = mix_depth(r, i, memo); order[n++] = i; }
     for (int a = 0; a < n; a++) for (int b = a + 1; b < n; b++) if (depth[b] > depth[a]) { int t = order[a]; order[a] = order[b]; order[b] = t; t = depth[a]; depth[a] = depth[b]; depth[b] = t; }
     for (int a = 0; a < n; a++) {
-        mix_effects(r, order[a]);
+        mix_effects_traced(r, m, order[a]);
         const AudrenMixIn *x = &r->mixes[order[a]]; int src = m->offset[order[a]];
         if (x->dest_splitter_id != SPLITTER_UNUSED && x->dest_splitter_id < (uint32_t)m->nsplit) {
             const SplitInfo *s = &m->split[x->dest_splitter_id];
@@ -788,7 +935,7 @@ void audio_mixer_render(AudioRenderer *r, double seconds) {
                 for (int b = 0; b < r->mixes[x->dest_mix_id].buffer_count && b < 24; b++) accumulate(m, m->offset[x->dest_mix_id] + b, mixbuf(m, src + c), x->mix[c][b] * x->volume, frames);
         }
     }
-    if (r->mixes[0].in_use) mix_effects(r, 0);
+    if (r->mixes[0].in_use) mix_effects_traced(r, m, 0);
     /* device sink */
     const AudrenSinkIn *sink = NULL;int circular=0;
     for (int i = 0; i < r->param.sink_count; i++) if (r->sinks[i].in_use) {

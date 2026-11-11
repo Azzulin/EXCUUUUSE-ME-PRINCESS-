@@ -81,7 +81,7 @@ os primeiros shaders/programas NVN.
 - [x] Efeitos de partículas sem rastros: o tradutor mantém ballot, voto e shuffle no lugar (patch 0013) — sessão 4.
 - [x] Imagem da batalha lavada: as views sRGB dos mapas de cor eram ignoradas na amostragem (luma 233 → 175) —
       sessão 4.
-- [ ] Retângulo branco no centro da tela (na imagem do jogo; `handover.md` §6).
+- [ ] Retângulo branco no centro da tela: 45 partículas de UI com a mesma matriz (sessão 5; `handover.md` §6).
 
 **Portão C:** vídeo de abertura, título e menus corretos; **primeira batalha (Hyrule Field) com soldados, skinning,
 luzes, decals e efeitos** — comparada com captura de referência do Switch/emulador; zero falhas de shader não
@@ -90,7 +90,7 @@ classificadas.
 ## Fase 4 — Jogável · ~2 semanas
 
 - [ ] Entrada SDL3: controles do Deck, Xbox/PlayStation/Pro, teclado; layout de botões Nintendo/Xbox; gyro.
-- [ ] Áudio SDL3 contínuo (música, vozes, vídeos).
+- [x] Áudio SDL3 contínuo (música, vozes, vídeos): música e cinemáticas voltaram na sessão 5 (ordem dos submixes com splitter); falta ouvir no Deck.
 - [ ] Save/load em pasta do host, recarga em processo novo.
 - [ ] Script de entrada que vai do boot à primeira batalha (regressão automática).
 - [ ] Menu ImGui (F1 / botão segurado) e overlay de desempenho (F10 / L3+R3).
@@ -104,9 +104,10 @@ classificadas.
 - [ ] Write-watch por `userfaultfd` + `PAGEMAP_SCAN`; pools sombra.
 - [ ] Texturas: BC1–BC7 direto no RDNA2 (o AoC não usa ASTC); conferir deswizzle block-linear e sRGB (as views
       sRGB dos mapas de cor já são respeitadas, sessão 4).
-- [ ] Perfil `deck`: 1280×800, render scale + FSR1, limitador 30 fps, vsync.
+- [ ] Perfil `deck`: saída 1280×720 nativa com cena 960×540 (patch sets `output`/`scene`, sessão 5, não testados), 30 fps, vsync.
 - [ ] Layout de instalação no cartão SD; Mesa cache ao lado do jogo; "Add to Steam".
 - [ ] Medições: FPS médio/1 % low, frame time, W da APU, temperatura, em rota fixa (Hyrule Field + uma batalha cheia).
+      Ferramentas prontas (sessão 5): linhas `sys:` (`runtime/sysmon.c`) e `tools/deck/logsum.py`; falta a primeira medição.
 - [x] Trace de perf que não pesa no Deck: o censo de páginas sujas (63 ms por frame na batalha) só com
       `AOC_DIRTY_CENSUS=1` — sessão 4. Batalha medida sem ele: 24,6 fps (com ele, 12,8).
 - [ ] Sombra dos pools por região (hoje cada sincronização consulta o pool inteiro: ~30 ms por frame na batalha

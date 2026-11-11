@@ -2573,8 +2573,13 @@ static void bind_index(VkExec *ex, const void *data, uint64_t bytes, VkIndexType
     ex->recorded++;
 }
 
+extern uint32_t vk_dump_draw_first, vk_dump_draw_count;   // vk_dump.c (AOC_DUMP_UBO)
+extern int vk_dump_draw_indexed;                           // 0, or 1 + the NVN index type
+extern uint64_t vk_dump_draw_ibuf;
+
 static void op_draw(VkExec *ex, const p_draw *d) {
     c0_binst = (uint32_t)d->base_instance;
+    if (vk_dump_armed) vk_dump_draw_first = (uint32_t)d->first, vk_dump_draw_count = (uint32_t)d->count, vk_dump_draw_indexed = 0;
     if (d->count <= 0 || !prepare_draw(ex, d->prim, d->count, 0)) return;
     vk_exec_frame.draws++;
     uint32_t inst = d->instances > 0 ? (uint32_t)d->instances : 1, first = (uint32_t)d->first, n = (uint32_t)d->count;
@@ -2627,6 +2632,9 @@ static void op_draw_idx(VkExec *ex, const p_draw_idx *d) {
     static const uint32_t isize[3] = {1, 2, 4};
     if (d->itype < 0 || d->itype > 2) return warn_once(W_INDEX, "index type %d is unknown: draw skipped", d->itype);
     int restart = restart_for(ex, d->prim, d->itype);
+    if (vk_dump_armed)
+        vk_dump_draw_first = (uint32_t)d->base_vertex, vk_dump_draw_count = (uint32_t)d->count, vk_dump_draw_indexed = 1 + d->itype,
+        vk_dump_draw_ibuf = d->ibuf;
     if (d->count <= 0 || !prepare_draw(ex, d->prim, d->count, restart)) return;
     vk_exec_frame.draws++;
     uint64_t bytes = (uint64_t)d->count * isize[d->itype];

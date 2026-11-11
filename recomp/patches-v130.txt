@@ -3,6 +3,17 @@
 # O gerador manda as arestas de volta desses laços por rt_spin_gate (runtime/kernel.c). Sem eles o clang pode içar a
 # leitura do laço e virar um "jmp $" (visto no Astral Chain). Regenerar com:
 #   python3 tools/spin_waits.py --exefs build/v130/exefs
+# Resolução do jogo (runtime/resolution.c). nnMain monta a configuração do dispositivo KTGL na pilha e a entrega a
+# main+0x17c34f0 uma vez: {1920, 1080, 3, 9, 5, intervalo 2, 9, 1920, 1080, ...}; logo depois grava 1440x810 (a cena 3D)
+# em [x20+0x368]. Os dois pares passam a ser lidos da página de patches: +32 a saída e +40 a cena, largura nos 32 bits
+# baixos e altura nos altos, como as constantes do jogo. Bytes originais conferidos no nosso dump (build IDs de
+# tools/data/known-builds.json).
+set  output AOC_PATCH_OUTPUT 0
+set  scene  AOC_PATCH_SCENE  0
+site output main 8d9490 d280f008 @page:x8 f9401108   # mov x8,#0x780 -> adrp x8,page ; ldr x8,[x8,#32]
+site output main 8d9498 f2c08708 d503201f            # movk x8,#0x438,lsl #32 -> nop
+site scene  main 8d94d0 d280b408 @page:x8 f9401508   # mov x8,#0x5a0 -> adrp x8,page ; ldr x8,[x8,#40]
+site scene  main 8d94d4 f2c06548 d503201f            # movk x8,#0x32a,lsl #32 -> nop
 # main: 1090 spin waits
 spin main 8de78 8deac   # 6 instructions; loads
 spin main 8e044 8e078   # 6 instructions; loads

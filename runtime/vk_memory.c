@@ -919,6 +919,20 @@ static void shadow_sync_pool(PoolRec *r) {
         if (!query_stamp(a, b, g)) tracked = 0;
         a = b;
     }
+    // The regions nothing wrote for freeze_idle submissions become freeze candidates, as in snap_regions: the pools
+    // are mostly static (meshes, textures), and without this every sync queried the whole pool (in the first battle
+    // on the Deck about 440 queries over 17.7 GB a frame, 28 ms, of which 7.7 found written pages). A frozen region
+    // is skipped above until a write thaws it.
+    if (tracked && freeze_idle) {
+        for (uint64_t j = lo >> REG_SHIFT; j <= (hi - 1) >> REG_SHIFT; j++) {
+            if (ww_ep - reg_last[j] < (uint32_t)freeze_idle || ww_ep - reg_tried[j] < (uint32_t)freeze_idle ||
+                mem_frozen(j << REG_SHIFT))
+                continue;
+            reg_tried[j] = ww_ep;
+            if (nfcand == cfcand) grow((void **)&fcand, &cfcand, sizeof *fcand);
+            fcand[nfcand++] = (uint32_t)j;
+        }
+    }
     uint32_t since = r->sgen;
     r->sgen = gen_now;
     if (!tracked) {   // nothing tells which pages changed: all of them

@@ -325,3 +325,36 @@ primeira com o censo de páginas sujas ligado (o trace de perf o ligava sozinho)
   6 144 MiB `DEVICE_LOCAL`; 314 MiB congelados.
 - O que sobra de write-watch sem o censo é da sombra: cada sincronização consulta o pool inteiro (menos as regiões
   congeladas), ~35 vezes por frame, e só ~2 % das consultas acham páginas escritas.
+
+## Áudio: streams e grafo de mixes (2026-11-09, notebook)
+
+- Música e cinemáticas: vozes **PCM16 48 kHz** de **6 canais** (mixes 12 e 14) e de **2 canais** (mix 10), alimentadas
+  pelo stream do KTSL (Opus decodificado pelo decoder de software do SDK, código levantado; o serviço `hwopus` não é
+  aberto). Efeitos sonoros: vozes **ADPCM 32 kHz mono**, até ~35 ao mesmo tempo na batalha.
+- Os mixes das trilhas saem por **splitter** (mix 10 → splitter 3, 4 destinos; mix 12 → splitter 5, 12 destinos);
+  quase todos os mixes levam um efeito auxiliar (tipo 2) na ordem 0.
+- Rota de 175 s, janelas de 5 s em silêncio exato: **21 de 37** antes da correção da ordem dos mixes, **1 de 37**
+  depois (só a do boot); rms 0,04–0,25 nas cinemáticas e no vídeo, 0,06–0,08 na batalha (antes ~0,02).
+
+## Resolução do jogo (2026-11-09, lido no `main`)
+
+- `nnMain` monta a configuração do dispositivo KTGL na pilha: `{1920, 1080, 3, 9, 5, intervalo 2, 9, 1920, 1080, ...}`
+  (`mov x8,#0x780; movk x8,#0x438,lsl #32` em `main+0x8d9490`, palavras originais `d280f008`/`f2c08708`) e chama
+  `main+0x17c34f0`. Logo depois grava **1440×810** em `[x20+0x368]` (`main+0x8d94d0`, `d280b408`/`f2c06548`): a cena
+  3D, 3/4 da saída por lado.
+- O modo de operação não muda nenhuma das duas. `main+0x277f77f` = docked (lido em `main+0x8c2ef8`, `0x8c310c`,
+  `0xb0cdd4`), `main+0x277f77e` = desempenho boost (6 leitores); `main+0xb057e0` escolhe um nível de qualidade 1–4 por
+  ele numa tabela de registros de 64 bytes. O jogo não chama `nvnWindowSetCrop`.
+- Outras constantes `1920×1080` em `main+0x1583db8`, `0x1583f14`, `0x1584084`, `0x1584204`, `0x1584380`, `0x15844e8`,
+  `0x15846a4`, `0x1584798` (montagem de câmeras/vistas de UI) e `1280×720` em `main+0x1532c80`, `0x1583094`, `0x158486c`,
+  `0x178b3b4`, `0x18f4dc4`, `0x1908724` (`C:\aoc-win\immscan.py`).
+
+## Partículas de UI do retângulo branco (2026-11-09)
+
+- Draw do programa 720 (VS `bc173f45`, FS `a57f4e05`): **indexado, 270 índices de 16 bits = 45 quads**, stride 44.
+  Todos os quads iguais — posição (±32, ±64), UV0 (0..1, 0), UV1 metade esquerda da textura 128×128, UV2 (-0,5..1,5,
+  -1..3), cor `ff6666ff` — salvo o atributo 0 (R32F, índice de matriz 0, 1, 2, ...).
+- VS: paleta de matrizes 3×4 de 48 bytes no c3 a partir de +96 (bloco de 0xd00 bytes); c3[2..5] é a câmera de UI
+  (fov vertical 45°, distância 1303,68 = 540/tan 22,5°). No dump todas as matrizes da paleta valem escala 0,3 e
+  translação (0, 7): 45 quads de 19×38 px sobrepostos no centro, somados (blend `SRC_ALPHA, ONE`) até o branco.
+- Fixo na tela com a câmera girando e o personagem andando (capturas a cada 3 s entre 142 e 175 s).

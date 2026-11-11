@@ -155,6 +155,7 @@ static uint64_t ft_frame(uint64_t frame, uint64_t now, uint64_t d) {
     if (!summary_t0) {   // the first present starts the period; there is no interval yet
         summary_t0 = now;
         ft.t0 = now;
+        sysmon_start();   // the machine's power, temperatures and load, logged from here on (sysmon.c)
         return (uint64_t)rep;
     }
     ft.frames++;

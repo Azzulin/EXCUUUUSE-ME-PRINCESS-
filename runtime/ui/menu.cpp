@@ -499,14 +499,10 @@ static void row_window_size(void) {
     opt_choice_list("AOC_WINDOW_SIZE", UI_MENU_WINDOW_SIZE, pv, pn, n, UI_MENU_WINDOW_SIZE_DESC);
 }
 
-// The game resolution (resolution.c): 16:9 sizes from its smallest, 1280x720 (for weak GPUs), up, the common 21:9 and
-// 32:9 monitor sizes and the 16:10 screens of the Steam Deck, handhelds and laptops (the camera and the HUD follow
-// another shape, resolution.c res_init; the installer lays the HUD out for each, installer/steps.py ASPECT_SIZES), and
-// the current value when it is another size.
+// The game resolution (resolution.c): the 16:9 sizes up to the game's own 1920x1080 (its texture heaps are sized for
+// that), and the current value when it is another size.
 static void row_output_res(void) {
-    static const char *const vals[] = {"1280x720", "1600x900", "1920x1080", "2560x1440", "3200x1800", "3840x2160",
-                                       "2560x1080", "3440x1440", "3840x1600", "5120x2160", "3840x1080", "5120x1440",
-                                       "1280x800", "1680x1050", "1920x1200", "2560x1600"};
+    static const char *const vals[] = {"960x540", "1280x720", "1600x900", "1920x1080"};
     enum { N = sizeof vals / sizeof *vals };
     char shown[N][32];
     const char *names[N];
@@ -520,7 +516,7 @@ static void row_output_res(void) {
 }
 
 static void row_render_scale(void) {
-    static const char *const vals[] = {"game", "50", "67", "75", "100", "125", "150", "200"};
+    static const char *const vals[] = {"game", "50", "60", "67", "85", "100"};
     enum { N = sizeof vals / sizeof *vals };
     char shown[N][32];
     const char *names[N];

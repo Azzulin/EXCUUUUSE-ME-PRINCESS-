@@ -407,3 +407,13 @@ primeira com o censo de páginas sujas ligado (o trace de perf o ligava sozinho)
   em 1280×720 o HUD só fica certo com eles em 1080p. Depois de `0x1584798` o compilador conta com a largura 1920
   (`sub x10, x8, #0x780` em `0x15847a0`, `mov w9, #0x780` em `0x15847a4`). Em `0x1585cb8` a mesma função lê
   `[vista+0x680]`, multiplica por 0,25 e cria dois alvos de 1/4 da tela por `main+0x17c4e80`.
+
+## Projeção 2D da UI (2026-11-12)
+
+- O KTGL monta a projeção das primitivas 2D ao aplicar o estado (`main+0x17def54` e variantes): c3[0] =
+  (2·escala/largura, −2·escala/altura) do alvo atual, escala em `[contexto+0x28b0/+0x28b4]` (1,0 na inicialização,
+  `main+0x17da090`), quando `[contexto+0x3b0]` (modo 2D) está ligado. O renderizador de primitivas 2D da UI é
+  `main+0x161f140` (contexto em `[x1+0x18]`), chamado de `main+0x161e118`.
+- O minimapa e os marcadores são um draw só do programa 14 (VS `8285ac22`, FS `3e686e98`), 261 quads em unidades de
+  layout de 1920×1080, depois de uma máscara de estêncil do programa 11. A imagem da cena passa pelo mesmo renderizador
+  (programa 5, FS `b6941968`), com vértices no tamanho do alvo.

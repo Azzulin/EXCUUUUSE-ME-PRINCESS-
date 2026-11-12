@@ -23,9 +23,11 @@ Deck com `totk` ou `aoc` abertos.
 ## Plano, em ordem
 
 1. Feito na sessão 8 (envio e medição no Deck).
-2. **Minimapa em 1280×720:** `AOC_DUMP` de um frame da batalha em 1080p e em 720p (mesmo frame da rota) e comparar os
-   draws do minimapa: alvo, viewport, scissor, uniformes dos marcadores. Só com o minimapa certo 1280×720 vai para o
-   perfil do Deck.
+2. **Minimapa em 1280×720 (sessão 9: causa achada, correção pela metade).** O conjunto `ui2d` (desligado; ligar com
+   `AOC_PATCH_UI2D=1` junto de `AOC_OUTPUT_RES=1280x720`) põe os marcadores e o HUD 2D no lugar, mas a imagem da
+   cena encolhe para 2/3: achar onde a UI monta esse retângulo com o tamanho do alvo (lista de candidatas em
+   `historico.md`, sessão 9) e passá-lo a unidades de layout. Conferir com `AOC_PRESENT_SHOT` e o recorte do
+   minimapa nas capturas. Só então 1280×720 no perfil do Deck.
 3. Consumo: sessão longa do dono (`./aoc-logs.sh lista`); se sobrar trabalho, shaders antecipados.
 
 ## Prompt para colar numa sessão nova

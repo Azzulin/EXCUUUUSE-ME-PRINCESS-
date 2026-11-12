@@ -10,10 +10,21 @@
 # tools/data/known-builds.json).
 set  output AOC_PATCH_OUTPUT 0
 set  scene  AOC_PATCH_SCENE  0
+set  ui2d   AOC_PATCH_UI2D   0
 site output main 8d9490 d280f008 @page:x8 f9401108   # mov x8,#0x780 -> adrp x8,page ; ldr x8,[x8,#32]
 site output main 8d9498 f2c08708 d503201f            # movk x8,#0x438,lsl #32 -> nop
 site scene  main 8d94d0 d280b408 @page:x8 f9401508   # mov x8,#0x5a0 -> adrp x8,page ; ldr x8,[x8,#40]
 site scene  main 8d94d4 f2c06548 d503201f            # movk x8,#0x32a,lsl #32 -> nop
+# Primitivas 2D da UI (minimapa e seus marcadores, máscaras): o renderizador main+0x161f140 (contexto do KTGL em
+# [x1+0x18], x19 da entrada ao epílogo) desenha em coordenadas de layout de 1920x1080, e o KTGL monta a projeção 2D a
+# partir do alvo atual: 2 * escala / largura (main+0x17def54, escala em [contexto+0x28b0], 1.0 por padrão). Com a saída
+# em 1280x720 os quads do minimapa caíam em x = 1,42 do NDC, fora da tela (medido 2026-11-12: os 261 quads do draw do
+# programa 14 em (1551, 761) com c3[0] = 2/1280). O renderizador passa a pôr a escala {saída/1920, saída/1080}
+# (página +96) na entrada e a devolver 1.0 no epílogo. Medido: os marcadores voltam e o HUD 2D cai no lugar, mas a
+# imagem da cena também é um elemento desse renderizador, montado com o tamanho de saída (vértices 0..1280), e encolhe
+# para 2/3. Falta exprimir esse retângulo em unidades de layout; até lá o conjunto fica desligado (AOC_PATCH_UI2D=1).
+site ui2d   main 161f164 aa0003f6 @page:x16 f9403211 f9145a71 aa0003f6   # +ldr x17,[page+96] ; str x17,[x19,#0x28b0] ; mov x22,x0
+site ui2d   main 161f574 a94d7bfd d2a7f010 f2e7f010 f9145a70 a94d7bfd   # x16 = {1.0, 1.0} ; str x16,[x19,#0x28b0] ; ldp x29,x30
 # main: 1090 spin waits
 spin main 8de78 8deac   # 6 instructions; loads
 spin main 8e044 8e078   # 6 instructions; loads

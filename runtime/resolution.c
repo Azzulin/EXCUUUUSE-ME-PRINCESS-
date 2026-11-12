@@ -245,6 +245,8 @@ static void res_shadow_range(void) {
 void res_init(void) {
     res_shadow_range();
     if (!bigger()) {
+        const float one[2] = {1.0f, 1.0f};   // the UI 2D scale (page +96): a ui2d set switched on by hand changes nothing
+        memcpy((uint8_t *)rt_patch_page() + 96, one, sizeof one);
         rt_log("resolution: the game's own (output 1920x1080, scene 1440x810)");
         shadow_init(rt_patch_page());
         return;
@@ -268,6 +270,10 @@ void res_init(void) {
     memcpy(page + 32, &out, 8);
     memcpy(page + 40, &scn, 8);
     memcpy(page + 48, &out, 8);
+    // +96: the scale of the UI's 2D primitives, {output / 1920, output / 1080}: they are laid out in 1920x1080 units
+    // and the KTGL projects them by the target's size (recomp/patches-v130.txt, the output sites in main+0x161f140).
+    float ui2d[2] = {(float)R.ow / BASE_W, (float)R.oh / BASE_H};
+    memcpy(page + 96, ui2d, sizeof ui2d);
     rt_patch_switch(output, R.ow != BASE_W || R.oh != BASE_H);
     rt_patch_switch(scene, scene_on);
     R.on = 1;

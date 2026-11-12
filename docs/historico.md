@@ -762,3 +762,26 @@ mandar, cada peça escrita na sessão 5 rodou no notebook (regra: nada vai ao De
   com o cache quente: **28 traduzidos** (sessão 7: 89) e pior frame da entrada da batalha **1,77 s** (sessão 7:
   6,55 s). Batalha a 28–30 fps, APU 7,1–7,8 W, CPU 64–67 °C, GPU 58–59 °C. Os 28 restantes são variantes que a 1ª corrida
   ainda não tinha visto; devem cair com o uso.
+
+## Sessão 9 — 2026-11-12 (notebook): minimapa em 1280×720 — causa achada, correção pela metade
+
+- Dumps do frame 4400 em 1080p e 720p (`AOC_DUMP_UBO`), mesma rota: o passe final do HUD tem os mesmos 34 draws nas
+  duas. O minimapa e seus marcadores são **um draw do programa 14 com 261 quads** (pipe 4, logo depois de uma máscara de
+  estêncil do programa 11) com vértices em **unidades de layout de 1920×1080** (primeiro quad em (1551, 761)). A
+  projeção do VS é c3[0] = (2/largura, −2/altura) do alvo: 2/1920 em 1080p, **2/1280 em 720p** — o quad cai em
+  x = 1,42 do NDC, fora da tela. O resto do HUD usa a câmera de UI e fica certo.
+- A projeção é montada pelo KTGL ao aplicar o estado (`main+0x17def54`, e variantes em `0x17df7c4`, `0x17dfeb8`,
+  `0x17e1038`, `0x17e1e54`): `2 * escala / largura do alvo`, com a escala em `[contexto+0x28b0/+0x28b4]` (1,0, gravada
+  na inicialização do contexto em `main+0x17da090`), só com o modo 2D do contexto ligado (`[contexto+0x3b0]`). Quem
+  desenha é o renderizador de primitivas 2D da UI `main+0x161f140` (contexto em `[x1+0x18]`, `x19`), chamado de
+  `main+0x161e118` (rastreio `AOC_UBO_TRACE=100:0.0015625:0`).
+- Correção tentada: o renderizador põe a escala {saída/1920, saída/1080} (página +96) na entrada e devolve 1,0 no
+  epílogo (conjunto `ui2d`). Primeiro com o registrador errado (`x3`/`x20` não são o contexto: a escrita estragou outro
+  objeto e o jogo caiu em `main+0x18294b0`); com `x19`, roda. Resultado: **os marcadores voltam e o HUD 2D (minimapa,
+  faixa "FIELD", KOs, diálogo) cai no lugar**, mas a **imagem da cena** também é um elemento desse renderizador, com
+  vértices no tamanho de saída (0…1280, 0…720), e encolhe para 853×480.
+- Próximo passo: achar onde a UI monta o retângulo da imagem da cena a partir do tamanho do alvo e exprimi-lo em
+  unidades de layout (1920×1080). Candidatas: as funções da UI que leem `[alvo+0x78]` perto do renderizador
+  (`0x15fbb10`, `0x1600160`, `0x1617680`, `0x161a45c`, `0x161a758`, `0x161b138`, `0x161b30c`, `0x161c9f4`,
+  `0x161cbc0`). Testar com `AOC_OUTPUT_RES=1280x720 AOC_PATCH_UI2D=1` e `AOC_PRESENT_SHOT=4300:<png>`.
+- O conjunto `ui2d` fica na tabela, desligado; o perfil do Deck continua na resolução do jogo. Boot em 1080p conferido.

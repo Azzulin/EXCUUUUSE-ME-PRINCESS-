@@ -753,3 +753,12 @@ mandar, cada peça escrita na sessão 5 rodou no notebook (regra: nada vai ao De
 - `C:\aoc-win\streakzoom.py <pasta> <saída.png>`: amplia cada detecção do `streaks.py` com os vizinhos.
 - `C:\aoc-win\profslow.py <dump> [replay|render|main|tid]`: lê os dumps do `AOC_PROFILE_SLOW` (símbolos pelo `nm`).
 - `AOC_SUBMIT_WAIT=1`: cada submit espera a GPU (diagnóstico de corrida CPU×GPU).
+
+### Sessão 8, fim — 2026-11-12: cache estável medido no Deck
+
+- O `aoc` do Deck estava corrompido pela queda do envio anterior (mesmo tamanho, sha256 `05ac3a87…`, de nenhuma build).
+  Reenviado com o `deploy.sh` atômico; sha256 conferido (`1d99c87e…`).
+- `deckbattle.sh`, duas corridas: a 1ª refez o cache (204 traduzidos, travada de 17,5 s na entrada da batalha); a 2ª,
+  com o cache quente: **28 traduzidos** (sessão 7: 89) e pior frame da entrada da batalha **1,77 s** (sessão 7:
+  6,55 s). Batalha a 28–30 fps, APU 7,1–7,8 W, CPU 64–67 °C, GPU 58–59 °C. Os 28 restantes são variantes que a 1ª corrida
+  ainda não tinha visto; devem cair com o uso.

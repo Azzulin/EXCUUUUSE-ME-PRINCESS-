@@ -115,7 +115,7 @@ classificadas.
 - [x] Sombra dos pools: regiões paradas indicadas para congelar (~30 → 2 ms por frame na batalha do Deck) — sessão 7.
 - [x] Rastros no modo import: não existem (eram bandeiras ao vento no detector) — sessão 8.
 - [x] Cache de shaders estável entre corridas (hash do programa sem a contabilidade do KTGL) — sessão 8, medido no
-      notebook; falta o Deck.
+      notebook e no Deck (entrada da batalha 6,55 → 1,77 s).
 
 **Portão F (Deck):** 30 fps estáveis na primeira batalha em 1280×800 (render scale a definir) com ≤ 15 W; sem stutter
 de shader após a instalação; 1 h de sessão sem crash.

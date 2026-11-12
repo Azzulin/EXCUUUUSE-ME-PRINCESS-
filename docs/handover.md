@@ -133,9 +133,8 @@ partir de 100 s, `AOC_TRACE=perf`, vigia de travada).
   1920×1080 todo resultado do `streaks.py` passa pelo `C:\aoc-win\streakzoom.py`.
 - **Cache de shaders estável (sessão 8):** o hash do programa deixou de cobrir +0x850…+0x880 do controle (ponteiros
   do KTGL, diferentes a cada corrida). No notebook: 15 shaders traduzidos na 2ª corrida (antes 50–70), entrada da
-  batalha 0,78 s (antes 1,8–2,0). **Ainda não chegou ao Deck**: o envio caiu (o Deck suspendeu) e o `aoc` de lá
-  pode estar truncado — reenviar com `bash tools/deck/deploy.sh --no-build` (agora atômico e recusa com o jogo
-  aberto); cópia antiga em `bak-sessao4/`.
+  batalha 0,78 s (antes 1,8–2,0). **No Deck desde 2026-11-12, medido:** 28 traduções com cache quente (antes 89), entrada
+  da batalha 1,77 s (antes 6,55 s), batalha 28–30 fps a 7,1–7,8 W. `deploy.sh` agora atômico e recusa com o jogo aberto.
 - **Resolução "estranha" explicada:** o jogo renderiza sempre 1920×1080 (cena 1440×810), fixos em `nnMain`; o modo
   portátil não muda isso, e a janela do Deck mostra a redução bilinear de 1,5×.
 - **Retângulo branco: CORRIGIDO e medido no notebook (sessão 7, 2026-11-11).** Era o efeito de recuperação de

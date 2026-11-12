@@ -7,9 +7,8 @@ minimapa", "Deck: consumo e temperatura na primeira batalha").
 ## Estado (2026-11-12, fim da sessão 8)
 
 - **No Deck, medido (sessão 7):** batalha a 27–30 fps, APU 7,6–8,7 W, CPU 68–72 °C, GPU 62–65 °C.
-- **Pendente no Deck:** a correção do cache de shaders (sessão 8) não chegou — o envio caiu com o Deck suspenso, e o
-  `aoc` de lá pode estar truncado. Primeiro passo de qualquer sessão: `bash tools/deck/deploy.sh --no-build` (só
-  envia com o jogo fechado; atômico) e conferir o sha256. Cópia antiga em `bak-sessao4/`.
+- **No Deck (sessão 8, medido):** cache de shaders estável — 28 traduções com cache quente (antes 89), entrada da
+  batalha 1,77 s (antes 6,55 s), batalha 28–30 fps a 7,1–7,8 W.
 - **Fechado na sessão 8:** rastros (não existem: bandeiras ao vento); travada da entrada da batalha (o cache de
   shaders gerava chaves novas a cada corrida: 50–70 traduções → 15 e 1,9 s → 0,78 s no notebook).
 - **Aberto:** minimapa sem marcadores em 1280×720 (as nove vistas de `main+0x1583c00` são o layout do HUD e não
@@ -23,9 +22,7 @@ Deck com `totk` ou `aoc` abertos.
 
 ## Plano, em ordem
 
-1. **Enviar ao Deck** (`deploy.sh --no-build`), duas corridas `deckbattle.sh` (a 1ª enche o cache com as chaves
-   novas; a 2ª mede): traduções na 2ª (`shaders: N keys, M translated` nas linhas `perf:`), pior frame da entrada da
-   batalha (antes 6,6 s), fps, watts.
+1. Feito na sessão 8 (envio e medição no Deck).
 2. **Minimapa em 1280×720:** `AOC_DUMP` de um frame da batalha em 1080p e em 720p (mesmo frame da rota) e comparar os
    draws do minimapa: alvo, viewport, scissor, uniformes dos marcadores. Só com o minimapa certo 1280×720 vai para o
    perfil do Deck.
@@ -74,7 +71,7 @@ Ambiente (Windows nativo, MSYS2 UCRT64):
 - Armadilha: em heredoc, "\\n" chega como quebra de linha e "\a"/"\b" como controle; para texto com barras invertidas
   use a ferramenta de escrita/edição, não heredoc.
 
-Tarefa 1: enviar ao Deck e medir (passo 1 do plano). Tarefa 2: minimapa em 1280x720 (passo 2).
+Tarefa 1: minimapa em 1280x720 (passo 2 do plano). Tarefa 2: consumo e travadas restantes (passo 3).
 Medir rastros: streaks.py marca bandeiras ao vento em 1920x1080; confirmar cada detecção com
 C:\aoc-win\streakzoom.py. Perfil de um frame lento: AOC_PROFILE=<arq> AOC_PROFILE_SLOW=<ms> e
 python C:\aoc-win\profslow.py <arq>.f<frame>.

@@ -147,7 +147,7 @@ partir de 100 s, `AOC_TRACE=perf`, vigia de travada).
   Tradutor novo (identidade `b05fcac8…`) no WSL, no Windows e no Deck.
 - **VAZAMENTO DE MEMÓRIA (sessão 10, prioridade 1):** ~400–500 MiB por minuto em batalha, no Windows com Vulkan e
   na build Linux sem GPU (núcleo, não o Vulkan); 24 GB de memória privada após 36 min no notebook. No Deck derruba
-  o jogo em ~20–30 min de batalha. Logs: `C:oc-win\soakW.log`, `soakL.log`, `leakL.log`.
+  o jogo em ~20–30 min de batalha. Logs: `C:\aoc-win\soakW.log`, `soakL.log`, `leakL.log`.
 - **Saves nunca verificados em jogo real** (sessão 10): nenhum commit nas corridas; testar até o primeiro
   salvamento automático e recarregar num processo novo.
 - **Meta do dono:** consumo perto de 12 W no Deck, sem esquentar. Ainda não há medição de potência.

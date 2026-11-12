@@ -38,7 +38,7 @@ static const char *const known[] = {
     "BIND_ZL", "BIND_ZR", "BLOCK_VIEWS_3D", "CLOTH_REALTIME", "COLOR_BRIGHTNESS", "COLOR_CONTRAST", "COLOR_GAMMA",
     "COLOR_PRESET", "COLOR_SATURATION", "CONTACT_DEBUG", "CONTACT_SHADOWS", "CORE_DIAG", "CRIT", "CRIT_OUT", "CRUMB_DRAWS",
     "DESC_TEMPLATE", "DEVICE_PROFILE", "DIRTY_CENSUS", "DLAA", "DLAA_JITTER", "DLAA_MV", "DLSS", "DUMP", "DUMP_BUF", "DUMP_DIR",
-    "DUMP_LOG", "DUMP_LOG_VKFMT", "DUMP_RAW", "EXEFS", "FEEDBACK", "FIX_C0", "FIX_ZERO", "FLIGHT", "FLIGHT_AT", "FLIGHT_DIR", "FLIGHT_FRAMES",
+    "DUMP_LOG", "DUMP_LOG_VKFMT", "DUMP_RAW", "DUMP_VBIN", "EXEFS", "FEEDBACK", "FIX_C0", "FIX_ZERO", "FLIGHT", "FLIGHT_AT", "FLIGHT_DIR", "FLIGHT_FRAMES",
     "FLIGHT_SPIKE_MS", "FLIGHT_THUMBS", "FOV", "FOV_PATCH", "FPS60", "FPS_LIMIT", "FREEZE_IDLE", "FREEZE_SHADOW", "FREE_CORES",
     "FULLSCREEN", "FXAA", "GPL", "GPL_DRAW_BUILD", "GPU", "GPU_INDEX", "GPU_NAME", "HANG_SECS", "HDR", "HDR_GAME_NITS",
     "HDR_PEAK_NITS", "HDR_UI_NITS", "HIGHFPS_FIX", "INPUT", "INPUT_RECORD", "INPUT_SCRIPT", "INVERT_LX", "INVERT_LY", "INVERT_RX", "INVERT_RY", "LANG", "LIB_PREBUILD",
@@ -265,9 +265,8 @@ int cfg_load(const char *path) {
 //
 // The Steam Deck (LCD Jupiter, OLED Galileo; 1280x800, 16:10, 4 Zen 2 cores, RDNA 2 with 8 CUs sharing 16 GB): the game
 // renders its own 1920x1080 (scene 1440x810), scaled to 1280x720 between two 40-line bars; fullscreen and vsync, as
-// gamescope composes Game Mode. 1280x720 (resolution.c) is not the default yet: the minimap loses its markers there
-// (nine 2D views in main+0x1583c00 keep a 1920x1080 size; patching them as well crashed the boot in main+0x17c4e80,
-// measured 2026-11-11).
+// gamescope composes Game Mode. 1280x720 (resolution.c, with the 2D layout sites of the output set) is correct on the
+// notebook since 2026-11-12 (minimap markers, cutscenes, menus), but not measured on the Deck yet: not the default.
 // Age of Calamity: 30 fps (the game's own rate; it steps a fixed amount per update, so a lower cap would slow it down)
 // and the Switch's handheld mode, whose render resolution is the game's lighter one: the owner wants the Deck spared.
 // Both are rows of the quick menu (L3+R3 held). Starting points to replace with measured ones (docs/steam-deck.md).

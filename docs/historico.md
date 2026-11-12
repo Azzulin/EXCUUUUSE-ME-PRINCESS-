@@ -785,3 +785,30 @@ mandar, cada peça escrita na sessão 5 rodou no notebook (regra: nada vai ao De
   (`0x15fbb10`, `0x1600160`, `0x1617680`, `0x161a45c`, `0x161a758`, `0x161b138`, `0x161b30c`, `0x161c9f4`,
   `0x161cbc0`). Testar com `AOC_OUTPUT_RES=1280x720 AOC_PATCH_UI2D=1` e `AOC_PRESENT_SHOT=4300:<png>`.
 - O conjunto `ui2d` fica na tabela, desligado; o perfil do Deck continua na resolução do jogo. Boot em 1080p conferido.
+
+### Sessão 9, continuação — 2026-11-12: 1280×720 corrigido no notebook
+
+- **Correção de registro:** o relato acima disse que o conjunto `ui2d` trazia os marcadores de volta; não trazia. O
+  recorte só mostrava o contorno do mapa, que nunca tinha sumido. Com o buffer de vértices inteiro (`AOC_DUMP_VBIN=1`,
+  novo em `vk_dump.c`) ficou claro que o draw do programa 14 **são os marcadores** (pontos de 6,4 unidades vermelhos
+  `0xff010177` e azuis `0xffff770a`, ícones de postos), e que eles não passam pelo renderizador `0x161f140`: vêm de um
+  interpretador de comandos de desenho (`main+0x12afa70`, draw do KTGL em `0x12afe5c`).
+- Mudar a escala do contexto no meio do frame é um caminho ruim: a projeção vai para um bloco de uniformes
+  **compartilhado** (mesmo endereço de c3 na composição e no HUD), e quem já desenhou passa a ler o valor novo.
+  O conjunto `ui2d` saiu da tabela.
+- **Correção:** onde o KTGL lê o tamanho do alvo, ele passa a ler 1920×1080 quando o alvo tem o tamanho de saída
+  (comparação com a página +32; o tamanho de layout na página +104; NEON sem desvio nem flags: `cmeq` + `bsl`). Os
+  locais: as quatro cópias da projeção 2D (`0x17def58`, `0x17df7c8`, `0x17e103c`, `0x17e1e58`) e a função que define o
+  alvo (`0x17dfebc`/`0x17dfed8`); os quads de tela cheia: rotina `0x161a45c`, a imagem da cena no renderizador
+  (`0x161f394`, achado por gdb no quad imediato `main+0x17e16c0`) e a imagem das cinemáticas e do vídeo (`0x151e194`/
+  `0x151e19c`). Tudo no conjunto `output` (só liga com a saída menor que 1920×1080).
+- **Medido no notebook (rota inteira, 44 capturas contra a mesma rota em 1080p):** abertura, título, menus,
+  cinemáticas e batalha iguais (diferença 0–1 nas imagens paradas; as quatro maiores são momentos diferentes do vídeo,
+  de uma transição e do fade de entrada); minimapa com jogador, aliados e inimigos; nada desenhado fora de 1280×720;
+  0 erros de validação. Janela (`AOC_PRESENT_SHOT`) com a cena inteira e o HUD no lugar.
+- Limite: com a cena do tamanho da saída (`AOC_RENDER_SCALE=100` em 1280×720) os passes da própria cena caem na mesma
+  comparação e saem a 2/3; `resolution.c` passa a limitar a cena a 85 % nesse caso (85 % medido certo).
+- **No Deck: não medido** (o Deck ficou fora do ar). O perfil do Deck continua na resolução do jogo; a pasta do Deck
+  já tem o binário novo, falta enviar e medir 1280×720 (cena a 75 % e a 85 %) contra os 7,1–7,8 W de hoje.
+- Ferramentas: `C:oc-win\gdbui.py`, `gdbseq.py`, `gdbdraw.py` (cadeia do jogo de um draw grande), `gdbquad.py`
+  (quem chama o quad imediato e com que posições), `gdbvw.py` (watchpoint num vértice).

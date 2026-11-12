@@ -417,3 +417,13 @@ primeira com o censo de páginas sujas ligado (o trace de perf o ligava sozinho)
 - O minimapa e os marcadores são um draw só do programa 14 (VS `8285ac22`, FS `3e686e98`), 261 quads em unidades de
   layout de 1920×1080, depois de uma máscara de estêncil do programa 11. A imagem da cena passa pelo mesmo renderizador
   (programa 5, FS `b6941968`), com vértices no tamanho do alvo.
+
+## Desenho 2D no alvo de saída (2026-11-12)
+
+- O tamanho de um alvo do KTGL fica em `[alvo+0x78]` (largura, altura; inteiros). A projeção 2D lê dele em quatro
+  cópias (`main+0x17def58`, `0x17df7c8`, `0x17e103c`, `0x17e1e58`) e na função que define o alvo (`0x17dfe..`, par em
+  `[x20]`). Quads de tela cheia: `main+0x161a3b0` (lê `[alvo+0x78]`), a imagem da cena no renderizador de UI
+  (`main+0x161f394`, `[objeto+0x58]`), a imagem das cinemáticas e do vídeo (`main+0x151e194`, par na pilha); o quad
+  imediato do KTGL é `main+0x17e16c0` (posições em `x1`).
+- Os marcadores do minimapa são desenhados por um interpretador de comandos (`main+0x12afa70`, contexto em
+  `[[x0]+0x18]`), draw indexado do KTGL `main+0x17e0690` chamado em `0x12afe5c`.

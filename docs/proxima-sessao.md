@@ -23,11 +23,10 @@ Deck com `totk` ou `aoc` abertos.
 ## Plano, em ordem
 
 1. Feito na sessão 8 (envio e medição no Deck).
-2. **Minimapa em 1280×720 (sessão 9: causa achada, correção pela metade).** O conjunto `ui2d` (desligado; ligar com
-   `AOC_PATCH_UI2D=1` junto de `AOC_OUTPUT_RES=1280x720`) põe os marcadores e o HUD 2D no lugar, mas a imagem da
-   cena encolhe para 2/3: achar onde a UI monta esse retângulo com o tamanho do alvo (lista de candidatas em
-   `historico.md`, sessão 9) e passá-lo a unidades de layout. Conferir com `AOC_PRESENT_SHOT` e o recorte do
-   minimapa nas capturas. Só então 1280×720 no perfil do Deck.
+2. **1280×720 no Deck (corrigido no notebook, sessão 9).** `deploy.sh --no-build` (a pasta já tem o binário),
+   depois `deckbattle.sh` com `AOC_OUTPUT_RES=1280x720` (cena padrão 75 %) e com `AOC_RENDER_SCALE=85`, contra a
+   referência em 1080p (27–30 fps, 7,1–7,8 W); conferir a janela com `AOC_PRESENT_SHOT`. Se for melhor e a imagem
+   estiver certa, pôr `OUTPUT_RES=1280x720` no perfil do Deck (`cfg.c`, `DECK`).
 3. Consumo: sessão longa do dono (`./aoc-logs.sh lista`); se sobrar trabalho, shaders antecipados.
 
 ## Prompt para colar numa sessão nova
@@ -73,7 +72,7 @@ Ambiente (Windows nativo, MSYS2 UCRT64):
 - Armadilha: em heredoc, "\\n" chega como quebra de linha e "\a"/"\b" como controle; para texto com barras invertidas
   use a ferramenta de escrita/edição, não heredoc.
 
-Tarefa 1: minimapa em 1280x720 (passo 2 do plano). Tarefa 2: consumo e travadas restantes (passo 3).
+Tarefa 1: medir 1280x720 no Deck e decidir o perfil (passo 2 do plano). Tarefa 2: consumo e travadas restantes (passo 3).
 Medir rastros: streaks.py marca bandeiras ao vento em 1920x1080; confirmar cada detecção com
 C:\aoc-win\streakzoom.py. Perfil de um frame lento: AOC_PROFILE=<arq> AOC_PROFILE_SLOW=<ms> e
 python C:\aoc-win\profslow.py <arq>.f<frame>.

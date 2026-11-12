@@ -10,21 +10,33 @@
 # tools/data/known-builds.json).
 set  output AOC_PATCH_OUTPUT 0
 set  scene  AOC_PATCH_SCENE  0
-set  ui2d   AOC_PATCH_UI2D   0
 site output main 8d9490 d280f008 @page:x8 f9401108   # mov x8,#0x780 -> adrp x8,page ; ldr x8,[x8,#32]
 site output main 8d9498 f2c08708 d503201f            # movk x8,#0x438,lsl #32 -> nop
 site scene  main 8d94d0 d280b408 @page:x8 f9401508   # mov x8,#0x5a0 -> adrp x8,page ; ldr x8,[x8,#40]
 site scene  main 8d94d4 f2c06548 d503201f            # movk x8,#0x32a,lsl #32 -> nop
-# Primitivas 2D da UI (minimapa e seus marcadores, máscaras): o renderizador main+0x161f140 (contexto do KTGL em
-# [x1+0x18], x19 da entrada ao epílogo) desenha em coordenadas de layout de 1920x1080, e o KTGL monta a projeção 2D a
-# partir do alvo atual: 2 * escala / largura (main+0x17def54, escala em [contexto+0x28b0], 1.0 por padrão). Com a saída
-# em 1280x720 os quads do minimapa caíam em x = 1,42 do NDC, fora da tela (medido 2026-11-12: os 261 quads do draw do
-# programa 14 em (1551, 761) com c3[0] = 2/1280). O renderizador passa a pôr a escala {saída/1920, saída/1080}
-# (página +96) na entrada e a devolver 1.0 no epílogo. Medido: os marcadores voltam e o HUD 2D cai no lugar, mas a
-# imagem da cena também é um elemento desse renderizador, montado com o tamanho de saída (vértices 0..1280), e encolhe
-# para 2/3. Falta exprimir esse retângulo em unidades de layout; até lá o conjunto fica desligado (AOC_PATCH_UI2D=1).
-site ui2d   main 161f164 aa0003f6 @page:x16 f9403211 f9145a71 aa0003f6   # +ldr x17,[page+96] ; str x17,[x19,#0x28b0] ; mov x22,x0
-site ui2d   main 161f574 a94d7bfd d2a7f010 f2e7f010 f9145a70 a94d7bfd   # x16 = {1.0, 1.0} ; str x16,[x19,#0x28b0] ; ldp x29,x30
+# Desenho 2D no alvo de saída (minimapa e marcadores, máscaras, a imagem da cena). Os quads da UI 2D estão em unidades
+# de layout de 1920x1080, e o KTGL monta a projeção 2D com o tamanho do alvo ([alvo+0x78]): 2/largura. Com a saída em
+# 1280x720 os marcadores do minimapa (um draw do programa 14, pontos de 6,4 unidades em (1551..1839, 721..1044))
+# caíam em x = 1,42 do NDC, fora da tela (medido 2026-11-12). Onde o KTGL lê esse tamanho para a projeção (quatro
+# cópias da mesma conta e a função que define o alvo) e para os quads de tela cheia (main+0x161a45c; a imagem da cena, logo abaixo),
+# ele passa a ler 1920x1080 quando o alvo tem o tamanho de saída (página +32) e o tamanho real nos outros alvos: a
+# projeção fica constante no frame (o bloco de uniformes dela é compartilhado entre draws; mudar a escala do contexto
+# no meio do frame encolhia a cena) e o quad de tela cheia cobre o alvo. Sem desvio e sem flags (NEON): d16 = alvo,
+# d17 = saída, d18 = layout (página +104), d19 = cmeq ? layout : alvo; x17 e v16..v19 são temporários ali.
+site output main 17def58 2d4f0901 fd403d10 @page:x17 fd401231 fd403632 7ef18e13 2e701e53 1e204261 5e0c0662   # ldp s1,s2,[x8,#0x78] -> par virtual
+site output main 17df7c8 2d4f0901 fd403d10 @page:x17 fd401231 fd403632 7ef18e13 2e701e53 1e204261 5e0c0662
+site output main 17e103c 2d4f0901 fd403d10 @page:x17 fd401231 fd403632 7ef18e13 2e701e53 1e204261 5e0c0662
+site output main 17e1e58 2d4f0901 fd403d10 @page:x17 fd401231 fd403632 7ef18e13 2e701e53 1e204261 5e0c0662
+site output main 17dfebc 1e2202c1 fd400290 @page:x17 fd401231 fd403632 7ef18e13 2e701e53 5e21da61            # scvtf s1,w22 -> par de [x20] ; scvtf s1,s19
+site output main 17dfed8 1e2202a2 5e0c0662 5e21d842                   # scvtf s2,w21 -> mov s2,v19.s[1] ; scvtf s2,s2
+site output main 161a45c 2d4f2508 fd403d10 @page:x17 fd401231 fd403632 7ef18e13 2e701e53 1e204268 5e0c0669   # quad de tela cheia: ldp s8,s9,[x8,#0x78]
+# A imagem da cena é o quad do renderizador de UI 2D (main+0x161f434, achado por gdb em main+0x17e16c0): o tamanho vem
+# de [objeto+0x58] (inteiros, convertidos logo depois em 0x161f3ec); recebe a mesma escolha.
+site output main 161f394 294b5d18 fd402d10 @page:x17 fd401231 fd403632 7ef18e13 2e701e53 1e260278 0e0c3e77   # ldp w24,w23,[x8,#0x58]
+# A imagem das cinemáticas e do vídeo de abertura: quad de main+0x151e1ec (chamado de main+0x15fdb78), tamanho num
+# par de inteiros na pilha ([sp], [sp+4]).
+site output main 151e194 b94003e8 fd4003f0 @page:x17 fd401231 fd403632 7ef18e13 2e701e53 1e260268   # ldr w8,[sp] -> largura virtual
+site output main 151e19c b94007e8 0e0c3e68                            # ldr w8,[sp,#4] -> mov w8,v19.s[1]
 # main: 1090 spin waits
 spin main 8de78 8deac   # 6 instructions; loads
 spin main 8e044 8e078   # 6 instructions; loads

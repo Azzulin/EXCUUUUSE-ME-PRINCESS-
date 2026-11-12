@@ -128,9 +128,9 @@ partir de 100 s, `AOC_TRACE=perf`, vigia de travada).
   na pasta do jogo; sessões antigas comprimidas em `logs/sessoes/` (o `aoc.sh` guarda ao abrir o jogo).
 - **Resolução 1280×720: funciona, mas o minimapa perde os marcadores** — não é o padrão do Deck (o perfil usa a
   do jogo). As nove vistas 2D de `main+0x1583c00` são o layout do HUD (patcheá-las tira o HUD do lugar; sessão 8);
-  os marcadores somem porque a projeção 2D do KTGL usa o tamanho do alvo e os quads do minimapa estão em unidades de
-  layout (sessão 9). Conjunto `ui2d` (desligado) corrige o HUD 2D, mas encolhe a imagem da cena; falta o retângulo
-  dela em unidades de layout (`historico.md`, sessão 9).
+  **corrigido no notebook (sessão 9):** o KTGL passa a usar 1920×1080 como tamanho de qualquer alvo do tamanho de saída
+  na projeção 2D e nos quads de tela cheia; rota inteira igual à de 1080p, minimapa completo. Cena até 85 %. Falta
+  medir no Deck antes de virar o padrão.
 - **Rastros no modo import: não existem** (sessão 8). As detecções eram bandeiras balançando ao vento; em
   1920×1080 todo resultado do `streaks.py` passa pelo `C:\aoc-win\streakzoom.py`.
 - **Cache de shaders estável (sessão 8):** o hash do programa deixou de cobrir +0x850…+0x880 do controle (ponteiros

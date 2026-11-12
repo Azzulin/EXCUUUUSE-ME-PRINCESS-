@@ -105,8 +105,8 @@ classificadas.
 - [ ] Write-watch por `userfaultfd` + `PAGEMAP_SCAN`; pools sombra.
 - [ ] Texturas: BC1–BC7 direto no RDNA2 (o AoC não usa ASTC); conferir deswizzle block-linear e sRGB (as views
       sRGB dos mapas de cor já são respeitadas, sessão 4).
-- [ ] Perfil `deck`: saída 1280×720 nativa com cena 960×540 — funciona, mas o minimapa perde os marcadores
-      (sessão 7); o perfil usa a resolução do jogo até isso ser resolvido. 30 fps e vsync: feitos.
+- [ ] Perfil `deck`: saída 1280×720 nativa — correta no notebook desde a sessão 9 (minimapa, cinemáticas, menus; cena
+      até 85 %); falta medir no Deck e trocar o padrão. 30 fps e vsync: feitos.
 - [ ] Layout de instalação no cartão SD; Mesa cache ao lado do jogo; "Add to Steam".
 - [x] Medições: FPS, frame time, W da APU, temperatura, em rota fixa (primeira batalha): 27–30 fps a 7,6–8,7 W —
       sessão 7. Registros de cada sessão jogada: `aoc-logs.sh` na pasta do Deck.

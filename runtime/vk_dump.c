@@ -757,6 +757,27 @@ static void describe_vertex_input(Str *b, const VkExec *ex, const VkPipeState *s
             continue;
         }
         uint64_t n = r->size && r->size < ms.avail ? r->size : ms.avail;
+        // AOC_DUMP_VBIN=1: the whole stream as vb_<n>.bin (and an indexed draw's indices as ib_<n>.bin), for comparing
+        // every vertex of a draw between two runs; the line names the file.
+        static int vbin = -1, vbn;
+        if (vbin < 0) {
+            const char *e = cfg_get("AOC_DUMP_VBIN");
+            vbin = e && *e && strcmp(e, "0");
+        }
+        if (vbin) {
+            char path[600];
+            int id = vbn++;
+            snprintf(path, sizeof path, "%s/vb_%04d.bin", dir, id);
+            FILE *vf = fopen(path, "wb");
+            if (vf) fwrite((const void *)(uintptr_t)r->address, 1, (size_t)n, vf), fclose(vf);
+            VkMemSpan is;
+            if (vk_dump_draw_indexed && vk_dump_draw_ibuf && vk_mem_resolve(vk_dump_draw_ibuf, 1, &is)) {
+                uint64_t ib = (uint64_t)vk_dump_draw_count << (vk_dump_draw_indexed - 1);
+                snprintf(path, sizeof path, "%s/ib_%04d.bin", dir, id);
+                if ((vf = fopen(path, "wb"))) fwrite((const void *)(uintptr_t)vk_dump_draw_ibuf, 1, (size_t)(ib < is.avail ? ib : is.avail), vf), fclose(vf);
+            }
+            sp(b, " -> vb_%04d.bin", id);
+        }
         uint32_t words = stride ? (stride + 3) / 4 : 4;
         if (words > 24) words = 24;
         for (uint32_t j = 0; j < nlist; j++) {

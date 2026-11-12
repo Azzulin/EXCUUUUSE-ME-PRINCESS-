@@ -84,6 +84,14 @@ static void decide(void) {
     if (fit < 1.0) R.scene_set = 1;
     R.sw = ((unsigned)(sw * fit + 0.5) + 1) & ~1u;   // even sizes: the game halves the scene for its effect targets
     R.sh = ((unsigned)(sh * fit + 0.5) + 1) & ~1u;
+    // Below 1920x1080 the KTGL's 2D projection and full-screen quads take the layout size for any target as large as
+    // the output (recomp/patches-v130.txt, set output): a scene of the output's size would have its own passes caught by
+    // that test and drawn at 2/3 (measured 2026-11-12 with 1280x720 at 100 %). 85 % is the largest scale clear of it.
+    if ((R.ow != BASE_W || R.oh != BASE_H) && R.sw == R.ow && R.sh == R.oh) {
+        R.sw = ((unsigned)(R.ow * 0.85 + 0.5) + 1) & ~1u;
+        R.sh = ((unsigned)(R.oh * 0.85 + 0.5) + 1) & ~1u;
+        rt_log("resolution: a scene as large as an output below 1920x1080 is not supported; %ux%u (85 %%)", R.sw, R.sh);
+    }
     const char *sr = cfg_value("AOC_SHADOW_RES");
     if (strcmp(sr, "game")) {
         unsigned n = (unsigned)atoi(sr);
@@ -245,8 +253,6 @@ static void res_shadow_range(void) {
 void res_init(void) {
     res_shadow_range();
     if (!bigger()) {
-        const float one[2] = {1.0f, 1.0f};   // the UI 2D scale (page +96): a ui2d set switched on by hand changes nothing
-        memcpy((uint8_t *)rt_patch_page() + 96, one, sizeof one);
         rt_log("resolution: the game's own (output 1920x1080, scene 1440x810)");
         shadow_init(rt_patch_page());
         return;
@@ -270,10 +276,10 @@ void res_init(void) {
     memcpy(page + 32, &out, 8);
     memcpy(page + 40, &scn, 8);
     memcpy(page + 48, &out, 8);
-    // +96: the scale of the UI's 2D primitives, {output / 1920, output / 1080}: they are laid out in 1920x1080 units
-    // and the KTGL projects them by the target's size (recomp/patches-v130.txt, the output sites in main+0x161f140).
-    float ui2d[2] = {(float)R.ow / BASE_W, (float)R.oh / BASE_H};
-    memcpy(page + 96, ui2d, sizeof ui2d);
+    // +104: the UI's layout size, 1920x1080: the KTGL's 2D projection and full-screen quad take it in place of the size
+    // of a target as large as the output (recomp/patches-v130.txt, the output sites in main+0x17def58 and on)
+    uint64_t layout = pack(BASE_W, BASE_H);
+    memcpy(page + 104, &layout, 8);
     rt_patch_switch(output, R.ow != BASE_W || R.oh != BASE_H);
     rt_patch_switch(scene, scene_on);
     R.on = 1;

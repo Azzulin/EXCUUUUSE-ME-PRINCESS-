@@ -368,3 +368,12 @@ primeira com o censo de páginas sujas ligado (o trace de perf o ligava sozinho)
   `MOV R3 = R9`, `SYNC`. Primeiro estágio: `HSETP2 P1`, `SYNC !P1`, `MOV R5 = R3`. Tabela do `BRX`: modo 10 → 1240,
   11 → 2352, 12 → 1792, demais → 2352.
 - Teste de alfa do Maxwell: função `ALWAYS` (8) e referência 0 nos 193 pipelines listados num frame da batalha.
+
+## Tradutor: desvio condicional apagado pelo BranchElimination (2026-11-11, patch 0014)
+
+- Padrão Maxwell afetado: `SYNC` (ou `BRA`) com predicado e um alvo só, seguido de um bloco que só copia registradores
+  e de um `SYNC` incondicional para o mesmo alvo (`if (c) x = y`). Sem o patch o Ryujinx apaga a condição fora do
+  `DebugMode`.
+- Censo nos 5 563 inputs guardados do cache do notebook: 11 shaders afetados — FS `6575db29` (efeito de recuperação
+  de coração, o retângulo branco) e 10 compute shaders de 105–118 KB (inputs `36725fee`, `2dfc51cb`, `0dc14967`,
+  `fc45b038`, `b2d89707`, `991d1983`, `863bdccc`, `5b3eb264`, `467b2836`, `17833cff`), com 60–90 desvios mantidos cada.

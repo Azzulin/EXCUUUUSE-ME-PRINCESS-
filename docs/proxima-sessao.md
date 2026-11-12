@@ -1,6 +1,6 @@
 # Próxima sessão — plano de ação e prompt
 
-Escrito em 2026-11-09 (fim da sessão 5); atualizado em 2026-11-11 (sessão 6: retângulo branco). Detalhes em `docs/historico.md` (sessão 5), `docs/handover.md` §6 e
+Escrito em 2026-11-09 (fim da sessão 5); atualizado em 2026-11-11 (sessão 7: retângulo branco corrigido). Detalhes em `docs/historico.md` (sessão 5), `docs/handover.md` §6 e
 `docs/aoc.md` ("Áudio: streams e grafo de mixes", "Resolução do jogo", "Partículas de UI do retângulo branco").
 
 ## Estado
@@ -16,9 +16,10 @@ Escrito em 2026-11-09 (fim da sessão 5); atualizado em 2026-11-11 (sessão 6: r
 - **No Deck está o binário da sessão 4** (sem nada disto). Atalho "Hyrule Warriors: Age of Calamity" criado no Modo
   Jogo. O dono reclama de: retângulo branco, resolução estranha, falta de música; quer consumo na casa de 12 W sem
   esquentar.
-- **Retângulo branco (sessão 6):** causa achada — o tradutor de shaders perde a condição de um `SYNC` condicional
-  do shader do efeito de recuperação de coração (FS `a57f4e05`), e o alfa sai 1. Reproduzido fora do jogo em
-  `C:\aoc-win\retangulo` (`aoc_xlate jobs.json out`: `dbg` certo, `opt` errado). **Falta o patch do tradutor.**
+- **Retângulo branco: corrigido (sessão 7)** — patch 0014 do tradutor (`BranchElimination` respeita os phis do
+  destino). Medido no notebook: centro limpo em 245 capturas, 0 rastros em 201, luma 170–173. O tradutor novo tem
+  de ir ao Deck junto com o resto (o `dist` do WSL já pega o `~/aoc-build/xlate` reconstruído); o cache de shaders
+  do Deck esfria uma vez.
 - **Do HWDER (2026-11-11):** inverter eixos, mudo e teclas IJKL; falta abrir o menu e olhar.
 
 ## Regras da rodada (pedido do dono)
@@ -54,13 +55,9 @@ atacar então, pela ordem do perfil (`AOC_TRACE=perf,sched`): espera por núcleo
 governador e o limite de TDP do Deck (o dono pode fixar o TDP no menu rápido do SteamOS; medir a 30 fps estáveis qual
 TDP basta). Shaders antecipados (Fase E antiga) tiram os picos de CPU das travadas.
 
-### 3. Retângulo branco — PRIMEIRA TAREFA (a última que o dono pediu)
+### 3. Retângulo branco — feito (sessão 7)
 
-Passo a passo em `docs/historico.md`, sessão 6, "Próximo passo (correção)": achar na IR do tradutor (cópia
-instrumentada: `wsl -d archlinux -- bash /mnt/c/aoc-win/retangulo/xldbg.sh`, que reconstrói `/tmp/xldbg` e traduz o
-job) o passo que apaga o desvio do `SYNC` condicional; patch `tools/xlate/patches/0014`; reconstruir o tradutor
-(`python3 tools/build_xlate.py --out ~/aoc-build/xlate --sysroot ~/aoc-build/toolchain/sniper` no WSL, depois
-`bash /mnt/c/aoc-win/xlate_win.sh`); uma corrida da rota para conferir o centro da tela, os rastros e a luma.
+Falta só ver no Deck e, se der, olhar o efeito de recuperação de coração acontecendo (curar na batalha).
 
 ### 4. Depois
 
@@ -75,8 +72,8 @@ testado no notebook Windows (RTX 3050). Leia ANTES de tudo: AGENTS.md (regras: d
 mão, dados do jogo fora do git, check_content antes de commit), docs/proxima-sessao.md e docs/handover.md, seção 6.
 
 O dono quer: (1) o que a sessão 5 deixou escrito chegar ao Deck medido — resolução nativa 1280x720, sombra dos pools,
-música, telemetria; (2) consumo perto de 12 W no Deck sem esquentar; (3) o retângulo branco do centro corrigido na
-causa. Testes conclusivos: cada corrida de 3 min fecha uma pergunta; nada vai ao Deck sem ter rodado no notebook.
+música, telemetria; (2) consumo perto de 12 W no Deck sem esquentar; (3) conferir no Deck a correção do retângulo branco
+(patch 0014 do tradutor, sessão 7). Testes conclusivos: cada corrida de 3 min fecha uma pergunta; nada vai ao Deck sem ter rodado no notebook.
 
 Ambiente (Windows nativo, MSYS2 UCRT64):
 - Build do runtime + link: no PowerShell,
@@ -106,8 +103,6 @@ Ambiente (Windows nativo, MSYS2 UCRT64):
 - Armadilha: em heredoc, "\\n" chega como quebra de linha e "\a"/"\b" como controle; para texto com barras invertidas
   use a ferramenta de escrita/edição, não heredoc.
 
-Tarefa 0 (primeira): retângulo branco — patch do tradutor para o SYNC condicional (passo 3 de docs/proxima-sessao.md
-e docs/historico.md, sessão 6); material em C:\aoc-win\retangulo. Depurador: gdb -p <pid> -batch -x <script>.
 Tarefa 1: passo 1 de docs/proxima-sessao.md inteiro (Windows com o C novo → corrida A de resolução 1280x720 → corrida B
 de sombra em modo import → dist → Deck → logsum com watts e temperatura).
 Tarefa 2: consumo (passo 2), guiado pelos números da tarefa 1.

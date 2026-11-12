@@ -580,3 +580,55 @@ Sessão dedicada ao retângulo. **Não está corrigido**; a causa está localiza
   (código = os `length` bytes antes do `c1`; palavras de escalonamento a cada 32 bytes).
 - `--probe-nvn` falha em 2 de 794 casos ("device ABI 53.313" e o op `DRAW_IND` sem caso no teste); não foi
   conferido se já falhava antes desta sessão.
+
+## Sessão 7 — 2026-11-11 (notebook): retângulo branco corrigido no tradutor
+
+### A causa exata
+
+- O `SYNC !P0` com um alvo só vira `BranchIfFalse(L, P0)` (`InstEmitFlowControl.cs` `EmitBranch`); o `MOV R3 = R9`
+  seguinte é uma cópia, e o `SYNC` incondicional vira `Branch(L)`. Na SSA o `Optimizer` propaga a cópia e apaga o
+  `MOV`: o bloco do meio fica só com o `Branch L`, e o phi em `L` passa a ser `phi(R3 vindo do 1º bloco, R9 vindo do
+  bloco do meio)`.
+- Aí o `BranchElimination` (Ryujinx, `Translation/Optimizations/BranchElimination.cs`) vê "o próximo bloco só tem um
+  desvio incondicional para o mesmo lugar" e apaga o desvio condicional. Mas o phi ainda distinguia as duas arestas:
+  sem o desvio, todo thread passa pelo bloco do meio e o alfa vira sempre o da onda (1). Em `DebugMode` o comentário
+  por instrução (`Translator.cs` `EmitOps`) deixa o bloco do meio não vazio e o desvio fica — por isso o `dbg.glsl`
+  saía certo.
+
+### A correção (patch 0014)
+
+- `tools/xlate/patches/0014-branch-elimination-keeps-phi-edges.patch`: o desvio só é redundante se, em cada phi do
+  bloco de destino, as duas arestas (o bloco do desvio e o bloco seguinte) trazem o mesmo valor (mesmo operando, ou a
+  mesma constante). `tools/build_xlate.py` passa a esperar 14 patches. Identidade do tradutor nova `b05fcac8…`: o
+  cache de shaders esfria uma vez (no Deck também).
+- Fora do jogo (`C:\aoc-win\retangulo`, job `opt`): a tradução otimizada tem agora 9 comparações e 40 `if`, iguais às
+  da tradução em debug (antes 6 e 37); voltam `if (alfa > máscara) alfa = máscara` nos ramos 1240 e 1792 e no
+  primeiro estágio.
+
+### Quantos shaders mudam
+
+- Os 5 563 inputs guardados do cache (`shader-cache/in`) traduzidos de novo com uma cópia do tradutor que anota a
+  chave quando o patch segura um desvio (`C:\aoc-win\retangulo\injobs.py` monta os jobs a partir dos `.in`; 36 s,
+  0 falhas): **11 shaders**. O FS do efeito de coração (`6575db29`) e **10 compute shaders grandes** (105–118 KB de
+  código, 60–90 desvios mantidos cada; inputs `36725fee`, `2dfc51cb`, `0dc14967`, `fc45b038`, `b2d89707`,
+  `991d1983`, `863bdccc`, `5b3eb264`, `467b2836`, `17833cff`). A tradução antiga desses também estava errada; não
+  identifiquei o que eles calculam nem se havia defeito visível por causa deles.
+
+### Medido (rota até a 1ª batalha, notebook)
+
+- Centro da tela (`C:\aoc-win\centre.py`: fração de pixels quase brancos numa janela de 64×96 px de 1080p no
+  centro): antes 9 % em 7 de 9 capturas da batalha (`bshots` antigos); agora **0,00 em 44 capturas a cada 4 s da rota
+  inteira e em 201 capturas a cada 0,1 s da batalha**.
+- Rastros: **0 em 201** (`streaks.py`, MSYS Python, que tem scipy). Luma da batalha 170–173 (igual a antes).
+- 0 erros de validação, 0 falhas de shader, 0 draws pulados; música: 1 janela muda em 38 (o boot).
+- Não visto: o efeito de recuperação de coração **acontecendo** (curar na batalha); a correção devolve a semântica do
+  código Maxwell, mas a animação em si não foi olhada.
+
+### Ferramentas
+
+- `C:\aoc-win\centre.py <pastas>`: mede o bloco branco nas capturas.
+- `C:\aoc-win\retangulo\injobs.py <in> <dir de código> <jobs.json>`: jobs do `aoc_xlate` a partir dos inputs
+  guardados (espelha `gfx_shader.c` `build_request`); serve para medir o efeito de qualquer patch do tradutor em todos
+  os shaders conhecidos de uma vez.
+- Corrigido em `docs/handover.md`: dois `C:\aoc-win` que o heredoc da sessão 5 tinha virado `C:` + caractere de
+  controle.

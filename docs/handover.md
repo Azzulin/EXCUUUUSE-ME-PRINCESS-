@@ -1,7 +1,7 @@
 # Handover — estado do projeto para o próximo agente
 
 Leia isto primeiro, depois `AGENTS.md` (regras) e `docs/plano.md` (fases). O plano de ação imediato e um prompt pronto
-para uma sessão nova estão em `docs/proxima-sessao.md`. Atualizado em 2026-11-11 (sessão 6, no
+para uma sessão nova estão em `docs/proxima-sessao.md`. Atualizado em 2026-11-11 (sessão 7, no
 notebook, build nativo do Windows na RTX 3050). Tudo aqui foi medido no dump do próprio dono do projeto; nada é
 estimativa salvo onde está dito.
 
@@ -122,7 +122,7 @@ partir de 100 s, `AOC_TRACE=perf`, vigia de travada).
   abertura) era o mesmo defeito. Falta ouvir no Deck.
 - **Escrito e compilado, SEM medição:** (a) resolução nativa — patch sets `output`/`scene` em
   `recomp/patches-v130.txt`, `resolution.c` do AoC, perfil do Deck 1280×720 com cena 960×540; o C novo só existe no
-  WSL (`~/aoc-build`), o guest do Windows em `C:oc-win` está atrasado; (b) sombra dos pools — `shadow_sync_pool`
+  WSL (`~/aoc-build`), o guest do Windows em `C:\aoc-win` está atrasado; (b) sombra dos pools — `shadow_sync_pool`
   indica regiões paradas para congelar (substitui a ideia do `sgen` por região do item 0); (c) telemetria — linhas
   `sys:` a cada 10 s (`runtime/sysmon.c`: watts da APU, bateria, temperaturas, ventoinha, GPU, CPU) e
   `tools/deck/logsum.py`.
@@ -130,17 +130,19 @@ partir de 100 s, `AOC_TRACE=perf`, vigia de travada).
   (`shortcuts.vdf`; iniciar o `aoc` por SSH não serve: a janela fecha sem foco do gamescope).
 - **Resolução "estranha" explicada:** o jogo renderiza sempre 1920×1080 (cena 1440×810), fixos em `nnMain`; o modo
   portátil não muda isso, e a janela do Deck mostra a redução bilinear de 1,5×.
-- **Retângulo branco (sessão 6, 2026-11-11): causa achada, correção por fazer.** É o efeito de recuperação de
-  coração do HUD (45 instâncias em repouso, que deviam sair transparentes). O shader original faz
-  `alfa = min(alfa, alfa da máscara)` com um `SYNC` condicional; a tradução otimizada perde a condição e o quad sai
-  opaco. Reproduzido fora do jogo (`C:\aoc-win\retangulo`; com `"debug": true` traduz certo). Falta achar o passo
-  da IR do tradutor que apaga o desvio e fazer o patch 0014 (`historico.md`, sessão 6, tem o passo a passo).
+- **Retângulo branco: CORRIGIDO e medido no notebook (sessão 7, 2026-11-11).** Era o efeito de recuperação de
+  coração do HUD saindo opaco: o `BranchElimination` do tradutor apagava um desvio condicional cujo bloco seguinte
+  ficara vazio depois da propagação de cópias, sem olhar os phis do destino. Patch
+  `tools/xlate/patches/0014-branch-elimination-keeps-phi-edges.patch` (muda 11 dos 5 563 shaders conhecidos: o FS
+  do efeito e 10 compute shaders grandes). Centro da tela limpo em 245 capturas, 0 rastros em 201, luma igual.
+  Tradutor novo (identidade `b05fcac8…`) já no `~/aoc-build/xlate` do WSL e em `C:\aoc-win\host`; o Deck ainda
+  não tem.
 - **Meta do dono:** consumo perto de 12 W no Deck, sem esquentar. Ainda não há medição de potência.
 - **Do HWDER (outro projeto do dono, 2026-11-11):** inverter eixos (aba Controles), Mudo e Mudo em segundo plano (aba
   Som), teclas I J K L = X B A Y. O menu do F1 já existia (F1, Esc ou Menos+Mais). Compila e o `--probe-cfg` passa;
   falta abrir o menu e olhar. Detalhes no `historico.md`, "Comparação com o HWDER".
 - Ferramentas novas: censo de vozes e mixes em `AOC_TRACE=audio`; `AOC_DUMP_UBO` lista índices e vértices de cada
-  draw; no notebook `C:oc-win64.py`, `plt.py`, `dref.py`, `immscan.py`, `diag1.sh`, `wsl_gen.sh`, `wsl_build.sh`.
+  draw; no notebook `C:\aoc-win\a64.py`, `plt.py`, `dref.py`, `immscan.py`, `diag1.sh`, `wsl_gen.sh`, `wsl_build.sh`.
 
 0. **Deck: a sombra dos pools custa ~30 ms por frame na batalha** (primeiro item da próxima rodada; plano em
    `docs/proxima-sessao.md`, Fase B). O runtime da sessão 4 está no Deck (enviado às 21h24 de 2026-11-06); imagem igual

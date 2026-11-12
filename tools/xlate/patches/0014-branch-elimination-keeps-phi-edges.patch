@@ -1,0 +1,90 @@
+--- a/src/Ryujinx.Graphics.Shader/Translation/Optimizations/BranchElimination.cs
++++ b/src/Ryujinx.Graphics.Shader/Translation/Optimizations/BranchElimination.cs
+@@ -7,7 +7,7 @@
+     {
+         public static bool RunPass(BasicBlock block)
+         {
+-            if (block.HasBranch && IsRedundantBranch((Operation)block.GetLastOp(), Next(block)))
++            if (block.HasBranch && IsRedundantBranch(block, (Operation)block.GetLastOp(), Next(block)))
+             {
+                 block.Branch = null;
+ 
+@@ -17,7 +17,7 @@
+             return false;
+         }
+ 
+-        private static bool IsRedundantBranch(Operation current, BasicBlock nextBlock)
++        private static bool IsRedundantBranch(BasicBlock block, Operation current, BasicBlock nextBlock)
+         {
+             // Here we check that:
+             // - The current block ends with a branch.
+@@ -37,7 +37,68 @@
+                 return false;
+             }
+ 
+-            return current.Dest == next.Dest;
++            if (current.Dest != next.Dest)
++            {
++                return false;
++            }
++
++            // AoC Recomp (patch 0014): the two edges into the target must also carry the same values. The next block
++            // can be "only a branch" because the copies it held were propagated into the target's phis; then the phi
++            // still tells the edges apart, and dropping the conditional branch sends every thread down the second
++            // edge. Maxwell `SYNC !P0; MOV R3, R9; SYNC` (if (R3 > R9) R3 = R9) became an unconditional R3 = R9: Age of
++            // Calamity's heart recovery effect (FS a57f4e05) lost its alpha mask and drew 45 opaque additive quads, the
++            // white rectangle in the middle of the screen. DebugMode hid it: its comment nodes kept the block non-empty.
++            return PhisAgree(block.Branch, block, nextBlock);
++        }
++
++        private static bool PhisAgree(BasicBlock target, BasicBlock a, BasicBlock b)
++        {
++            if (target == null)
++            {
++                return false;
++            }
++
++            foreach (INode node in target.Operations)
++            {
++                if (node is not PhiNode phi)
++                {
++                    continue;
++                }
++
++                Operand fromA = null;
++                Operand fromB = null;
++
++                for (int index = 0; index < phi.SourcesCount; index++)
++                {
++                    BasicBlock source = phi.GetBlock(index);
++
++                    if (source == a)
++                    {
++                        fromA = phi.GetSource(index);
++                    }
++                    else if (source == b)
++                    {
++                        fromB = phi.GetSource(index);
++                    }
++                }
++
++                if (!SameValue(fromA, fromB))
++                {
++                    return false;
++                }
++            }
++
++            return true;
++        }
++
++        private static bool SameValue(Operand x, Operand y)
++        {
++            if (x == y)
++            {
++                return true;
++            }
++
++            return x != null && y != null && x.Type == OperandType.Constant && y.Type == OperandType.Constant && x.Value == y.Value;
+         }
+ 
+         private static BasicBlock Next(BasicBlock block)

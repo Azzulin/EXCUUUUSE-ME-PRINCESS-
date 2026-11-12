@@ -1,7 +1,7 @@
 # Handover — estado do projeto para o próximo agente
 
 Leia isto primeiro, depois `AGENTS.md` (regras) e `docs/plano.md` (fases). O plano de ação imediato e um prompt pronto
-para uma sessão nova estão em `docs/proxima-sessao.md`. Atualizado em 2026-11-11 (sessão 7, no
+para uma sessão nova estão em `docs/proxima-sessao.md`. Atualizado em 2026-11-12 (sessão 8, no
 notebook, build nativo do Windows na RTX 3050). Tudo aqui foi medido no dump do próprio dono do projeto; nada é
 estimativa salvo onde está dito.
 
@@ -127,10 +127,15 @@ partir de 100 s, `AOC_TRACE=perf`, vigia de travada).
 - **Ferramenta de registros no Deck:** `./aoc-logs.sh lista | resumo | ao-vivo | sistema | detalhado on|off | pacote`
   na pasta do jogo; sessões antigas comprimidas em `logs/sessoes/` (o `aoc.sh` guarda ao abrir o jogo).
 - **Resolução 1280×720: funciona, mas o minimapa perde os marcadores** — não é o padrão do Deck (o perfil usa a
-  do jogo). As nove vistas 2D de `main+0x1583c00` guardam 1920×1080; patcheá-las derrubou o boot em
-  `main+0x17c4e80` (`historico.md`, sessão 7, segunda parte).
-- **Rastros no caminho do Deck:** com `AOC_MEMORY=import AOC_SHADOW=1 AOC_REPLAY_ASYNC=1` o notebook mostra 9–12
-  rastros em 201 frames (0 no modo padrão); vêm de antes desta sessão. Próxima tarefa.
+  do jogo). As nove vistas 2D de `main+0x1583c00` são o layout do HUD (patcheá-las tira o HUD do lugar; sessão 8);
+  os marcadores somem por outro caminho, a achar comparando dumps de 1080p e 720p.
+- **Rastros no modo import: não existem** (sessão 8). As detecções eram bandeiras balançando ao vento; em
+  1920×1080 todo resultado do `streaks.py` passa pelo `C:\aoc-win\streakzoom.py`.
+- **Cache de shaders estável (sessão 8):** o hash do programa deixou de cobrir +0x850…+0x880 do controle (ponteiros
+  do KTGL, diferentes a cada corrida). No notebook: 15 shaders traduzidos na 2ª corrida (antes 50–70), entrada da
+  batalha 0,78 s (antes 1,8–2,0). **Ainda não chegou ao Deck**: o envio caiu (o Deck suspendeu) e o `aoc` de lá
+  pode estar truncado — reenviar com `bash tools/deck/deploy.sh --no-build` (agora atômico e recusa com o jogo
+  aberto); cópia antiga em `bak-sessao4/`.
 - **Resolução "estranha" explicada:** o jogo renderiza sempre 1920×1080 (cena 1440×810), fixos em `nnMain`; o modo
   portátil não muda isso, e a janela do Deck mostra a redução bilinear de 1,5×.
 - **Retângulo branco: CORRIGIDO e medido no notebook (sessão 7, 2026-11-11).** Era o efeito de recuperação de

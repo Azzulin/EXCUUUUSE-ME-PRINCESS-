@@ -698,3 +698,58 @@ mandar, cada peça escrita na sessão 5 rodou no notebook (regra: nada vai ao De
   `ferramentas/logsum.py` no `dist`. O `dist` copia os dois; o `deploy.sh` os envia. O LEIA-ME do Deck ganhou a seção
   REGISTROS (e perdeu o "AINDA SEM IMAGEM").
 - Por SSH: `ssh deck@192.168.100.130 'cd <pasta> && ./aoc-logs.sh lista'`.
+
+## Sessão 8 — 2026-11-12 (notebook): rastros eram falso positivo; cache de shaders estável; HUD e resolução menor
+
+### Rastros "no caminho do Deck": não existem (correção do relato da sessão 7)
+
+- Separação feita como planejado, uma pergunta por corrida, batalha densa (`AOC_SHOTS=w140-160:0.1`, capturas
+  1920×1080): `import` + sombra com replay síncrono: 8 em 201; `import` sem sombra: 15; `import` + sombra com cada
+  submit esperando a GPU (`AOC_SUBMIT_WAIT=1`, chave nova de diagnóstico em `nvn_api_core.c`): 11. Não é corrida
+  entre a CPU do jogo e a GPU.
+- No Deck, mesma rota, capturas 480×270: 0; em tamanho cheio (1,6 GB trazidos por `tar` sobre ssh): 3.
+- **Olhando cada detecção** (`C:\aoc-win\streakzoom.py`: frame anterior, marcado e seguinte, ampliados): todas, no
+  notebook e no Deck, são **bandeiras longas balançando ao vento** e a borda de uma coluna. O `streaks.py` marca
+  qualquer faixa fina que fica mais clara que os dois vizinhos; em 1920×1080 o movimento natural das bandeiras passa.
+  O "0 em 201" do modo `mirror` que a sessão 7 usou como comparação veio de capturas 480×270, onde o detector não
+  enxerga esse movimento. Conclusão: não há defeito; a sessão 7 errou ao afirmar rastros no modo `import`.
+- Para próximas medições: em 1920×1080 todo resultado do `streaks.py` precisa passar pelo `streakzoom.py`.
+
+### Cache de shaders: o mesmo shader ganhava chave nova a cada corrida (corrigido, medido no notebook)
+
+- A travada de 6,6 s ao entrar na batalha no Deck (cache quente) era quase toda replay. No notebook o mesmo frame
+  leva 1,8–2,0 s; o perfil desse frame (`AOC_PROFILE=… AOC_PROFILE_SLOW=1000`; leitor novo `C:\aoc-win\profslow.py`)
+  pôs 57 % da thread do replay em `translate` (espera do tradutor e leitura/gravação do cache). Toda corrida traduzia
+  50–70 shaders de novo.
+- Causa: o hash do programa (`gfx_shader.c` `build_code_hash`) cobria a seção de controle inteira (0x880 bytes), e a
+  partir de +0x850 o KTGL guarda a própria contabilidade ali: o endereço do programa no heap (+0x850), um endereço de
+  dados do `main` (+0x870) e contadores, diferentes a cada corrida. Os 6 051 inputs guardados eram 241 shaders
+  distintos com 5 586 chaves; um só código tinha 728.
+- Correção: o hash cobre o controle até +0x850 (`CONTROL_HASHED`); `IN_VERSION` 2 (o cache esfria uma vez). Nada lê
+  esses bytes: o tradutor não recebe o controle e o runtime lê de +0x700 a +0x757. Com o corte, os mesmos inputs dão
+  252 chaves (as 11 variantes restantes diferem em campos de verdade).
+- Medido no notebook (caminho do Deck, duas rotas): 1ª 225 traduzidos (cache novo); 2ª **15** (antes 50–70: seis
+  shaders nunca vistos e nove computes com outro tipo de imagem nas respostas, variantes legítimas), entrada da batalha
+  **0,78 s** (antes 1,8–2,0 s).
+- No Deck: o envio caiu no meio (o Deck suspendeu: sem resposta nem a ping). O `aoc` de lá pode ter ficado truncado:
+  `scp` gravava direto por cima. `deploy.sh` agora envia como `<arquivo>.envio` e renomeia no fim, e recusa enviar
+  com o `aoc` ou o `totk` abertos. Uma espera em segundo plano reenvia quando o Deck voltar (até 4 h).
+
+### Resolução menor: as nove vistas 2D são o layout do HUD; o minimapa é outro caminho
+
+- `main+0x1583c00..0x15847a4` fica dentro da função de inicialização `main+0x1580010`. Cada um dos nove pares
+  `mov`/`movk` virou um conjunto de teste (`uiv0`…`uiv8`). Oito, sozinhos, iniciam bem; o nono (`0x1584798`) derruba o
+  boot porque logo depois o compilador conta com 1920: `sub x10, x8, #0x780` zera a metade baixa (com 1280 ela estoura,
+  a altura vira 719 e a largura lixo; `main+0x17c4e80` não cria o alvo de 1/4 e devolve nulo) e `mov w9, #0x780`
+  remonta o par com 1920. Trocados por `and x10, x8, #0xffffffff00000000` e `mov w9, w8`, os nove iniciam.
+- Com os nove em 1280×720 o HUD inteiro sai do lugar (corações somem, minimapa na borda); com sete, nada muda no
+  minimapa. Essas vistas são o espaço de layout do HUD, que o jogo mantém em unidades de 1080p: o patch `output`
+  original (sem elas) é o certo para o HUD. Os marcadores do minimapa somem por outro caminho; próximo passo: dump de um
+  frame da batalha em 1080p e em 720p e comparar os draws do minimapa (alvo, viewport, scissor, uniformes). Os
+  conjuntos de teste saíram da tabela.
+
+### Ferramentas novas
+
+- `C:\aoc-win\streakzoom.py <pasta> <saída.png>`: amplia cada detecção do `streaks.py` com os vizinhos.
+- `C:\aoc-win\profslow.py <dump> [replay|render|main|tid]`: lê os dumps do `AOC_PROFILE_SLOW` (símbolos pelo `nm`).
+- `AOC_SUBMIT_WAIT=1`: cada submit espera a GPU (diagnóstico de corrida CPU×GPU).

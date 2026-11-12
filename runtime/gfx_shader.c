@@ -45,6 +45,13 @@
 #include "platform/platform.h"
 
 #define CONTROL_SIZE 0x880
+// The program hash covers the control section up to here. From +0x850 Age of Calamity's KTGL keeps its own bookkeeping
+// in the program's control block: a heap address of the program at +0x850, a main data address at +0x870 and counters,
+// different on every run. Hashed, they gave the same shader a new cache key each run: 5586 stored inputs for 241
+// distinct shaders on 2026-11-12, and 50-70 shaders translated again on entering the first battle with a warm cache
+// (6.5 s frozen on the Deck). Neither the translator (it never sees the control section) nor the runtime (+0x700 to
+// +0x757) reads anything from there.
+#define CONTROL_HASHED 0x850
 #define CODE_SKIP 0x30                                     // graphics code starts after the first 0x30 bytes of the program
 #define BUCKETS 4096
 #define LINE_MAX_LEN 4096
@@ -52,8 +59,9 @@
                                                            // output changes here (4: translator identity, input ids; 5:
                                                            // compute shared memory size from the control section);
                                                            // translator changes are covered by its identity
-#define IN_VERSION 1                                       // in every input id and .in file: bump when the answers layout
-                                                           // or the program hash changes (drops every stored input)
+#define IN_VERSION 2                                       // in every input id and .in file: bump when the answers layout
+                                                           // or the program hash changes (drops every stored input; 2:
+                                                           // control section hashed up to CONTROL_HASHED)
 #define USE_MAGIC 0x4d554b54u                              // "TKUM", .use files
 #define USE_VERSION 1
 #define IN_MAGIC 0x49534b54u                               // "TKSI", .in files
@@ -982,11 +990,11 @@ static size_t pack_answers(uint8_t *o, const GfxShaderAnswers *a) {
 
 static int build_code_hash(int stage, const uint8_t *control, const uint8_t *code, uint64_t code_size,
                            const uint8_t *c1, uint32_t c1_len, uint8_t hash[32]) {
-    size_t total = 4 + CONTROL_SIZE + 8 + (size_t)code_size + 4 + c1_len;
+    size_t total = 4 + CONTROL_HASHED + 8 + (size_t)code_size + 4 + c1_len;
     uint8_t *buf = malloc(total), *p = buf;
     if (!buf) return 0;
     put_u32(&p, (uint32_t)stage);
-    memcpy(p, control, CONTROL_SIZE), p += CONTROL_SIZE;
+    memcpy(p, control, CONTROL_HASHED), p += CONTROL_HASHED;
     memcpy(p, &code_size, 8), p += 8;
     memcpy(p, code, (size_t)code_size), p += code_size;
     put_u32(&p, c1_len);

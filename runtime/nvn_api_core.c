@@ -630,6 +630,16 @@ NVN_API(nvnQueueSubmitCommands) {
         nvn_submit_prepare(h, n);
         f = gfx_backend()->submit(h, n);
     }
+    // AOC_SUBMIT_WAIT=1 (diagnosis only): the submit returns once the GPU finished it, as if the GPU had read everything
+    // the moment the game submitted. Tells a race between the game's CPU writes and a submission in flight from other
+    // causes; costs the whole overlap of CPU and GPU.
+    static int submit_wait = -1;
+    if (submit_wait < 0) {
+        const char *e = cfg_get("AOC_SUBMIT_WAIT");
+        submit_wait = e && *e == '1';
+        if (submit_wait) rt_log("nvn: AOC_SUBMIT_WAIT=1: every submit waits for the GPU (diagnosis)");
+    }
+    if (submit_wait) gfx_backend()->fence_wait(f, UINT64_MAX);
     uint64_t prev = __atomic_load_n(&last_fence, __ATOMIC_RELAXED);
     while (f > prev && !__atomic_compare_exchange_n(&last_fence, &prev, f, 1, __ATOMIC_RELEASE, __ATOMIC_RELAXED)) {}
     __atomic_store_n(&lod_fence[no % LOD_RING], f, __ATOMIC_RELAXED);

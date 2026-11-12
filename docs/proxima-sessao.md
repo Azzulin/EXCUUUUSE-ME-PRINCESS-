@@ -1,20 +1,19 @@
 # Próxima sessão — plano de ação e prompt
 
-Atualizado em 2026-11-12 (fim da sessão 7: retângulo corrigido, tudo no Deck e medido, registros no Deck). Detalhes
+Atualizado em 2026-11-12 (fim da sessão 8: rastros descartados, cache de shaders estável, envio ao Deck pendente). Detalhes
 em `docs/historico.md` (sessão 7), `docs/handover.md` §6 e `docs/aoc.md` ("Resolução de saída menor: vistas 2D e
 minimapa", "Deck: consumo e temperatura na primeira batalha").
 
-## Estado (2026-11-12, fim da sessão 7)
+## Estado (2026-11-12, fim da sessão 8)
 
-- **No Deck, medido:** tudo das sessões 5–7 menos a resolução 1280×720. Batalha a 27–30 fps, APU 7,6–8,7 W,
-  CPU 68–72 °C, GPU 62–65 °C, sombra dos pools 2 ms por frame. Música e retângulo: corrigidos e medidos no
-  notebook; falta o dono confirmar jogando.
-- **Registros no Deck:** `./aoc-logs.sh lista` (e `resumo`, `ao-vivo`, `sistema`, `detalhado on|off`, `pacote`) na
-  pasta do jogo; cada sessão jogada pelo atalho fica em `logs/sessoes/`. Ler por SSH antes de mexer em desempenho.
-- **Aberto, em ordem:** (1) rastros no caminho do Deck (9–12 em 201 no notebook com import + sombra + replay
-  assíncrono; 0 no modo padrão): separar import × replay assíncrono numa corrida cada; (2) travada de ~6,6 s ao
-  entrar na batalha mesmo com cache quente; (3) minimapa sem marcadores em 1280×720 (nove vistas de
-  `main+0x1583c00`; o patch delas derrubou o boot em `main+0x17c4e80`).
+- **No Deck, medido (sessão 7):** batalha a 27–30 fps, APU 7,6–8,7 W, CPU 68–72 °C, GPU 62–65 °C.
+- **Pendente no Deck:** a correção do cache de shaders (sessão 8) não chegou — o envio caiu com o Deck suspenso, e o
+  `aoc` de lá pode estar truncado. Primeiro passo de qualquer sessão: `bash tools/deck/deploy.sh --no-build` (só
+  envia com o jogo fechado; atômico) e conferir o sha256. Cópia antiga em `bak-sessao4/`.
+- **Fechado na sessão 8:** rastros (não existem: bandeiras ao vento); travada da entrada da batalha (o cache de
+  shaders gerava chaves novas a cada corrida: 50–70 traduções → 15 e 1,9 s → 0,78 s no notebook).
+- **Aberto:** minimapa sem marcadores em 1280×720 (as nove vistas de `main+0x1583c00` são o layout do HUD e não
+  são a causa); medir no Deck a entrada da batalha com o cache novo.
 
 ## Regras da rodada (pedido do dono)
 
@@ -24,15 +23,13 @@ Deck com `totk` ou `aoc` abertos.
 
 ## Plano, em ordem
 
-1. **Rastros no caminho do Deck.** Duas corridas da batalha densa no notebook (`diag1.sh` com
-   `AOC_SHOTS=w140-160:0.1`, `streaks.py` no Python do MSYS): `AOC_MEMORY=import AOC_SHADOW=1` sem
-   `AOC_REPLAY_ASYNC`, e `AOC_REPLAY_ASYNC=1` sem import. A que der 0 aponta a causa.
-2. **Travada ao entrar na batalha** (6,6 s com cache quente no Deck): o `frametime: worst frame` do log diz o que
-   segurou (tradução, pipeline, textura, replay).
-3. **Minimapa em 1280×720:** ver o que `main+0x17c4e80` cria com o tamanho das vistas de `main+0x1583c00`
-   (gdb no build do Windows, `f_<endereço>`); só então pôr 1280×720 no perfil do Deck (menos pixels, menos watts).
-4. Consumo: já abaixo de 12 W na batalha; depois das três acima, medir uma sessão longa do dono
-   (`./aoc-logs.sh lista`) e decidir o que mais vale (shaders antecipados para as travadas).
+1. **Enviar ao Deck** (`deploy.sh --no-build`), duas corridas `deckbattle.sh` (a 1ª enche o cache com as chaves
+   novas; a 2ª mede): traduções na 2ª (`shaders: N keys, M translated` nas linhas `perf:`), pior frame da entrada da
+   batalha (antes 6,6 s), fps, watts.
+2. **Minimapa em 1280×720:** `AOC_DUMP` de um frame da batalha em 1080p e em 720p (mesmo frame da rota) e comparar os
+   draws do minimapa: alvo, viewport, scissor, uniformes dos marcadores. Só com o minimapa certo 1280×720 vai para o
+   perfil do Deck.
+3. Consumo: sessão longa do dono (`./aoc-logs.sh lista`); se sobrar trabalho, shaders antecipados.
 
 ## Prompt para colar numa sessão nova
 
@@ -77,8 +74,10 @@ Ambiente (Windows nativo, MSYS2 UCRT64):
 - Armadilha: em heredoc, "\\n" chega como quebra de linha e "\a"/"\b" como controle; para texto com barras invertidas
   use a ferramenta de escrita/edição, não heredoc.
 
-Tarefa 1: rastros no caminho do Deck (passo 1 do plano). Tarefa 2: travada ao entrar na batalha (passo 2).
-Tarefa 3: minimapa em 1280x720 (passo 3).
+Tarefa 1: enviar ao Deck e medir (passo 1 do plano). Tarefa 2: minimapa em 1280x720 (passo 2).
+Medir rastros: streaks.py marca bandeiras ao vento em 1920x1080; confirmar cada detecção com
+C:\aoc-win\streakzoom.py. Perfil de um frame lento: AOC_PROFILE=<arq> AOC_PROFILE_SLOW=<ms> e
+python C:\aoc-win\profslow.py <arq>.f<frame>.
 
 Ao terminar cada tarefa: atualizar docs/handover.md, docs/historico.md, docs/aoc.md, docs/plano.md e este arquivo;
 commitar. Fale com o dono em pt-BR, direto, com números medidos; não declare corrigido sem medir.

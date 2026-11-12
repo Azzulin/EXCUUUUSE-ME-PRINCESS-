@@ -113,7 +113,9 @@ classificadas.
 - [x] Trace de perf que não pesa no Deck: o censo de páginas sujas (63 ms por frame na batalha) só com
       `AOC_DIRTY_CENSUS=1` — sessão 4. Batalha medida sem ele: 24,6 fps (com ele, 12,8).
 - [x] Sombra dos pools: regiões paradas indicadas para congelar (~30 → 2 ms por frame na batalha do Deck) — sessão 7.
-- [ ] Rastros no caminho do Deck (import + sombra + replay assíncrono: 9–12 em 201 no notebook).
+- [x] Rastros no modo import: não existem (eram bandeiras ao vento no detector) — sessão 8.
+- [x] Cache de shaders estável entre corridas (hash do programa sem a contabilidade do KTGL) — sessão 8, medido no
+      notebook; falta o Deck.
 
 **Portão F (Deck):** 30 fps estáveis na primeira batalha em 1280×800 (render scale a definir) com ≤ 15 W; sem stutter
 de shader após a instalação; 1 h de sessão sem crash.

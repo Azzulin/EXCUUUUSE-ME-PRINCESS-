@@ -392,3 +392,18 @@ primeira com o censo de páginas sujas ligado (o trace de perf o ligava sozinho)
 - 1920×1080 do jogo, 30 fps, portátil, `REPLAY_ASYNC=1`, import + sombra: APU 7,6–8,7 W, CPU 68–72 °C, GPU 62–65 °C,
   ventoinha ~3 000–4 000 rpm, GPU ocupada 0–50 %, jogo em ~2 núcleos. Menus e cinemáticas: APU 3,3–4,0 W.
 - TDP configurado pelo dono: 10 W (`power1_cap`; máximo 29 W).
+
+## Seção de controle dos programas: contabilidade do KTGL no fim (2026-11-12)
+
+- Dos 0x880 bytes de controle de cada programa, +0x850…+0x880 guardam dados do jogo, não do compilador: endereço do
+  programa no heap (+0x850), `0xfffffffffffffef0`/`…ff00` (+0x858), contadores (+0x860, +0x878) e um endereço de dados
+  do `main` (+0x870). Mudam a cada corrida. O runtime lê +0x700…+0x757 (c1, tamanho, estágio, early-Z, grupo de compute,
+  memória compartilhada); o tradutor não recebe o controle.
+- Na rota até a primeira batalha o jogo usa ~241 shaders distintos (código + c1).
+
+## Vistas 2D do HUD (2026-11-12)
+
+- Os nove `{1920, 1080}` de `main+0x1583c14…0x1584798` (função `main+0x1580010`) são o espaço de layout do HUD:
+  em 1280×720 o HUD só fica certo com eles em 1080p. Depois de `0x1584798` o compilador conta com a largura 1920
+  (`sub x10, x8, #0x780` em `0x15847a0`, `mov w9, #0x780` em `0x15847a4`). Em `0x1585cb8` a mesma função lê
+  `[vista+0x680]`, multiplica por 0,25 e cria dois alvos de 1/4 da tela por `main+0x17c4e80`.

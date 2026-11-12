@@ -427,3 +427,13 @@ primeira com o censo de páginas sujas ligado (o trace de perf o ligava sozinho)
   imediato do KTGL é `main+0x17e16c0` (posições em `x1`).
 - Os marcadores do minimapa são desenhados por um interpretador de comandos (`main+0x12afa70`, contexto em
   `[[x0]+0x18]`), draw indexado do KTGL `main+0x17e0690` chamado em `0x12afe5c`.
+
+## Command buffers do KTGL (2026-11-12)
+
+- O command buffer principal recebe 3 MiB de memória de controle e um anel de 16 MiB de memória de comando uma vez.
+  O callback de memória (`main+0x42d0`, dados em `cb_data`: para memória de comando `[obj+0xd0]`, de controle
+  `[obj+0xd8]`) só chama `GetCommandMemoryUsed` e devolve a faixa seguinte do anel com `AddCommandMemory` (no fim do
+  anel, a parte que sobra; depois, o começo). Um buffer pequeno devolve a mesma faixa de 128 KiB antes de cada gravação
+  e ainda submete o handle gravado antes.
+- O laço principal espera a GPU concluir a submissão do quadro anterior numa fila de fences própria
+  (`main+0x157a390`: `nvnSyncWait` com timeout 0 e sono entre consultas).

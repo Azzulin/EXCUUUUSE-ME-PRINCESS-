@@ -9,14 +9,19 @@
 #include "nvn_obj.h"
 
 // NVN_API(nvnX) { body }: the strong nvnp_nvnX(Cpu *c); counts the call in gfx_counters, AOC_TRACE=gfx logs the first.
+// After the body, a command buffer whose recording ran past the command memory the game gave gets the game's memory
+// callback, as the driver does (nvn_api_cmd.c nvn_cmd_out_of_memory): here, once the call's records are complete.
 #define NVN_API(n)                                                                                                   \
     static void nvn_impl_##n(Cpu *c);                                                                                \
     void nvnp_##n(Cpu *c) {                                                                                          \
         static uint8_t seen;                                                                                         \
         nvn_called(&seen, #n);                                                                                       \
         nvn_impl_##n(c);                                                                                             \
+        if (nvn_cmd_oom) nvn_cmd_out_of_memory(c);                                                                   \
     }                                                                                                                \
     static void nvn_impl_##n(Cpu *c)
+extern _Thread_local void *nvn_cmd_oom;                    // a command buffer of this thread out of command memory
+void nvn_cmd_out_of_memory(Cpu *c);
 void nvn_called(uint8_t *seen, const char *name);          // the counting prologue of NVN_API
 #define NVN_LOG(...) do { if (rt_trace & RT_TRACE_GFX) rt_log("nvn: " __VA_ARGS__); } while (0)   // AOC_TRACE=gfx
 // A wait for the GPU, the display or another thread gives the virtual core up until the end of the enclosing scope.

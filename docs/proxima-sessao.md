@@ -4,13 +4,12 @@ Atualizado em 2026-11-12 (fim da sessão 8: rastros descartados, cache de shader
 em `docs/historico.md` (sessão 7), `docs/handover.md` §6 e `docs/aoc.md` ("Resolução de saída menor: vistas 2D e
 minimapa", "Deck: consumo e temperatura na primeira batalha").
 
-## Estado (2026-11-12, fim da sessão 10)
+## Estado (2026-11-12, fim da sessão 11)
 
-- **Bloqueia jogatina longa:** vazamento de memória (~400–500 MiB/min em batalha) e saves nunca verificados em
-  jogo real. Varredura completa em `historico.md`, sessão 10.
-- No Deck: batalha a 27–30 fps, 7,1–7,8 W (sessão 8). Binário com 1280×720 corrigido pronto em `dist/`, não
-  enviado (Deck em repouso).
-- Notebook: 36 min de batalha a 30 fps sem queda (Windows com imagem e Linux sem GPU).
+- **Vazamento de memória corrigido** e medido no Deck (10 min de batalha: memória plana, 30 fps, 5,1 W de média).
+- **Ainda bloqueia uma jogatina longa:** saves nunca verificados em jogo real.
+- No Deck: o binário atual (vazamento corrigido + 1280×720 corrigido, fora do perfil). Travadas de shader em
+  conteúdo novo e o repouso do Deck seguem sem teste.
 
 ## Regras da rodada (pedido do dono)
 
@@ -20,11 +19,7 @@ Deck com `totk` ou `aoc` abertos.
 
 ## Plano, em ordem
 
-1. **Vazamento de memória** (~400–500 MiB/min em batalha; também sem GPU). Medir onde: contadores de objetos
-   e de bytes por tipo no runtime (texturas, buffers, programas, command buffers, memória de comando, eventos,
-   handles do kernel, buffers de áudio), uma linha por minuto, na build Linux sem GPU pelo WSL (`wsl_null.sh` com
-   `route-long.txt`) e no Windows; o que cresce sem parar é o suspeito. Critério: memória estável em 30 min de
-   batalha.
+1. Vazamento de memória: feito (sessão 11).
 2. **Saves:** jogar (ou um roteiro) até o primeiro salvamento automático; `fs commit save` no log; reabrir no
    ponto salvo.
 3. Deck: enviar o binário (720p corrigido), apagar `shots7/` do cartão, medir 1280×720 (75 % e 85 %) e testar o
@@ -74,7 +69,7 @@ Ambiente (Windows nativo, MSYS2 UCRT64):
 - Armadilha: em heredoc, "\\n" chega como quebra de linha e "\a"/"\b" como controle; para texto com barras invertidas
   use a ferramenta de escrita/edição, não heredoc.
 
-Tarefa 1: vazamento de memória (passo 1). Tarefa 2: saves (passo 2). Tarefa 3: Deck (passo 3). Tarefa 2: consumo e travadas restantes (passo 3).
+Tarefa 1: saves (passo 2). Tarefa 2: Deck — 1280x720 e repouso (passo 3). Tarefa 2: consumo e travadas restantes (passo 3).
 Medir rastros: streaks.py marca bandeiras ao vento em 1920x1080; confirmar cada detecção com
 C:\aoc-win\streakzoom.py. Perfil de um frame lento: AOC_PROFILE=<arq> AOC_PROFILE_SLOW=<ms> e
 python C:\aoc-win\profslow.py <arq>.f<frame>.

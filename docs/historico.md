@@ -865,3 +865,47 @@ Importa:
 6. Envio ao Deck do binário com 1280×720 corrigido (pasta pronta) e medição de 1280×720 a 75 % e 85 %.
 
 Depois: 60 fps opcional, 16:10, DLCs, co-op.
+
+## Sessão 11 — 2026-11-12: vazamento de memória corrigido (medido no Deck)
+
+### Onde estava
+
+- Na build Linux sem GPU (`/proc/<pid>/smaps`), o crescimento estava todo em arenas de `malloc` de 64 MiB. Um
+  rastreador de heap próprio por `LD_PRELOAD` (`C:\aoc-win\leaktrack.c`: guarda o ponto de origem de cada bloco vivo e,
+  a cada 30 s, lista os pontos que mais cresceram) apontou um único caminho:
+  `nvnCommandBufferEndRecording` → `flatten_recording` (`runtime/nvn_api_cmd.c`), as **cópias das gravações de
+  command buffer**, cerca de 100 KB cada.
+- As cópias só eram liberadas quando o jogo voltava a entregar a memória de controle onde o handle estava. O KTGL dá
+  ao command buffer principal 3 MiB de controle uma vez (a 64 bytes por gravação, ~49 000 gravações) e um anel de
+  16 MiB de memória de comando também uma vez. No console, quando a memória de comando acaba, o driver chama o
+  callback do jogo (`main+0x42d0`), que chama `GetCommandMemoryUsed` e devolve a próxima faixa do anel com
+  `AddCommandMemory`. O runtime só chamava esse callback quando o tamanho era zero, então o anel nunca girava e o
+  uso contabilizado chegou a 800 MB numa memória de 16 MiB (`AOC_CTL_TRACE=1`, diagnóstico novo).
+
+### Correção (`runtime/nvn_api_cmd.c`, `nvn_api.h`)
+
+1. **O callback de memória de comando dispara no estouro**, como no driver: quando uma gravação passa do fim da memória
+   dada, o buffer é marcado (variável por thread) e o callback roda quando a chamada NVN termina, com os registros
+   completos (macro `NVN_API`). Duas tentativas descartadas: disparar com 25 % livres no `BeginRecording` travou o
+   jogo no Windows (o KTGL voltou ao começo do anel antes da hora e esperou trabalho não submetido); liberar no próprio
+   `AddCommandMemory` deu fatal ("not a live recording"): o jogo devolve a mesma faixa e ainda submete o handle
+   gravado ali, que no hardware continua intacto até a próxima gravação escrever por cima.
+2. **As cópias também são indexadas pela memória de comando** que a gravação ocupou (o uso que o jogo enxerga), em
+   cada bloco de 64 KiB, e uma gravação nova que ocupa essa faixa aposenta as antigas. O prefixo da cópia guarda as
+   duas posições, e quem libera primeiro tira a cópia dos dois índices.
+3. Memória de controle sem espaço para mais uma gravação também chama o callback (no `BeginRecording`).
+4. `AOC_CMD_OOM=0` desliga o callback (comparação ou emergência); `AOC_CTL_TRACE=1` registra o uso das memórias e as
+   chamadas que o jogo faz dentro do callback.
+
+### Medido
+
+- Linux sem GPU, 4 min: cópias vivas estáveis em ~20 MiB (antes 973 MiB e subindo); autoteste `--probe-nvn` igual ao
+  de antes (as 2 falhas são stubs `NvRm…` que o jogo não usa).
+- Windows, caminho do Deck, A/B em condições iguais (5,5 min cada): com a correção 0–2 quadros acima de 100 ms por
+  minuto e 29,7–30 fps, memória estável; sem ela 7–11 por minuto, 28,2–29,1 fps, memória subindo. Uma sessão de 12 min
+  com a correção ficou plana em 6,87 GB dos 4 aos 12 min. (Os engasgos de uma corrida intermediária vinham das
+  capturas de tela cheia a cada 30 s, não da correção.) Rota com capturas: imagem certa (cinemáticas, batalha,
+  minimapa com marcadores), 0 erros de validação.
+- **Deck, 10 min de batalha** (`route-long.txt`, perfil do Deck): memória **plana em 3 299 MiB** dos 4,5 aos 10 min;
+  30 fps nos últimos 5 min sem nenhum quadro acima de 100 ms; APU média 5,1 W (pico 7,8 W), CPU ≤ 64 °C, GPU ≤ 60 °C;
+  0 erros. O binário no Deck é este (com o 1280×720 corrigido, que segue fora do perfil).

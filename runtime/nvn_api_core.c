@@ -27,8 +27,11 @@
 // The call count goes to the shared counter 1024 at a time: the main thread and the job workers all record command
 // buffers, and one locked add per call kept the counter's cache line moving between their cores (0.8k samples a
 // fight). The count lags by at most 1023 calls per thread.
+_Thread_local int nvn_in_oom;   // AOC_CTL_TRACE: inside the game's command-memory callback (nvn_api_cmd.c)
 void nvn_called(uint8_t *seen, const char *name) {
     static _Thread_local uint32_t calls;
+    static uint32_t oom_logged;
+    if (nvn_in_oom && __atomic_fetch_add(&oom_logged, 1, __ATOMIC_RELAXED) < 120) rt_log("nvn: ctl trace:   in callback: %s", name);
     if (++calls == 1024) {
         __atomic_fetch_add(&gfx_counters.nvn_calls, calls, __ATOMIC_RELAXED);
         calls = 0;

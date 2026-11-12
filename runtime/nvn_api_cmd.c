@@ -194,6 +194,29 @@ static void cmd_reserve(cmd_t *o, size_t need) {
     o->end = b + cap;
 }
 
+// A recording that ran past the command memory the game gave: the driver would call the game's memory callback before
+// writing the command that does not fit, and the game answers with more memory (Age of Calamity's KTGL turns its 16 MiB
+// ring there). Records never go into game memory here, so the callback runs when the NVN call that ran past the end
+// returns (NVN_API), with its records complete. Without it the ring never turned, no recording ever replaced an old
+// one, and their copies were never freed: ~400-500 MiB a minute of battle (2026-11-12). Calling it earlier (with a
+// quarter of the memory left, at BeginRecording) deadlocked the game on Windows: the KTGL waited for work at the ring's
+// start that it had not submitted yet.
+_Thread_local void *nvn_cmd_oom;
+
+static int cmd_oom_on(void) {   // AOC_CMD_OOM=0: no callback (the old behaviour: copies pile up), for comparisons
+    static int on = -1;
+    if (on < 0) {
+        const char *e = cfg_get("AOC_CMD_OOM");
+        on = !(e && *e == '0');
+    }
+    return on;
+}
+
+static void hw_check(cmd_t *o) {
+    if (o->game_size && o->hw_used > o->game_size && o->cb && !(cb_disabled(o) & CB_NO_COMMAND) && cmd_oom_on())
+        nvn_cmd_oom = o;
+}
+
 // Space for one record (header included); the header's op is filled by the caller.
 static uint8_t *cmd_alloc(cmd_t *o, uint32_t size) {
     size = (size + 7) & ~7u;
@@ -204,6 +227,7 @@ static uint8_t *cmd_alloc(cmd_t *o, uint32_t size) {
     o->hw_used += size;
     o->last_rec = size;
     put_hdr(p, 0, size);
+    hw_check(o);
     return p;
 }
 
@@ -215,6 +239,7 @@ static void hw_fix(cmd_t *o, size_t bytes) {
     o->hw_used += bytes;
     o->hw_used -= o->last_rec;
     o->last_rec = bytes;
+    hw_check(o);
 }
 
 // A zeroed payload of one record.
@@ -268,12 +293,20 @@ static const tex_t *tex_pin(const NVNtexture *nt) {
 // adding control memory again releases the copies recorded there without walking every live copy. 4 KiB pages cost
 // about 500 lookups per AddControlMemory under the exclusive lock (1.4.3 field: 53 calls a frame, 2 MiB ranges, 3.7
 // copies per page), and the recording threads waited on it.
-typedef struct { uint64_t magic, bytes, made_at, used_at, deferred; } copy_prefix;   // deferred: 0 unknown, 1 none, 2 some
+// Copies are also indexed by the command memory their recording took (the game's own count, hw_start to hw_used), in every
+// 64 KiB block it spans, and a later recording that takes any of that memory retires them: on the hardware its commands
+// overwrite them there, so the handle is dead. (AddCommandMemory itself only moves the write position: the game still
+// submits a handle recorded just before it re-adds the same memory, and the hardware still has those commands.) Age of Calamity gives its main command buffer 3 MiB of control memory once; at 64 bytes a recording
+// that recycles only after ~49 000 recordings, and every copy (tens of KiB) lived until then: ~400-500 MiB a minute of
+// battle, 24 GB of commit after 36 min on Windows (measured 2026-11-12, AOC_CTL_TRACE). ctl_lo / cmd_lo: the copy's
+// entries in the two indexes (cmd_lo 0: none), so whichever releases it first also takes it out of the other.
+typedef struct { uint64_t magic, bytes, made_at, used_at, deferred, ctl_lo, cmd_lo, cmd_hi; } copy_prefix;   // deferred: 0 unknown, 1 none, 2 some
 _Static_assert(sizeof(copy_prefix) % 8 == 0, "records stay 8-byte aligned");
 typedef struct { uintptr_t lo, hi; uint8_t *copy; } cmd_copy;
 typedef struct { cmd_copy *v; uint32_t n, cap; } copy_bucket;
 static PlatMutex copy_lock = PLAT_MUTEX_INIT;    // guards the two maps, the counters and every prefix
 static nvn_hmap copy_pages = {.klen = 8};   // page -> copy_bucket
+static nvn_hmap copy_cmd_pages = {.klen = 8};   // command-memory page -> copy_bucket
 static nvn_hmap copy_live = {.klen = 8};    // handle -> copy_prefix of a live copy
 static uint64_t ncopies, copy_bytes, copies_made, nsubmits;
 // Asynchronous replay: copies released by the game, and per-submission clones, that a queued submission still reads.
@@ -355,17 +388,13 @@ static uint8_t *flatten_recording(const uint8_t *p, size_t n) {
     return out + sizeof(copy_prefix);
 }
 
-static void copy_add(uintptr_t lo, uintptr_t hi, uint8_t *copy) {
-    copy_prefix *pf = (copy_prefix *)copy - 1;
-    uint64_t handle = (uintptr_t)copy;
+static void index_put(nvn_hmap *map, uintptr_t lo, uintptr_t hi, uint8_t *copy) {   // copy_lock held
     uintptr_t page = lo >> COPY_PAGE_SHIFT;
-    plat_mutex_lock(&copy_lock);
-    pf->made_at = nsubmits;
-    copy_bucket *b = nvn_hm_get(&copy_pages, &page);
+    copy_bucket *b = nvn_hm_get(map, &page);
     if (!b) {
         b = calloc(1, sizeof *b);
         if (!b) rt_fatal("nvn: command copy index");
-        nvn_hm_put(&copy_pages, &page, b);
+        nvn_hm_put(map, &page, b);
     }
     if (b->n == b->cap) {
         b->cap = b->cap ? b->cap * 2 : 8;
@@ -373,6 +402,37 @@ static void copy_add(uintptr_t lo, uintptr_t hi, uint8_t *copy) {
         if (!b->v) rt_fatal("nvn: command copy index");
     }
     b->v[b->n++] = (cmd_copy){lo, hi, copy};
+}
+
+static void index_remove(nvn_hmap *map, uintptr_t lo, const uint8_t *copy) {   // copy_lock held
+    uintptr_t page = lo >> COPY_PAGE_SHIFT;
+    copy_bucket *b = nvn_hm_get(map, &page);
+    if (!b) return;
+    for (uint32_t i = 0; i < b->n; i++)
+        if (b->v[i].copy == copy) {
+            b->v[i] = b->v[--b->n];
+            break;
+        }
+    if (!b->n) {
+        nvn_hm_del(map, &page);
+        free(b->v);
+        free(b);
+    }
+}
+
+// [lo, hi): the control-memory position; [clo, chi): the command memory the recording took (chi == clo: none known).
+static void copy_add(uintptr_t lo, uintptr_t hi, uintptr_t clo, uintptr_t chi, uint8_t *copy) {
+    copy_prefix *pf = (copy_prefix *)copy - 1;
+    uint64_t handle = (uintptr_t)copy;
+    plat_mutex_lock(&copy_lock);
+    pf->made_at = nsubmits;
+    index_put(&copy_pages, lo, hi, copy);
+    pf->ctl_lo = lo;
+    if (chi > clo) {
+        for (uintptr_t pg = clo >> COPY_PAGE_SHIFT; pg <= (chi - 1) >> COPY_PAGE_SHIFT; pg++)
+            index_put(&copy_cmd_pages, pg << COPY_PAGE_SHIFT > clo ? pg << COPY_PAGE_SHIFT : clo, chi, copy);
+        pf->cmd_lo = clo, pf->cmd_hi = chi;
+    }
     nvn_hm_put(&copy_live, &handle, pf);
     ncopies++;
     copy_bytes += pf->bytes;
@@ -382,36 +442,66 @@ static void copy_add(uintptr_t lo, uintptr_t hi, uint8_t *copy) {
     plat_mutex_unlock(&copy_lock);
 }
 
-// Adding control memory again retires every recording copy made in it (the driver's handle lived there).
-static void release_copies(uintptr_t lo, uintptr_t hi) {
+// AOC_CTL_TRACE=1 (diagnosis): control memory given and used up per command buffer, and the live recording copies.
+static uint64_t ctl_adds, ctl_ends;
+// The first 6 AddCommandMemory calls of each of up to 16 command buffers.
+static int trace_first(const void *o) {
+    static const void *seen[16];
+    static int count[16];
+    for (int i = 0; i < 16; i++) {
+        if (!seen[i]) seen[i] = o;
+        if (seen[i] == o) return ++count[i] <= 6;
+    }
+    return 0;
+}
+static int ctl_trace(void) {
+    static int on = -1;
+    if (on < 0) on = cfg_get("AOC_CTL_TRACE") != NULL;
+    return on;
+}
+
+// A copy released through the index map (whose entry the caller removes): out of the other index and of the live set,
+// then freed, or left to the replay while a queued submission still reads it.
+static void copy_drop(copy_prefix *pf, uint64_t replayed, nvn_hmap *map, uintptr_t skip_page) {   // copy_lock held
+    if (pf->cmd_lo)   // every block of the command range; release_in removes the one it walks itself
+        for (uintptr_t pg = pf->cmd_lo >> COPY_PAGE_SHIFT; pg <= (pf->cmd_hi - 1) >> COPY_PAGE_SHIFT; pg++)
+            if (map != &copy_cmd_pages || pg != skip_page)
+                index_remove(&copy_cmd_pages, pg << COPY_PAGE_SHIFT, (const uint8_t *)(pf + 1));
+    if (map != &copy_pages) index_remove(&copy_pages, pf->ctl_lo, (const uint8_t *)(pf + 1));
+    uint64_t handle = (uintptr_t)(pf + 1);
+    nvn_hm_del(&copy_live, &handle);
+    ncopies--;
+    copy_bytes -= pf->bytes;
+    pf->magic = 0;
+    if (pf->used_at > replayed) zombie_add(pf);
+    else free(pf);
+}
+
+// Adding control memory (map copy_pages) or command memory (copy_cmd_pages) again retires every recording copy made in
+// it: the driver's handle, or the commands it points at, lived there.
+static void release_in(nvn_hmap *map, uintptr_t lo, uintptr_t hi) {
     if (hi <= lo) return;
     uint64_t replayed = gfx_replayed_submits();
     plat_mutex_lock(&copy_lock);
     if (nzombies) zombie_sweep(replayed);
     for (uintptr_t pg = lo >> COPY_PAGE_SHIFT; pg <= (hi - 1) >> COPY_PAGE_SHIFT; pg++) {
-        copy_bucket *b = nvn_hm_get(&copy_pages, &pg);
+        copy_bucket *b = nvn_hm_get(map, &pg);
         if (!b) continue;
         for (uint32_t i = 0; i < b->n;) {
             cmd_copy *k = &b->v[i];
             if (!(k->lo < hi && lo < k->hi)) { i++; continue; }
-            uint64_t handle = (uintptr_t)k->copy;
-            copy_prefix *pf = (copy_prefix *)k->copy - 1;
-            nvn_hm_del(&copy_live, &handle);
-            ncopies--;
-            copy_bytes -= pf->bytes;
-            pf->magic = 0;
-            if (pf->used_at > replayed) zombie_add(pf);   // a queued submission still reads it
-            else free(pf);
+            copy_drop((copy_prefix *)k->copy - 1, replayed, map, pg);
             b->v[i] = b->v[--b->n];
         }
         if (!b->n) {
-            nvn_hm_del(&copy_pages, &pg);
+            nvn_hm_del(map, &pg);
             free(b->v);
             free(b);
         }
     }
     plat_mutex_unlock(&copy_lock);
 }
+static void release_copies(uintptr_t lo, uintptr_t hi) { release_in(&copy_pages, lo, hi); }
 
 // ---------- CommandBuffer: object and memory
 // NVNboolean nvnCommandBufferInitialize(NVNcommandBuffer *cmd, NVNdevice *device): the inline fast-path fields are kept
@@ -466,7 +556,13 @@ NVN_API(nvnCommandBufferSetControlMemoryCallbackEnabled) { cb_set_disabled(cmd_o
 NVN_API(nvnCommandBufferAddCommandMemory) {
     cmd_t *o = cmd_of(c);
     const pool_t *p = arg_p(c, 1);
-    o->cmd_base = (uintptr_t)(p ? p->mem : NULL) + (uintptr_t)arg_x(c, 2);
+    uintptr_t base = (uintptr_t)(p ? p->mem : NULL) + (uintptr_t)arg_x(c, 2);
+    if (ctl_trace() && trace_first(o))
+        rt_log("nvn: ctl trace: AddCommandMemory cmd %p at %#llx size %#llx (had %#llx, used %#llx); live copies %llu",
+               (void *)o, (unsigned long long)base, (unsigned long long)arg_x(c, 3), (unsigned long long)o->game_size,
+               (unsigned long long)o->hw_used, (unsigned long long)ncopies);
+    o->cmd_base = base;
+    if (o->recording) o->hw_start = 0;   // the memory callback mid-recording: what follows lives in the new memory
     o->game_size = arg_x(c, 3);
     o->cmd_used = 0;
     o->hw_used = 0;
@@ -477,6 +573,9 @@ NVN_API(nvnCommandBufferAddControlMemory) {
     cmd_t *o = cmd_of(c);
     void *m = arg_p(c, 1);
     size_t n = arg_x(c, 2);
+    if (ctl_trace() && __atomic_fetch_add(&ctl_adds, 1, __ATOMIC_RELAXED) < 60)
+        rt_log("nvn: ctl trace: AddControlMemory cmd %p mem %p size %zu (had %zu, used %zu); live copies %llu, %.1f MiB",
+               (void *)o, m, n, o->ctl_size, o->ctl_used, (unsigned long long)ncopies, copy_bytes / 1048576.0);
     release_copies((uintptr_t)m, (uintptr_t)m + n);
     o->ctl = m;
     o->ctl_size = n;
@@ -494,9 +593,29 @@ NVN_API(nvnCommandBufferGetCommandMemoryFree) { const cmd_t *o = cmd_of(c); ret_
 
 // ---------- CommandBuffer: recording
 // void nvnCommandBufferBeginRecording(NVNcommandBuffer *cmd)
+// Control memory without room for one more recording's handle: the driver's memory callback, as for command memory.
+static void memory_check(Cpu *c, cmd_t *o) {
+    if (o->ctl_size && o->ctl_used + CTL_PER_RECORDING > o->ctl_size)
+        memory_event(c, o, NVN_COMMAND_BUFFER_MEMORY_EVENT_OUT_OF_CONTROL_MEMORY, MIN_CONTROL_SIZE);
+}
+
+void nvn_cmd_out_of_memory(Cpu *c) {
+    cmd_t *o = nvn_cmd_oom;
+    nvn_cmd_oom = NULL;
+    if (!o || o->magic != CMD_MAGIC || o->hw_used <= o->game_size) return;   // finalized, or given memory meanwhile
+    if (ctl_trace()) rt_log("nvn: ctl trace: cmd %p command memory %#llx used %#llx of %#llx: memory callback %p",
+                            (void *)o, (unsigned long long)o->cmd_base, (unsigned long long)o->hw_used,
+                            (unsigned long long)o->game_size, (void *)o->cb);
+    extern _Thread_local int nvn_in_oom;
+    nvn_in_oom = ctl_trace();
+    memory_event(c, o, NVN_COMMAND_BUFFER_MEMORY_EVENT_OUT_OF_COMMAND_MEMORY, MIN_COMMAND_SIZE);
+    nvn_in_oom = 0;
+}
+
 NVN_API(nvnCommandBufferBeginRecording) {
     cmd_t *o = cmd_of(c);
     if (o->recording) rt_log("nvn: BeginRecording on command buffer %p while it records", (void *)o);
+    memory_check(c, o);
     o->recording = 1;
     o->cur = o->seg;   // the previous recording was copied at EndRecording
     o->rec_start = o->cmd_used;
@@ -518,7 +637,22 @@ NVN_API(nvnCommandBufferEndRecording) {
     uintptr_t lo = (uintptr_t)o->ctl + (o->ctl_used < o->ctl_size ? o->ctl_used : 0);
     uintptr_t hi = o->ctl ? lo + 1 : 0;
     o->ctl_used += CTL_PER_RECORDING;
-    copy_add(lo, hi, copy);
+    if (ctl_trace()) {
+        if (o->ctl_used > o->ctl_size && o->ctl_used - CTL_PER_RECORDING <= o->ctl_size)
+            rt_log("nvn: ctl trace: cmd %p control memory %p (%zu bytes) used up; callback %p", (void *)o, o->ctl,
+                   o->ctl_size, (void *)o->cb);
+        if (__atomic_add_fetch(&ctl_ends, 1, __ATOMIC_RELAXED) % 5000 == 0)
+            rt_log("nvn: ctl trace: %llu recordings; live copies %llu, %.1f MiB", (unsigned long long)ctl_ends,
+                   (unsigned long long)ncopies, copy_bytes / 1048576.0);
+    }
+    // the command memory this recording took, by the count the game sees (AddCommandMemory in it retires the copy)
+    uintptr_t clo = 0, chi = 0;
+    if (o->cmd_base && o->hw_used > o->hw_start) clo = o->cmd_base + o->hw_start, chi = o->cmd_base + o->hw_used;
+    if (chi > clo) release_in(&copy_cmd_pages, clo, chi);   // the recordings these commands overwrote
+    if (ctl_trace() && __atomic_load_n(&ctl_ends, __ATOMIC_RELAXED) % 5000 == 0)
+        rt_log("nvn: ctl trace: EndRecording cmd %p command memory %#llx used %#llx of %#llx", (void *)o,
+               (unsigned long long)o->cmd_base, (unsigned long long)o->hw_used, (unsigned long long)o->game_size);
+    copy_add(lo, hi, clo, chi, copy);
     ret_x(c, (uintptr_t)copy);
 }
 // NVNboolean nvnCommandBufferIsRecording(const NVNcommandBuffer *cmd)
@@ -539,6 +673,7 @@ static void inline_recording(cmd_t *o, uint64_t handle, const char *what) {
     o->cmd_used += body;
     o->hw_used += body;
     o->last_rec = 0;
+    hw_check(o);
 }
 // void nvnCommandBuffer{Call,Copy}Commands(NVNcommandBuffer *cmd, int n, const NVNcommandHandle *handles)
 NVN_API(nvnCommandBufferCallCommands) {

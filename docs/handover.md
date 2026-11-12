@@ -145,9 +145,9 @@ partir de 100 s, `AOC_TRACE=perf`, vigia de travada).
   `tools/xlate/patches/0014-branch-elimination-keeps-phi-edges.patch` (muda 11 dos 5 563 shaders conhecidos: o FS
   do efeito e 10 compute shaders grandes). Centro da tela limpo em 245 capturas, 0 rastros em 201, luma igual.
   Tradutor novo (identidade `b05fcac8…`) no WSL, no Windows e no Deck.
-- **VAZAMENTO DE MEMÓRIA (sessão 10, prioridade 1):** ~400–500 MiB por minuto em batalha, no Windows com Vulkan e
-  na build Linux sem GPU (núcleo, não o Vulkan); 24 GB de memória privada após 36 min no notebook. No Deck derruba
-  o jogo em ~20–30 min de batalha. Logs: `C:\aoc-win\soakW.log`, `soakL.log`, `leakL.log`.
+- **Vazamento de memória: CORRIGIDO e medido no Deck (sessão 11).** As cópias das gravações de command buffer
+  não eram liberadas porque o runtime não chamava o callback de memória de comando do jogo quando o anel enchia.
+  Deck, 10 min de batalha: memória plana em 3,3 GB, 30 fps, APU 5,1 W de média. Detalhes em `historico.md`.
 - **Saves nunca verificados em jogo real** (sessão 10): nenhum commit nas corridas; testar até o primeiro
   salvamento automático e recarregar num processo novo.
 - **Meta do dono:** consumo perto de 12 W no Deck, sem esquentar. Ainda não há medição de potência.

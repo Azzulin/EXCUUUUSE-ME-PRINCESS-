@@ -120,14 +120,17 @@ partir de 100 s, `AOC_TRACE=perf`, vigia de travada).
 - **Música e som das cinemáticas: corrigidos e medidos no notebook** (`audio_mixer.c` `mix_depth`: submixes que saem
   por splitter eram somados fora de ordem). 21 de 37 janelas de 5 s mudas → 1. O item 4 abaixo (som do vídeo de
   abertura) era o mesmo defeito. Falta ouvir no Deck.
-- **Escrito e compilado, SEM medição:** (a) resolução nativa — patch sets `output`/`scene` em
-  `recomp/patches-v130.txt`, `resolution.c` do AoC, perfil do Deck 1280×720 com cena 960×540; o C novo só existe no
-  WSL (`~/aoc-build`), o guest do Windows em `C:\aoc-win` está atrasado; (b) sombra dos pools — `shadow_sync_pool`
-  indica regiões paradas para congelar (substitui a ideia do `sgen` por região do item 0); (c) telemetria — linhas
-  `sys:` a cada 10 s (`runtime/sysmon.c`: watts da APU, bateria, temperaturas, ventoinha, GPU, CPU) e
-  `tools/deck/logsum.py`.
-- **O Deck ainda roda o binário da sessão 4.** Atalho "Hyrule Warriors: Age of Calamity" criado no Modo Jogo
-  (`shortcuts.vdf`; iniciar o `aoc` por SSH não serve: a janela fecha sem foco do gamescope).
+- **No Deck desde 2026-11-12 (sessão 7), medido:** música, retângulo corrigido, tradutor com o patch 0014, sombra
+  dos pools com indicação de regiões paradas, telemetria `sys:`, opções do HWDER. Batalha: 27–30 fps (antes
+  24,6), APU 7,6–8,7 W, CPU 68–72 °C, GPU 62–65 °C; sombra 2 ms por frame (antes ~30). Binário anterior em
+  `bak-sessao4/` na pasta do jogo. O dono deixou o TDP em 10 W.
+- **Ferramenta de registros no Deck:** `./aoc-logs.sh lista | resumo | ao-vivo | sistema | detalhado on|off | pacote`
+  na pasta do jogo; sessões antigas comprimidas em `logs/sessoes/` (o `aoc.sh` guarda ao abrir o jogo).
+- **Resolução 1280×720: funciona, mas o minimapa perde os marcadores** — não é o padrão do Deck (o perfil usa a
+  do jogo). As nove vistas 2D de `main+0x1583c00` guardam 1920×1080; patcheá-las derrubou o boot em
+  `main+0x17c4e80` (`historico.md`, sessão 7, segunda parte).
+- **Rastros no caminho do Deck:** com `AOC_MEMORY=import AOC_SHADOW=1 AOC_REPLAY_ASYNC=1` o notebook mostra 9–12
+  rastros em 201 frames (0 no modo padrão); vêm de antes desta sessão. Próxima tarefa.
 - **Resolução "estranha" explicada:** o jogo renderiza sempre 1920×1080 (cena 1440×810), fixos em `nnMain`; o modo
   portátil não muda isso, e a janela do Deck mostra a redução bilinear de 1,5×.
 - **Retângulo branco: CORRIGIDO e medido no notebook (sessão 7, 2026-11-11).** Era o efeito de recuperação de
@@ -135,8 +138,7 @@ partir de 100 s, `AOC_TRACE=perf`, vigia de travada).
   ficara vazio depois da propagação de cópias, sem olhar os phis do destino. Patch
   `tools/xlate/patches/0014-branch-elimination-keeps-phi-edges.patch` (muda 11 dos 5 563 shaders conhecidos: o FS
   do efeito e 10 compute shaders grandes). Centro da tela limpo em 245 capturas, 0 rastros em 201, luma igual.
-  Tradutor novo (identidade `b05fcac8…`) já no `~/aoc-build/xlate` do WSL e em `C:\aoc-win\host`; o Deck ainda
-  não tem.
+  Tradutor novo (identidade `b05fcac8…`) no WSL, no Windows e no Deck.
 - **Meta do dono:** consumo perto de 12 W no Deck, sem esquentar. Ainda não há medição de potência.
 - **Do HWDER (outro projeto do dono, 2026-11-11):** inverter eixos (aba Controles), Mudo e Mudo em segundo plano (aba
   Som), teclas I J K L = X B A Y. O menu do F1 já existia (F1, Esc ou Menos+Mais). Compila e o `--probe-cfg` passa;

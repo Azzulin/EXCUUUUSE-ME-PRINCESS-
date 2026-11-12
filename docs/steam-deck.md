@@ -44,7 +44,10 @@ Tudo que o jogo precisa fica numa pasta só, montada no PC por `tools/build.py -
 ```
 aoc-deck/
   aoc                    executável Linux x86-64 (código do jogo recompilado + runtime), linkado contra o sniper
-  aoc.sh                 lançador: MESA_SHADER_CACHE_DIR ao lado do jogo, cria logs/ e mesa-cache/
+  aoc.sh                 lançador: MESA_SHADER_CACHE_DIR ao lado do jogo, cria logs/ e mesa-cache/, guarda a
+                         sessão anterior em logs/sessoes/<data>.log.gz (as 60 últimas)
+  aoc-logs.sh            registros: lista, resumo, ao-vivo, sistema, detalhado on|off, pacote
+  ferramentas/logsum.py  o resumidor que o aoc-logs.sh usa (tools/deck/logsum.py)
   lib/libSDL3.so.0       a SDL 3.4.18 do sniper (o executável procura em $ORIGIN/lib primeiro)
   exefs/                 main, subsdk0, sdk, main.npdm (o runtime mapeia .rodata/.data daqui e confere os SHA-256)
   romfs-index.bin        índice do RomFS (conferido contra o romfs.bin)

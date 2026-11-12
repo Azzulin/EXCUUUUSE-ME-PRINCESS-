@@ -632,3 +632,69 @@ Sessão dedicada ao retângulo. **Não está corrigido**; a causa está localiza
   os shaders conhecidos de uma vez.
 - Corrigido em `docs/handover.md`: dois `C:\aoc-win` que o heredoc da sessão 5 tinha virado `C:` + caractere de
   controle.
+
+### Sessão 7, segunda parte — 2026-11-12: o que estava escrito chega ao Deck, medido; ferramenta de registros no Deck
+
+Pedido do dono: aplicar as mudanças no Deck e deixar lá uma ferramenta de logs para afinar o porte ao Deck. Antes de
+mandar, cada peça escrita na sessão 5 rodou no notebook (regra: nada vai ao Deck sem ter rodado aqui).
+
+#### Resolução 1280×720 (corridas A e B) — funciona, mas o minimapa perde os marcadores: NÃO é o padrão do Deck
+
+- Windows com o C da sessão 5 (`C:\aoc-win\gensync.sh` copia do WSL só os arquivos gerados que diferem). Corrida A
+  (`AOC_OUTPUT_RES=1280x720`): `resolution: output 1280x720, scene 960x540`, 0 erros de validação. As capturas do jogo
+  (`AOC_SHOTS`, `--shot`) mostram a imagem no canto de uma textura 1920×1080: as texturas da janela continuam 1920×1080
+  (o jogo as cria em `main+0x7000008cb8` com `SetWidth/SetHeight`) e o jogo chama `nvnWindowSetCrop(0,0,1280,720)`. A
+  janela (`AOC_PRESENT_SHOT`) respeita o recorte e sai inteira. Isso não é defeito.
+- **Defeito:** em 1280×720 o minimapa fica sem nenhum marcador (jogador, aliados, inimigos, postos), em todos os frames
+  da batalha; o resto do HUD está no lugar.
+- A função em `main+0x1583c00` monta nove vistas 2D e grava em cada uma `{1920, 1080}` (`str x28, [x24+0x680]`,
+  `[x24+0x990]`, ...; nove pares `mov`/`movk` — `x28` em `0x1583c14/0x1583c54` e `x8` em `0x1583db8`, `0x1583f14`,
+  `0x1584084`, `0x1584204`, `0x1584380`, `0x15844e8`, `0x15846a4`, `0x1584798`). Pô-los no conjunto `output` **derrubou
+  o boot**: escrita em endereço 0x8 dentro de `main+0x17c4e80` (KTGL), chamado de `main+0x1585d40` durante o `nnMain`.
+  Os sites foram retirados. Próximo passo: o que `0x17c4e80` cria com esses tamanhos.
+- Decisão: o perfil do Deck volta à resolução do jogo (1920×1080, cena 1440×810, redução para a tela). 1280×720 fica
+  no menu, com a descrição avisando do minimapa (quatro idiomas; a descrição antiga era a do TotK, com 21:9 e 16:10).
+
+#### Sombra dos pools (corridas B, C e D) — a indicação de regiões paradas vale muito; rastros vêm de antes
+
+- Configuração do Deck no notebook (`AOC_MEMORY=import AOC_SHADOW=1 AOC_REPLAY_ASYNC=1`), mesma rota, mesma batalha:
+  com a indicação de regiões paradas da sessão 5 (corrida C) contra sem ela (corrida D, chave nova
+  `AOC_FREEZE_SHADOW=0`): write-watch **1,5 ms** por frame contra 21 ms, congelados **1 760 MiB** contra 344, tempo
+  da sombra no intervalo **176 ms** contra 1 384 ms.
+- **Rastros: 12 e 9 em 201 frames nas duas** (contra 0 no modo de memória padrão do Windows, hoje cedo). Não vêm da
+  indicação nova: vêm do caminho do Deck (import, sombra e/ou replay assíncrono), que o binário antigo do Deck já usava.
+  Retas finas no céu, como os rastros da sessão 4. Próxima tarefa: separar import × replay assíncrono.
+- Centro da tela limpo nas 201 capturas (máx. 0,05), luma 170,8–173,1; música: 1 janela muda em 37 (o boot).
+
+#### No Deck (2026-11-12)
+
+- Enviado com `tools/deck/deploy.sh --no-build` (só arquivos que mudaram; sha256 conferido dos dois lados). Cópia do
+  binário anterior em `bak-sessao4/` na pasta do jogo. Tradutor novo (`b05fcac8…`): o cache de shaders esfriou.
+- `deckbattle.sh`, rota de 175 s até a batalha, duas vezes:
+
+  | | cache frio | cache quente | antes (sessão 4) |
+  |---|---|---|---|
+  | fps na batalha | 29,2–30,0 | 26,8–30,0 | 24,6 |
+  | write-watch por frame | 1,6 ms | 1,8 ms | ~26–30 ms (sombra) |
+  | congelado | 1 764 MiB | 1 770 MiB | 314 MiB |
+  | sombra dos pools por frame (média) | — | 2,0 ms | ~30 ms |
+  | APU na batalha | 7,1–8,0 W | 7,6–8,7 W | (sem medição) |
+  | CPU / GPU na batalha | 68–72 / 65–66 °C | 68–72 / 62–65 °C | — |
+  | pior travada | 17,9 s (tradução) | 6,6 s (entrada na batalha) | — |
+
+  Sem erros de validação nem falhas de shader; luma da captura 171,8 e 172,4. A meta de 12 W já está atendida na
+  batalha a 30 fps; o dono deixou o TDP do Deck em 10 W. Resta a travada ao entrar na batalha mesmo com o cache quente.
+- Linhas `sys:` conferidas pela primeira vez no Deck: todos os sensores presentes.
+
+#### Ferramenta de registros no Deck
+
+- `aoc-logs.sh` na pasta do jogo (`tools/deck/aoc-logs.sh`): `lista` (uma linha por sessão: início, minutos, frames,
+  fps, APU média e pico, bateria, temperaturas máximas, erros), `resumo [K] [--rows]`, `ao-vivo` (segue a sessão em
+  andamento), `sistema` (TDP, watts, temperaturas, clocks, governador, bateria agora), `detalhado on|off` (`trace =
+  perf` no `aoc.ini` para as próximas sessões), `pacote` (tar.gz com as sessões, o `aoc.ini` e o estado da máquina).
+- O `aoc.sh` guarda a sessão anterior comprimida em `logs/sessoes/<data>.log.gz` (as 60 mais recentes) antes de abrir
+  o jogo; o runtime só guardava as cinco últimas.
+- `logsum.py` lê `.gz`, ganhou `--list` e soma as janelas de frametime nos logs sem linhas `sys:`; vai para
+  `ferramentas/logsum.py` no `dist`. O `dist` copia os dois; o `deploy.sh` os envia. O LEIA-ME do Deck ganhou a seção
+  REGISTROS (e perdeu o "AINDA SEM IMAGEM").
+- Por SSH: `ssh deck@192.168.100.130 'cd <pasta> && ./aoc-logs.sh lista'`.

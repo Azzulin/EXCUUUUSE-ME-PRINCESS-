@@ -39,7 +39,7 @@ static const char *const known[] = {
     "COLOR_PRESET", "COLOR_SATURATION", "CONTACT_DEBUG", "CONTACT_SHADOWS", "CORE_DIAG", "CRIT", "CRIT_OUT", "CRUMB_DRAWS",
     "DESC_TEMPLATE", "DEVICE_PROFILE", "DIRTY_CENSUS", "DLAA", "DLAA_JITTER", "DLAA_MV", "DLSS", "DUMP", "DUMP_BUF", "DUMP_DIR",
     "DUMP_LOG", "DUMP_LOG_VKFMT", "DUMP_RAW", "EXEFS", "FEEDBACK", "FIX_C0", "FIX_ZERO", "FLIGHT", "FLIGHT_AT", "FLIGHT_DIR", "FLIGHT_FRAMES",
-    "FLIGHT_SPIKE_MS", "FLIGHT_THUMBS", "FOV", "FOV_PATCH", "FPS60", "FPS_LIMIT", "FREEZE_IDLE", "FREE_CORES",
+    "FLIGHT_SPIKE_MS", "FLIGHT_THUMBS", "FOV", "FOV_PATCH", "FPS60", "FPS_LIMIT", "FREEZE_IDLE", "FREEZE_SHADOW", "FREE_CORES",
     "FULLSCREEN", "FXAA", "GPL", "GPL_DRAW_BUILD", "GPU", "GPU_INDEX", "GPU_NAME", "HANG_SECS", "HDR", "HDR_GAME_NITS",
     "HDR_PEAK_NITS", "HDR_UI_NITS", "HIGHFPS_FIX", "INPUT", "INPUT_RECORD", "INPUT_SCRIPT", "INVERT_LX", "INVERT_LY", "INVERT_RX", "INVERT_RY", "LANG", "LIB_PREBUILD",
     "LIB_PREBUILD_KEEP", "LIB_PREBUILD_THREADS", "LOCALE", "LOD_GUARD", "LSTICK_DEADZONE", "MEMORY", "MENU_LANG", "MENU_TEST",
@@ -264,8 +264,10 @@ int cfg_load(const char *path) {
 // (default: the Steam Deck when the firmware says so), desktop (none) or deck.
 //
 // The Steam Deck (LCD Jupiter, OLED Galileo; 1280x800, 16:10, 4 Zen 2 cores, RDNA 2 with 8 CUs sharing 16 GB): the game
-// renders 1280x720 (16:9, the game's shape; resolution.c) with its own 3/4 scene, shown texel for texel between two
-// 40-line bars; fullscreen and vsync, as gamescope composes Game Mode.
+// renders its own 1920x1080 (scene 1440x810), scaled to 1280x720 between two 40-line bars; fullscreen and vsync, as
+// gamescope composes Game Mode. 1280x720 (resolution.c) is not the default yet: the minimap loses its markers there
+// (nine 2D views in main+0x1583c00 keep a 1920x1080 size; patching them as well crashed the boot in main+0x17c4e80,
+// measured 2026-11-11).
 // Age of Calamity: 30 fps (the game's own rate; it steps a fixed amount per update, so a lower cap would slow it down)
 // and the Switch's handheld mode, whose render resolution is the game's lighter one: the owner wants the Deck spared.
 // Both are rows of the quick menu (L3+R3 held). Starting points to replace with measured ones (docs/steam-deck.md).
@@ -273,7 +275,7 @@ int cfg_load(const char *path) {
 // i5-11400H (nvnQueueSubmitCommands, 7 ms a frame; 15-20 ms on the Deck) and 1% with it on, the image the same; the
 // guest holds 3 virtual cores, so the replay gets the Deck's fourth.
 static const struct { const char *key, *value; } DECK[] = {
-    {"FULLSCREEN", "1"}, {"WINDOW_SIZE", "1280x800"}, {"OUTPUT_RES", "1280x720"}, {"RENDER_SCALE", "game"},
+    {"FULLSCREEN", "1"}, {"WINDOW_SIZE", "1280x800"}, {"RENDER_SCALE", "game"},
     {"VK_PRESENT", "fifo"}, {"FPS_LIMIT", "30"}, {"OPERATION_MODE", "handheld"}, {"REPLAY_ASYNC", "1"},
 };
 static int profile = -1;   // 0 none, 1 Steam Deck

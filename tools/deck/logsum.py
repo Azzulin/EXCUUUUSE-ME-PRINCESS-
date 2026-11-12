@@ -3,14 +3,19 @@
 GPU, custo da sombra dos pools e do write-watch, áudio e erros, por trecho da sessão.
 
 Uso: logsum.py <log> [--from <frame>] [--to <frame>] [--rows]
+     logsum.py --list <log> [<log> ...]
 
 Sem --from/--to o resumo cobre o log inteiro e, à parte, o trecho mais pesado (a janela de 60 s com menor fps). As
 linhas "sys:" (runtime/sysmon.c, sempre ligadas no Linux) dão consumo e temperatura; as de "perf:", "mem:" e "fps:" só
-existem com AOC_TRACE=perf. --rows lista as linhas "sys:" uma a uma.
+existem com AOC_TRACE=perf. --rows lista as linhas "sys:" uma a uma. --list dá uma linha por sessão (data, duração, fps,
+watts, temperaturas, erros), para comparar sessões. Lê também logs comprimidos (.gz, os de logs/sessoes/ no Deck).
 """
 import argparse
+import gzip
+import os
 import re
 import sys
+import time
 
 NUM = r'(-?[0-9]+(?:\.[0-9]+)?)'
 
@@ -23,12 +28,16 @@ def grab(pattern, text, cast=float):
 def parse(path):
     sysl, fps, shadow, ww, perf, gpu, ft, audio, bad, info = [], [], [], [], [], [], [], [], [], []
     last_shadow_frame = None
-    with open(path, encoding='utf-8', errors='replace') as f:
+    started = None
+    opener = gzip.open if path.endswith('.gz') else open
+    with opener(path, 'rt', encoding='utf-8', errors='replace') as f:
         for line in f:
             line = line.rstrip('\n')
             if not line.startswith('[host] '):
                 continue
             t = line[7:]
+            if started is None and 'gained the focus at ' in t:
+                started = t.split('gained the focus at ')[1].replace(' local time', '').strip()[:16]
             if t.startswith('sys: ') and ' to frame ' in t:
                 sysl.append({
                     'secs': grab(NUM + r' s to frame', t), 'frame': grab(r'to frame ([0-9]+)', t, int),
@@ -65,6 +74,7 @@ def parse(path):
                             'vram': grab(r'vram ([0-9]+) of', t, int), 'ram': grab(r'working set ([0-9]+) MiB', t, int)})
             elif t.startswith('frametime: ') and 'frames in' in t:
                 ft.append({'tag': t.split(':')[1].strip(), 'frames': grab(r': ([0-9]+) frames', t, int),
+                           'secs': grab(r'frames in ' + NUM + r' s', t),
                            'mean': grab(r'mean ' + NUM + r' fps', t), 'low': grab(r'1% low ' + NUM, t),
                            'over50': grab(r'50 ms ([0-9]+)', t, int), 'over100': grab(r'100 ms ([0-9]+)', t, int)})
             elif t.startswith('audio: level'):
@@ -74,7 +84,48 @@ def parse(path):
             elif t.startswith(('resolution: ', 'gfx: window ', 'vk: using gpu', 'mem: mode', 'oe: operation mode',
                                'gfx_shader: translator identity')):
                 info.append(t[:160])
-    return dict(sys=sysl, fps=fps, shadow=shadow, ww=ww, perf=perf, gpu=gpu, ft=ft, audio=audio, bad=bad, info=info)
+    if started is None:   # no focus line (a run without a window): the file's own time
+        started = time.strftime('%Y-%m-%d %H:%M', time.localtime(os.path.getmtime(path)))
+    return dict(sys=sysl, fps=fps, shadow=shadow, ww=ww, perf=perf, gpu=gpu, ft=ft, audio=audio, bad=bad, info=info,
+                started=started)
+
+
+def session_row(path):
+    """One line per session for --list: start, minutes, frames, fps, APU and battery watts, peak temperatures, errors."""
+    d = parse(path)
+    s = d['sys']
+    # without sys: lines (an older runtime) the frametime windows (60 s each, then the last one at exit) add up
+    ft_frames = sum(r['frames'] or 0 for r in d['ft'])
+    ft_secs = sum(r['secs'] or 0 for r in d['ft'])
+    mins = (s[-1]['secs'] or 0) / 60 if s else (ft_secs / 60 if ft_secs else None)
+    frames = s[-1]['frame'] if s else (ft_frames or None)
+
+    def avg(k):
+        v = [r[k] for r in s if r.get(k) is not None]
+        return sum(v) / len(v) if v else None
+
+    def peak(k):
+        v = [r[k] for r in s if r.get(k) is not None]
+        return max(v) if v else None
+    fps = avg('fps')
+    if fps is None and ft_secs:
+        fps = ft_frames / ft_secs
+
+    def f(v, fmt):
+        return fmt.format(v) if v is not None else '-'
+    return (f"{d['started']:16}  {f(mins, '{:5.1f}'):>5}  {f(frames, '{:7d}'):>7}  {f(fps, '{:5.1f}'):>5}  "
+            f"{f(avg('apu'), '{:5.1f}'):>5}  {f(peak('apu_peak') or peak('apu'), '{:5.1f}'):>5}  "
+            f"{f(avg('bat'), '{:5.1f}'):>5}  {f(peak('cpu_c'), '{:4.0f}'):>4}  {f(peak('gpu_c'), '{:4.0f}'):>4}  "
+            f"{len(d['bad']):4d}  {os.path.basename(path)}")
+
+
+def list_sessions(paths):
+    print('início            min    frames    fps  APU W  pico W  bat W  CPU°C GPU°C erros arquivo')
+    for p in paths:
+        try:
+            print(session_row(p))
+        except (OSError, EOFError) as e:
+            print(f'(não li {p}: {e})')
 
 
 def stat(rows, key):
@@ -101,12 +152,20 @@ SYS_KEYS = [('fps', 'fps', ''), ('apu', 'APU', ' W'), ('bat', 'bateria', ' W'), 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument('log')
+    ap.add_argument('log', nargs='+')
     ap.add_argument('--from', dest='lo', type=int, default=0, help='primeiro frame do trecho')
     ap.add_argument('--to', dest='hi', type=int, default=1 << 62, help='último frame do trecho')
     ap.add_argument('--rows', action='store_true', help='lista as linhas sys: do trecho')
+    ap.add_argument('--list', action='store_true', help='uma linha por sessão (um log por sessão)')
     a = ap.parse_args()
+    if a.list:
+        list_sessions(a.log)
+        return 0
+    if len(a.log) != 1:
+        ap.error('um log só (ou --list para vários)')
+    a.log = a.log[0]
     d = parse(a.log)
+    print(f'Sessão iniciada em {d["started"]}')
     for t in d['info']:
         print('·', t)
 

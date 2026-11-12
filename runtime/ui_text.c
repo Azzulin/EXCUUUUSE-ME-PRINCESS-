@@ -63,10 +63,8 @@ static const char *const text_en[UI_TEXT_COUNT] = {
     [UI_PERF_LINE_FPS] = "%.0f fps",
     [UI_MENU_GRAPHICS] = "Picture",
     [UI_MENU_OUTPUT_RES] = "Game resolution",
-    [UI_MENU_OUTPUT_RES_DESC] = "The size the game draws its picture and interface in. Above 1920 x 1080 the game needs "
-                                "more video memory and GPU time. A wider size (21:9) widens the camera's view and moves "
-                                "the HUD to the screen's corners; a taller one (16:10, Steam Deck) moves it to the top "
-                                "and bottom edges.",
+    [UI_MENU_OUTPUT_RES_DESC] = "The size the game draws its picture and interface in; 1920 x 1080 is the game's own. A smaller size spares "
+                                "the GPU, but for now the minimap loses its markers below 1920 x 1080 (known issue).",
     [UI_MENU_RENDER_SCALE] = "3D render scale",
     [UI_MENU_RENDER_SCALE_DESC] = "Size of the 3D scene relative to the game resolution; the game's FSR scales it to "
                                   "that size. Above 100 % smooths jagged edges (supersampling) at a high GPU cost.",
@@ -494,10 +492,8 @@ static const char *const text_ru[UI_TEXT_COUNT] = {
     [UI_PERF_LINE_FPS] = "%.0f к/с",
     [UI_MENU_GRAPHICS] = "Изображение",
     [UI_MENU_OUTPUT_RES] = "Разрешение игры",
-    [UI_MENU_OUTPUT_RES_DESC] = "Размер, в котором игра рисует картинку и интерфейс. Выше 1920 × 1080 игре нужно больше "
-                                "видеопамяти и времени GPU. Более широкий размер (21:9) расширяет обзор камеры и "
-                                "переносит интерфейс в углы экрана, более высокий (16:10, Steam Deck) переносит его к "
-                                "верхнему и нижнему краям.",
+    [UI_MENU_OUTPUT_RES_DESC] = "Размер, в котором игра рисует картинку и интерфейс; 1920 × 1080 — родной размер игры. Меньший размер "
+                                "разгружает GPU, но пока ниже 1920 × 1080 мини-карта теряет метки (известная проблема).",
     [UI_MENU_RENDER_SCALE] = "Масштаб 3D-отрисовки",
     [UI_MENU_RENDER_SCALE_DESC] = "Размер 3D-сцены относительно разрешения игры; FSR игры доводит её до этого размера. "
                                   "Выше 100 % сглаживает лесенки на краях (суперсэмплинг) ценой большой нагрузки на GPU.",
@@ -952,10 +948,8 @@ static const char *const text_pt_br[UI_TEXT_COUNT] = {
     [UI_PERF_LINE_FPS] = "%.0f fps",
     [UI_MENU_GRAPHICS] = "Imagem",
     [UI_MENU_OUTPUT_RES] = "Resolução do jogo",
-    [UI_MENU_OUTPUT_RES_DESC] = "O tamanho em que o jogo desenha a imagem e a interface. Acima de 1920 x 1080 o jogo "
-                                "precisa de mais memória de vídeo e tempo de GPU. Um tamanho mais largo (21:9) amplia a "
-                                "visão da câmera e leva o HUD para os cantos da tela; um mais alto (16:10, Steam Deck) "
-                                "leva-o para as bordas de cima e de baixo.",
+    [UI_MENU_OUTPUT_RES_DESC] = "O tamanho em que a imagem e a interface são desenhadas; 1920 x 1080 é o do jogo. Um tamanho menor alivia a "
+                                "GPU, mas por enquanto abaixo de 1920 x 1080 o minimapa perde os marcadores (defeito conhecido).",
     [UI_MENU_RENDER_SCALE] = "Escala da renderização 3D",
     [UI_MENU_RENDER_SCALE_DESC] = "Tamanho da cena 3D em relação à resolução do jogo; o FSR do jogo a amplia até esse "
                                   "tamanho. Acima de 100 % suaviza bordas serrilhadas (supersampling) com alto custo de "
@@ -1432,10 +1426,8 @@ static const char *const text_zh_hans[UI_TEXT_COUNT] = {
 
     [UI_MENU_GRAPHICS] = "画面",
     [UI_MENU_OUTPUT_RES] = "游戏分辨率",
-    [UI_MENU_OUTPUT_RES_DESC] = "游戏绘制画面和界面的尺寸。"
-                                "高于 1920 x 1080 会占用更多显存和 GPU 时间。"
-                                "更宽的尺寸（21:9）会扩大视野，并把界面移到屏幕四角；"
-                                "更高的尺寸（16:10、Steam Deck）则移到上下边缘。",
+    [UI_MENU_OUTPUT_RES_DESC] = "游戏绘制画面和界面的尺寸；1920 x 1080 为游戏原生尺寸。"
+                                "较小的尺寸可减轻 GPU 负担，但目前低于 1920 x 1080 时小地图会丢失标记（已知问题）。",
     [UI_MENU_RENDER_SCALE] = "3D 渲染比例",
     [UI_MENU_RENDER_SCALE_DESC] = "3D 场景相对于游戏分辨率的尺寸；"
                                   "游戏的 FSR 会将其缩放到该尺寸。"

@@ -11,7 +11,8 @@ if [ "$1" != "--no-build" ]; then
   wsl.exe -d archlinux -- bash -c 'cd "/mnt/c/Users/gabri/Downloads/Age of Calamity/Age of Calamity" && . ~/.venvs/aoc/bin/activate && python3 -u tools/build.py --work ~/aoc-build --jobs 10 host dist 2>&1 | grep -E "dist:|host: pronto|ERRO|error|FAILED"'
 fi
 cd "$D"
-files="aoc aoc_xlate aoc_xlate.id aoc.sh instalar-atalho.sh LEIA-ME.txt romfs-index.bin lib/libSDL3.so.0"
+files="aoc aoc_xlate aoc_xlate.id aoc.sh instalar-atalho.sh LEIA-ME.txt romfs-index.bin lib/libSDL3.so.0 aoc-logs.sh ferramentas/logsum.py"
+$SSH $DECK "mkdir -p $G/ferramentas"
 # only what differs (size + sha256)
 remote=$($SSH $DECK "cd $G && sha256sum $files 2>/dev/null" || true)
 send=""
@@ -22,7 +23,7 @@ done
 if [ -n "$send" ]; then
   echo "enviando:$send"
   for f in $send; do scp -q -i "$HOME/.ssh/id_ed25519_deck" -o BatchMode=yes "$f" "$DECK:$G/$f"; done
-  $SSH $DECK "cd $G && chmod +x aoc aoc_xlate aoc.sh instalar-atalho.sh"
+  $SSH $DECK "cd $G && chmod +x aoc aoc_xlate aoc.sh instalar-atalho.sh aoc-logs.sh"
 else
   echo "nada a enviar"
 fi

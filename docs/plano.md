@@ -105,14 +105,15 @@ classificadas.
 - [ ] Write-watch por `userfaultfd` + `PAGEMAP_SCAN`; pools sombra.
 - [ ] Texturas: BC1–BC7 direto no RDNA2 (o AoC não usa ASTC); conferir deswizzle block-linear e sRGB (as views
       sRGB dos mapas de cor já são respeitadas, sessão 4).
-- [ ] Perfil `deck`: saída 1280×720 nativa com cena 960×540 (patch sets `output`/`scene`, sessão 5, não testados), 30 fps, vsync.
+- [ ] Perfil `deck`: saída 1280×720 nativa com cena 960×540 — funciona, mas o minimapa perde os marcadores
+      (sessão 7); o perfil usa a resolução do jogo até isso ser resolvido. 30 fps e vsync: feitos.
 - [ ] Layout de instalação no cartão SD; Mesa cache ao lado do jogo; "Add to Steam".
-- [ ] Medições: FPS médio/1 % low, frame time, W da APU, temperatura, em rota fixa (Hyrule Field + uma batalha cheia).
-      Ferramentas prontas (sessão 5): linhas `sys:` (`runtime/sysmon.c`) e `tools/deck/logsum.py`; falta a primeira medição.
+- [x] Medições: FPS, frame time, W da APU, temperatura, em rota fixa (primeira batalha): 27–30 fps a 7,6–8,7 W —
+      sessão 7. Registros de cada sessão jogada: `aoc-logs.sh` na pasta do Deck.
 - [x] Trace de perf que não pesa no Deck: o censo de páginas sujas (63 ms por frame na batalha) só com
       `AOC_DIRTY_CENSUS=1` — sessão 4. Batalha medida sem ele: 24,6 fps (com ele, 12,8).
-- [ ] Sombra dos pools por região (hoje cada sincronização consulta o pool inteiro: ~30 ms por frame na batalha
-      do Deck).
+- [x] Sombra dos pools: regiões paradas indicadas para congelar (~30 → 2 ms por frame na batalha do Deck) — sessão 7.
+- [ ] Rastros no caminho do Deck (import + sombra + replay assíncrono: 9–12 em 201 no notebook).
 
 **Portão F (Deck):** 30 fps estáveis na primeira batalha em 1280×800 (render scale a definir) com ≤ 15 W; sem stutter
 de shader após a instalação; 1 h de sessão sem crash.

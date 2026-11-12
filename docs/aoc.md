@@ -377,3 +377,18 @@ primeira com o censo de páginas sujas ligado (o trace de perf o ligava sozinho)
 - Censo nos 5 563 inputs guardados do cache do notebook: 11 shaders afetados — FS `6575db29` (efeito de recuperação
   de coração, o retângulo branco) e 10 compute shaders de 105–118 KB (inputs `36725fee`, `2dfc51cb`, `0dc14967`,
   `fc45b038`, `b2d89707`, `991d1983`, `863bdccc`, `5b3eb264`, `467b2836`, `17833cff`), com 60–90 desvios mantidos cada.
+
+## Resolução de saída menor: vistas 2D e minimapa (2026-11-12)
+
+- Com a saída em 1280×720 o jogo cria as texturas da janela em 1920×1080 (`SetWidth/SetHeight` chamados de
+  `main+0x7000008cb8`, oito texturas desse tamanho) e chama `nvnWindowSetCrop(0, 0, 1280, 720)`.
+- `main+0x1583c00` monta nove vistas 2D com `{1920, 1080}` (pares `mov`/`movk` em `0x1583c14/0x1583c54` (`x28`),
+  `0x1583db8`, `0x1583f14`, `0x1584084`, `0x1584204`, `0x1584380`, `0x15844e8`, `0x15846a4`, `0x1584798` (`x8`)). Com
+  elas em 1080p e a saída em 720p, o minimapa não mostra marcadores. Com elas lidas da página de patches, o boot cai
+  em `main+0x17c4e80` (escrita em 0x8), chamado de `main+0x1585d40`.
+
+## Deck: consumo e temperatura na primeira batalha (2026-11-12, `sys:`)
+
+- 1920×1080 do jogo, 30 fps, portátil, `REPLAY_ASYNC=1`, import + sombra: APU 7,6–8,7 W, CPU 68–72 °C, GPU 62–65 °C,
+  ventoinha ~3 000–4 000 rpm, GPU ocupada 0–50 %, jogo em ~2 núcleos. Menus e cinemáticas: APU 3,3–4,0 W.
+- TDP configurado pelo dono: 10 W (`power1_cap`; máximo 29 W).

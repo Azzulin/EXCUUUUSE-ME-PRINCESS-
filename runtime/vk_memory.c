@@ -615,6 +615,7 @@ static uint64_t ww_query(uint64_t addr, uint64_t size) {
 // reads, which thaw their buffer first (fs_host.c, romfs.c), and every user-mode write faults and thaws.
 #define FREEZE_PER_SUB 32
 static int freeze_idle;                       // 0: off
+static int freeze_shadow = 1;                 // AOC_FREEZE_SHADOW=0: shadow_sync_pool nominates no regions
 static uint32_t ww_ep = 1;                    // gen_lock: the submission being recorded (vk_mem_mirror_begin)
 static uint32_t reg_last[RT_ADDRESS_LIMIT >> REG_SHIFT];    // gen_lock: ww_ep of the region's last stamp
 static uint32_t reg_tried[RT_ADDRESS_LIMIT >> REG_SHIFT];   // gen_lock: ww_ep of its last freeze candidacy
@@ -923,7 +924,7 @@ static void shadow_sync_pool(PoolRec *r) {
     // are mostly static (meshes, textures), and without this every sync queried the whole pool (in the first battle
     // on the Deck about 440 queries over 17.7 GB a frame, 28 ms, of which 7.7 found written pages). A frozen region
     // is skipped above until a write thaws it.
-    if (tracked && freeze_idle) {
+    if (tracked && freeze_idle && freeze_shadow) {
         for (uint64_t j = lo >> REG_SHIFT; j <= (hi - 1) >> REG_SHIFT; j++) {
             if (ww_ep - reg_last[j] < (uint32_t)freeze_idle || ww_ep - reg_tried[j] < (uint32_t)freeze_idle ||
                 mem_frozen(j << REG_SHIFT))
@@ -1216,6 +1217,8 @@ static void mirror_mode(int discrete) {
     const char *fi = cfg_get("AOC_FREEZE_IDLE");
     freeze_idle = fi && *fi ? atoi(fi) : 60;
     if (freeze_idle < 0) freeze_idle = 0;
+    const char *fs = cfg_get("AOC_FREEZE_SHADOW");
+    freeze_shadow = !(fs && *fs == '0');
     const char *sh = cfg_get("AOC_SHADOW");
 #ifdef _WIN32
     shadow_on = sh && *sh ? strcmp(sh, "0") != 0 : plat_is_wine();

@@ -522,6 +522,14 @@ mkdir -p "$here/mesa-cache" "$here/logs"
 # o FTP a partir do Windows não leva o bit de execução: garante que o executável roda
 [ -x "$here/aoc" ] || chmod +x "$here/aoc" 2>/dev/null
 [ -x "$here/aoc_xlate" ] || chmod +x "$here/aoc_xlate" 2>/dev/null
+# a sessão anterior vai comprimida para logs/sessoes/ (nome = hora em que ela terminou; ficam as 60 mais recentes);
+# ./aoc-logs.sh lista e resume
+if [ -s "$here/logs/aoc.log" ]; then
+    mkdir -p "$here/logs/sessoes"
+    ts=$(date -r "$here/logs/aoc.log" +%Y%m%d-%H%M%S)
+    [ -f "$here/logs/sessoes/$ts.log.gz" ] || gzip -c "$here/logs/aoc.log" > "$here/logs/sessoes/$ts.log.gz"
+    ls -1t "$here/logs/sessoes/"*.log.gz 2>/dev/null | tail -n +61 | xargs -r rm -f
+fi
 cd "$here"
 exec "$here/aoc" "$@"
 """
@@ -551,9 +559,15 @@ INSTALAR (uma vez)
 PRIMEIRO TESTE (Konsole, dentro da pasta)
   ./aoc --selftest                         deve terminar com "selftest: passed"
   AOC_GPU=null AOC_TRACE=perf ./aoc.sh     sem imagem; deve mostrar linhas "fps: ... (30.0 fps)" (Ctrl+C para sair)
-  ./aoc.sh                                 janela Vulkan. AINDA SEM IMAGEM (tela preta): falta o tradutor de
-                                           shaders, a próxima fase do projeto; o jogo roda por trás a 30 fps.
-Depois mande de volta o arquivo logs/aoc.log.
+  ./aoc.sh                                 o jogo (a primeira vez traduz os shaders: travadas até o cache encher)
+
+REGISTROS (consumo, temperatura, fps de cada sessão)
+  ./aoc-logs.sh lista                      uma linha por sessão jogada: data, minutos, fps, watts, temperaturas
+  ./aoc-logs.sh                            resumo da última sessão (./aoc-logs.sh resumo 2: a penúltima)
+  ./aoc-logs.sh ao-vivo                    acompanha a sessão em andamento (de outro terminal ou por SSH)
+  ./aoc-logs.sh sistema                    TDP, watts, temperaturas e clocks agora
+  ./aoc-logs.sh detalhado on|off           mais detalhes de desempenho nas próximas sessões
+  ./aoc-logs.sh pacote                     junta tudo em logs/pacote-<data>.tar.gz para mandar
 
 CONTROLES DO PORT
   Segurar L3+R3 (~1,5 s)  menu rápido: taxa de quadros, resolução interna, overlay de desempenho
@@ -570,6 +584,7 @@ ARQUIVOS
   exefs/, romfs/, romfs-index.bin   o jogo
   aoc.ini                      suas configurações (não é sobrescrito nas atualizações)
   profile/, logs/, mesa-cache/ saves, registros e cache de shaders (criados ao jogar)
+  aoc-logs.sh, ferramentas/    leitura dos registros (logs/sessoes/ guarda as sessões anteriores)
 ATUALIZAR: copie por cima só "aoc" (e "lib/" se mudar). O romfs não muda.
 """
 
@@ -621,6 +636,11 @@ def assemble_dist(args, exe: Path, sysroot: Path, host: Path, xl: Path) -> Path:
     (dist / "LEIA-ME.txt").write_text(README_DECK, encoding="utf-8")
     (dist / "instalar-atalho.sh").write_text(INSTALL_SH, encoding="utf-8")
     (dist / "instalar-atalho.sh").chmod(0o755)
+    # Registros no Deck: aoc-logs.sh (lista, resumo, acompanhamento, pacote) e o resumidor que ele usa.
+    (dist / "ferramentas").mkdir(exist_ok=True)
+    shutil.copy2(ROOT / "tools" / "deck" / "logsum.py", dist / "ferramentas" / "logsum.py")
+    shutil.copy2(ROOT / "tools" / "deck" / "aoc-logs.sh", dist / "aoc-logs.sh")
+    (dist / "aoc-logs.sh").chmod(0o755)
     if not (dist / "aoc.ini").exists():   # só na primeira vez: depois o arquivo é do jogador (o menu grava nele)
         (dist / "aoc.ini").write_text(INI_DECK, encoding="utf-8")
     if args.with_romfs:

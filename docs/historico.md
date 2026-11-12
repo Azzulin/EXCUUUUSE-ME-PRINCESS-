@@ -810,5 +810,5 @@ mandar, cada peça escrita na sessão 5 rodou no notebook (regra: nada vai ao De
   comparação e saem a 2/3; `resolution.c` passa a limitar a cena a 85 % nesse caso (85 % medido certo).
 - **No Deck: não medido** (o Deck ficou fora do ar). O perfil do Deck continua na resolução do jogo; a pasta do Deck
   já tem o binário novo, falta enviar e medir 1280×720 (cena a 75 % e a 85 %) contra os 7,1–7,8 W de hoje.
-- Ferramentas: `C:oc-win\gdbui.py`, `gdbseq.py`, `gdbdraw.py` (cadeia do jogo de um draw grande), `gdbquad.py`
+- Ferramentas: `C:\aoc-win\gdbui.py`, `gdbseq.py`, `gdbdraw.py` (cadeia do jogo de um draw grande), `gdbquad.py`
   (quem chama o quad imediato e com que posições), `gdbvw.py` (watchpoint num vértice).

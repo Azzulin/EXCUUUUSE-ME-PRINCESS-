@@ -6,7 +6,7 @@ minimapa", "Deck: consumo e temperatura na primeira batalha").
 
 ## Estado (2026-11-12, fim da sessão 12)
 
-- **Launcher e pacote para jogadores** (sessão 12, release `v0.1.0`): zip do Windows e tar.gz do Linux
+- **Launcher e pacote para jogadores** (sessão 12, releases `v0.1.0` e `v0.1.1`): zip do Windows e tar.gz do Linux
   (`tools/make_release.py`); o launcher prepara sozinho o ambiente (distro WSL privada `AoC-Recomp`, MSYS2, pacotes
   da distro) e forja. Testado de ponta a ponta a partir do zip. Falta testar: botão "Instalar o WSL" num PC sem WSL,
   `pkexec` num desktop Linux, Ubuntu/Debian/Fedora. Guias: `GUIA.md` / `GUIDE.md`.

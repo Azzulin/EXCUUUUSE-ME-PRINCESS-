@@ -1023,3 +1023,4 @@ pacote é atualizado.
 - `build/forge-state.json` (versão e destinos forjados) decide a tela inicial; com outro `VERSION` (atualização
   extraída por cima) o launcher mostra a forja com um aviso.
 - `tools/build_launcher.py --out`; launcher Linux compilado e visto pelo WSLg.
+- Publicado como release `v0.1.1` (zip do Windows 65,6 MB, tar.gz do Linux 6,2 MB, com os `.sha256`).

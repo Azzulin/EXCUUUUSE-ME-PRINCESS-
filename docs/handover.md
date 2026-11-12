@@ -149,7 +149,7 @@ partir de 100 s, `AOC_TRACE=perf`, vigia de travada).
 - **Vazamento de memória: CORRIGIDO e medido no Deck (sessão 11).** As cópias das gravações de command buffer
   não eram liberadas porque o runtime não chamava o callback de memória de comando do jogo quando o anel enchia.
   Deck, 10 min de batalha: memória plana em 3,3 GB, 30 fps, APU 5,1 W de média. Detalhes em `historico.md`.
-- **Launcher e pacote para jogadores (sessão 12):** release `v0.1.0` com `AoC-Recomp-<v>-Windows.zip` e
+- **Launcher e pacote para jogadores (sessão 12):** releases `v0.1.0` e `v0.1.1` (atual) com `AoC-Recomp-<v>-Windows.zip` e
   `-Linux.tar.gz` (`tools/make_release.py`). O launcher (português/inglês, Windows e Linux) roda `tools/make_build.py`,
   cujo passo `tools` monta o ambiente sozinho: distro WSL privada **`AoC-Recomp`** (Arch oficial, `wsl --install
   archlinux --name`), MSYS2 em `C:/msys64` se faltar, pacotes da distro no Linux. O pacote traz Python embarcado,

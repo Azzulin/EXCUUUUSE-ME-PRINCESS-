@@ -51,3 +51,11 @@ __pycache__/
 *.swp
 .DS_Store
 Thumbs.db
+
+# Peças que só os pacotes da release levam (tools/make_release.py)
+/prebuilt/
+/python/
+/AoC-Launcher.exe
+/SDL3.dll
+/aoc-launcher
+/libSDL3.so.0

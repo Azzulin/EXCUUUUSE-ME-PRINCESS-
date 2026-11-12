@@ -509,6 +509,15 @@ def step_dist(args, gen: Path, lib: Path) -> Path:
     # O tradutor de shaders (Ryujinx 1.3.2, NativeAOT), também contra o sniper: o runtime o procura ao lado do aoc
     # (gfx_shader.c init_paths). tools/build_xlate.py refaz a identidade a cada build; aqui só se faltar.
     xl = args.work / "xlate"
+    # O pacote do launcher traz o tradutor pronto (prebuilt/xlate/linux-x64, feito por tools/make_release.py do mesmo
+    # commit): quem forja o jogo não precisa do .NET. Com --xlate ele é sempre recompilado.
+    pre = ROOT / "prebuilt" / "xlate" / "linux-x64"
+    if not args.xlate and (pre / "aoc_xlate").is_file() and (pre / "aoc_xlate.id").is_file():
+        xl.mkdir(parents=True, exist_ok=True)
+        if not (xl / "aoc_xlate.id").is_file() or (xl / "aoc_xlate.id").read_bytes() != (pre / "aoc_xlate.id").read_bytes():
+            shutil.copy2(pre / "aoc_xlate", xl / "aoc_xlate")
+            shutil.copy2(pre / "aoc_xlate.id", xl / "aoc_xlate.id")
+            print(f"dist: tradutor de shaders pronto de {pre}")
     if not (xl / "aoc_xlate").is_file() or args.xlate:
         subprocess.run([sys.executable, str(ROOT / "tools" / "build_xlate.py"), "--out", str(xl),
                         "--sysroot", str(sysroot)], check=True)

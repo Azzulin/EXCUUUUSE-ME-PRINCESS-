@@ -55,5 +55,20 @@ O runtime do Astral Chain já traz código de outros projetos. As linhas abaixo 
 | Zstandard 1.5.7 (MSYS2 `mingw-w64-ucrt-x86_64-zstd`), static link | https://github.com/facebook/zstd, Copyright (c) Meta Platforms, Inc. and affiliates | BSD-3-Clause | `runtime/resolution.c` (the HeapDef table), `runtime/ov_zstd.c` (the game's zstd frames decoded on the host) |
 | musl `fma.c`, `fmaf.c` and `scalbn.c`, adapted into one file for the x86-64-v2 build | https://github.com/kraj/musl @ `5a56ad13e1e0790c06122978aad2a14d6b9efc1a` (mirror of https://git.musl-libc.org/cgit/musl), Copyright (c) 2005-2020 Rich Felker and contributors | MIT | `runtime/fma.c` (the correctly rounded fma/fmaf the FP lowering needs on CPUs without FMA3) |
 
+## Pacotes do launcher (release)
+
+Os pacotes da release (`tools/make_release.py`) levam, além do repositório, estes componentes sem modificação:
+
+| Componente | Origem | Licença | Onde |
+|---|---|---|---|
+| Python 3.13.17 embeddable (Windows) | https://www.python.org/ftp/python/3.13.17/python-3.13.17-embed-amd64.zip, Copyright (c) 2001-2026 Python Software Foundation | PSF-2.0 (texto em `python/LICENSE.txt`) | `python/` do pacote Windows |
+| cryptography, cffi, pycparser (wheels win_amd64 do PyPI) | https://pypi.org/project/cryptography/, https://pypi.org/project/cffi/, https://pypi.org/project/pycparser/ | Apache-2.0 / BSD-3-Clause (cryptography), MIT (cffi), BSD-3-Clause (pycparser); textos nos `*.dist-info` | `python/Lib/site-packages/` |
+| lz4 (python-lz4) | https://pypi.org/project/lz4/ | BSD-3-Clause | `python/Lib/site-packages/` |
+| NumPy | https://pypi.org/project/numpy/ | BSD-3-Clause (e as licenças das bibliotecas embutidas, em `numpy-*.dist-info`) | `python/Lib/site-packages/` |
+| SDL 3.4.18, `SDL3.dll` da release oficial `SDL3-3.4.18-win32-x64.zip` | https://github.com/libsdl-org/SDL/releases/tag/release-3.4.18 | zlib | ao lado do `AoC-Launcher.exe` |
+| SDL 3.4.18 do sysroot sniper do Steam Runtime 3 (`libSDL3.so.0`) | https://repo.steampowered.com/steamrt-images-sniper/ | zlib | ao lado do `aoc-launcher` (Linux) |
+| hactool 1.4.0 (`hactool.exe` da release; Linux compilado por `tools/build_hactool_linux.sh`) | https://github.com/SciresM/hactool, Copyright (c) 2018 SciresM | ISC (texto em `prebuilt/hactool/LICENSE`) | `prebuilt/hactool/` (mesclagem do RomFS, `tools/merge_romfs.py`) |
+| Tradutor de shaders `aoc_xlate` (Ryujinx 1.3.2 + `tools/xlate/patches/`, com o runtime do .NET embutido no executável do Windows) | `tools/vendor/ryujinx` e `tools/xlate/`; .NET: https://github.com/dotnet/runtime | MIT | `prebuilt/xlate/` |
+
 O código próprio do projeto está sob a [licença MIT](LICENSE). A licença não concede nada sobre o jogo, que pertence
 à Nintendo e à Koei Tecmo.

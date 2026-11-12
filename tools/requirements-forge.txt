@@ -1,0 +1,5 @@
+# O mínimo para forjar o jogo (tools/make_build.py, o launcher): extração (cryptography, lz4) e o gerador (numpy).
+# As ferramentas de desenvolvimento e os testes usam tools/requirements.txt.
+cryptography>=42
+lz4>=4.3
+numpy>=1.26

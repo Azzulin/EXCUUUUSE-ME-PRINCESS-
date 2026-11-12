@@ -168,7 +168,7 @@ def main() -> int:
         if got != ident:
             sys.exit(f"ERRO: {idf} é {got[:16]}, as fontes do tradutor no HEAD dão {ident[:16]}; recompile o tradutor")
     # The Windows launcher (MSYS2: this Python)
-    sh([sys.executable, ROOT / "tools/build_launcher.py"])
+    sh([sys.executable, ROOT / "tools/build_launcher.py", "--out", stage / "launcher-win"])   # not the one in use
 
     tree = git_tree()
     print(f"repositório no HEAD: {len(tree)} arquivos, {sum(len(d) for _, _, d in tree) / 1e6:.1f} MB")
@@ -178,7 +178,7 @@ def main() -> int:
     with zipfile.ZipFile(io.BytesIO(fetch(*SDL_WIN))) as z:
         sdl_dll = z.read("SDL3.dll")
     win = list(tree)
-    win.append(("AoC-Launcher.exe", 0o755, (ROOT / "build/launcher/aoc-launcher.exe").read_bytes()))
+    win.append(("AoC-Launcher.exe", 0o755, (stage / "launcher-win/aoc-launcher.exe").read_bytes()))
     win.append(("SDL3.dll", 0o644, sdl_dll))
     win += python_embed(stage / "wheels")
     win.append(("prebuilt/hactool/win-x64/hactool.exe", 0o755, (ROOT / "toolchain/hactool-1.4.0-win/hactool.exe").read_bytes()))

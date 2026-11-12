@@ -10,10 +10,21 @@ Para quem só quer jogar: o pacote da release (guia em [GUIA.md](../GUIA.md) / [
 como ele funciona e como se faz um.
 
 **O launcher** (`launcher/launcher.cpp`, Dear ImGui + SDL3, tema Sheikah/Calamidade, português e inglês) roda no
-Windows e no Linux. A pessoa aponta a pasta com a **própria cópia** (NSPs da base, update 1.3.0, DLCs e `prod.keys`),
-marca os destinos e clica em **FORJAR O PORT**. Por baixo ele roda `tools/make_build.py` e lê as linhas `@@PLAN`,
-`@@STEP <id> run|ok|skip|fail`, `@@NEED wsl` e `@@DONE`. No repositório, `launcher.bat` compila o launcher na primeira
-vez (`python3 tools/build_launcher.py` no MSYS2 UCRT64; `--linux` no WSL, contra o sniper) e o abre.
+Windows e no Linux e tem duas telas, no padrão do launcher do B2recomp (uma janela que primeiro forja e depois vira o
+launcher do jogo; nada copiado de lá, que é GPL):
+
+- **Forja:** a pessoa aponta a pasta com a **própria cópia** (NSPs da base, update 1.3.0, DLCs e `prod.keys`), marca
+  os destinos e clica em **FORJAR**. Por baixo ele roda `tools/make_build.py` e lê as linhas `@@PLAN`,
+  `@@STEP <id> run|ok|skip|fail`, `@@NEED wsl` e `@@DONE`. Aparece enquanto o jogo deste PC não existe, depois de uma
+  atualização (o `VERSION` difere do `build/forge-state.json` que o `make_build.py` grava no fim) e em "Forjar de novo".
+- **Jogo:** com `dist/aoc-windows` (Windows) ou `dist/aoc-deck` (Linux) pronto, os painéis **GRÁFICOS** e
+  **CONTROLE E SOM** editam o `aoc.ini` dessa pasta como o `cfg_save` do runtime (a linha da chave mantém a grafia,
+  uma chave nova entra na seção dela, o resto do arquivo fica igual). Só opções medidas no AoC; o resto fica no menu do
+  jogo (F1). **JOGAR** salva e abre o jogo sem janela de console; **Relatório…** roda `tools/make_report.py`
+  (`aoc-report.zip` com `system.txt`, os registros da forja em `build/logs/` e os do jogo, nada do jogo).
+
+No repositório, `launcher.bat` compila o launcher na primeira vez (`python3 tools/build_launcher.py` no MSYS2 UCRT64;
+`--linux` no WSL, contra o sniper; `--out` escolhe outra pasta) e o abre.
 
 ```sh
 python tools/make_build.py --game-dir "D:/dump" --deck --windows [--with-romfs] [--send] [--lang en] [--check-only]

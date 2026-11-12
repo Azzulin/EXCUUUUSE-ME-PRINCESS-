@@ -28,18 +28,29 @@ nothing you make should be shared.
    You get a folder called `AoC-Recomp`.
 3. Open **`AoC-Launcher.exe`** inside it. Windows may say it "protected your PC" (the program is not signed):
    click *More info* → *Run anyway*.
-4. **1 · YOUR FILES** — click **Browse…** and pick the folder with your NSPs and `prod.keys`.
+4. **YOUR COPY** — click **Browse…** and pick the folder with your NSPs and `prod.keys`.
    Four green dots mean everything was found.
-5. **2 · WHERE YOU WILL PLAY** — tick **Steam Deck / Linux**, **Windows (this PC)**, or both.
-6. Click **FORGE THE PORT** and let the PC work. The first time takes **1 to 2 hours**; the list on the right shows
-   each step and the time it took. You can keep using the PC, it will only be slower.
-7. When it says **"Done. The port is forged."**:
-   - **Windows:** click **Play on Windows** (the game is in `AoC-Recomp\dist\aoc-windows\aoc.exe`).
-   - **Steam Deck:** copy the folder to the Deck (section 4).
+5. **WHERE YOU WILL PLAY** — tick **Steam Deck / Linux**, **Windows (this PC)**, or both.
+6. Click **FORGE** (bottom right) and let the PC work. The first time takes **1 to 2 hours**; the list on the right
+   shows each step and the time it took. You can keep using the PC, it will only be slower.
+7. When it is done:
+   - **Windows:** the window turns into the game's launcher (below). Press **PLAY**.
+   - **Steam Deck:** copy the folder to the Deck (section 4); **Deck folder** at the bottom opens it.
+
+**The game's launcher.** Once the game for this PC is forged, `AoC-Launcher.exe` opens straight on it:
+
+| | |
+|---|---|
+| **GRAPHICS** | window mode and size, presentation (VSync), game resolution (1920 × 1080 or the lighter 1280 × 720), internal resolution (TV or handheld), 3D render scale, picture shape, texture filtering, shadows, performance overlay |
+| **CONTROLS AND SOUND** | button layout (Nintendo or Xbox), vibration, stick dead zone, invert camera, volume, mute in the background, in-game menu language |
+| Bottom bar | **Report…** (a zip with the logs and your PC's details, for asking for help), **Game folder**, **Forge again** (after an update, or to add the Steam Deck version), **Save**, **Close**, and **PLAY** |
+
+Hover over a setting for a short explanation. **PLAY** saves first. Everything else (remapping buttons, colours, HDR)
+is in the game's own menu: **F1**, or Minus + Plus on a controller.
 
 > **"WSL is not installed"?** The Steam Deck version is compiled inside WSL (Linux that comes with Windows). Click
 > **Install WSL**, accept the administrator question, **restart the PC**, open the launcher again and click
-> **FORGE THE PORT** once more. It continues from where it stopped. If WSL still fails, turn on *virtualization*
+> **FORGE** once more. It continues from where it stopped. If WSL still fails, turn on *virtualization*
 > (Intel VT-x / AMD SVM) in your PC's BIOS.
 
 The language switch (**PT / EN**) is at the top right; **Guide** opens this page.
@@ -54,12 +65,12 @@ The language switch (**PT / EN**) is at the top right; **Guide** opens this page
    cd AoC-Recomp
    ./aoc-launcher
    ```
-2. Same steps as on Windows (pick the folder, keep **Steam Deck / Linux** ticked, **FORGE THE PORT**).
+2. Same steps as on Windows (pick the folder, keep **Steam Deck / Linux** ticked, **FORGE**).
 3. The first time, your system asks for your **password**: the launcher installs the compiler with your package
    manager (`pacman`, `apt` or `dnf`). Tested on Arch Linux; Ubuntu/Debian and Fedora are supported by the setup
    script but not tested yet — if they fail, the log says which package is missing.
-4. When it is done, **Play on this PC** starts the game (or run `dist/aoc-deck/aoc.sh`). The same folder also works on
-   the Steam Deck.
+4. When it is done the window turns into the game's launcher, as on Windows: settings and **PLAY** (or run
+   `dist/aoc-deck/aoc.sh`). The same folder also works on the Steam Deck.
 
 ---
 
@@ -109,8 +120,9 @@ delete `C:\msys64` if the launcher installed it; on Linux delete `~/aoc-build` a
 - **A red dot in "Your files"**: the file is not in the chosen folder. The NSP names must contain the title IDs shown,
   and `prod.keys` must sit in the same folder.
 - **"Not enough free space"**: the message says how much is needed; free some space and forge again.
-- **A step failed**: the reason is under the step, in red, and the full log is below. Click **FORGE THE PORT** again:
-  finished steps are skipped. **Only check the files** tests your dump without building.
+- **A step failed**: the reason is under the step, in red, and the full log is below. Click **FORGE** again:
+  finished steps are skipped. **Only check** tests your dump without building. To ask for help, press **Report…**
+  and attach `aoc-report.zip` (it holds the logs and your PC's details, nothing of the game).
 - **The build is very slow**: an antivirus scanning every file slows the compiler a lot; adding the `AoC-Recomp`
   folder (and on Windows `%LOCALAPPDATA%\AoC-Recomp`) to its exclusions helps.
 - **The game shows stutters the first time**: shaders are translated while you play the first time; they are cached

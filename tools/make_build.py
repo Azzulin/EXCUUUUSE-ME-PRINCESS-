@@ -29,14 +29,17 @@ Nothing here reads or prints key values: the key file's path goes to the tools t
 """
 import argparse
 import hashlib
+import json
 import os
 import shutil
 import subprocess
 import sys
+import time
 import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+VERSION = (ROOT / "VERSION").read_text().strip() if (ROOT / "VERSION").is_file() else "?"
 BASE_ID, UPDATE_ID = "01002B00111A2000", "01002B00111A2800"
 WIN = os.name == "nt"
 DISTRO = "AoC-Recomp"   # the private WSL distro the tools step makes
@@ -102,8 +105,14 @@ def tr(key: str, *a) -> str:
     return (en if LANG == "en" else pt).format(*a)
 
 
+LOG = None   # build/logs/forge-<time>.log: everything printed, for the launcher's Report button
+
+
 def out(line: str) -> None:
     print(line, flush=True)
+    if LOG:
+        LOG.write(line + "\n")
+        LOG.flush()
 
 
 def step(sid: str, state: str, text: str = "") -> None:
@@ -469,6 +478,13 @@ def main() -> int:
         plan.append(("send", s_send))
     if args.check_only:
         plan = plan[:1]
+    global LOG
+    logs = ROOT / "build" / "logs"
+    logs.mkdir(parents=True, exist_ok=True)
+    for old in sorted(logs.glob("forge-*.log"))[:-9]:   # keep the last ten
+        old.unlink(missing_ok=True)
+    LOG = open(logs / time.strftime("forge-%Y%m%d-%H%M%S.log"), "w", encoding="utf-8")
+    out(f"AoC Recomp {VERSION}, {' '.join(sys.argv[1:])}")
     for sid, _ in plan:
         out(f"@@PLAN {sid} {tr('t_' + sid)}")
     for sid, fn in plan:
@@ -487,6 +503,15 @@ def main() -> int:
             step(sid, "fail", repr(e))
             out("@@DONE fail")
             return 1
+    if not args.check_only:
+        # What was forged and from which version: the launcher shows the build screen again when VERSION changes
+        # (an update unpacked over the folder) and the play screen once the folder for this PC is there.
+        state = ROOT / "build" / "forge-state.json"
+        old = json.loads(state.read_text(encoding="utf-8")) if state.is_file() else {}
+        old.update({"version": VERSION, "time": time.strftime("%Y-%m-%d %H:%M:%S")})
+        old["deck"] = old.get("deck", False) or args.deck
+        old["windows"] = old.get("windows", False) or args.windows
+        state.write_text(json.dumps(old, indent=1) + "\n", encoding="utf-8")
     out("@@DONE ok")
     return 0
 

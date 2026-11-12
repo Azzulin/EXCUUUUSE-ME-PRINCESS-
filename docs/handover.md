@@ -153,7 +153,8 @@ partir de 100 s, `AOC_TRACE=perf`, vigia de travada).
   `-Linux.tar.gz` (`tools/make_release.py`). O launcher (português/inglês, Windows e Linux) roda `tools/make_build.py`,
   cujo passo `tools` monta o ambiente sozinho: distro WSL privada **`AoC-Recomp`** (Arch oficial, `wsl --install
   archlinux --name`), MSYS2 em `C:/msys64` se faltar, pacotes da distro no Linux. O pacote traz Python embarcado,
-  hactool e o tradutor prontos (sem .NET para o jogador). Guias: `GUIA.md` / `GUIDE.md`; detalhes em `building.md` §0.
+  hactool e o tradutor prontos (sem .NET para o jogador). Guias: `GUIA.md` / `GUIDE.md`; detalhes em `building.md` §0. Duas telas no padrão do B2recomp:
+  forja e launcher do jogo (configurações do `aoc.ini`, JOGAR, Relatório…).
   No notebook do dono o launcher usa a distro `archlinux` (`build/launcher/launcher.ini`), para aproveitar o
   `~/aoc-build` pronto.
 - **Saves nunca verificados em jogo real** (sessão 10): nenhum commit nas corridas; testar até o primeiro

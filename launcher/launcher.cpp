@@ -1,11 +1,19 @@
-// AoC Recomp launcher: builds the game from the player's own dump (tools/make_build.py) for the Steam Deck / Linux and
-// for Windows, and starts the result. Runs on Windows and on Linux. Dear ImGui on SDL3's renderer
+// AoC Recomp launcher: one window with two screens, for Windows and Linux. Dear ImGui on SDL3's renderer
 // (runtime/third_party/imgui, MIT). The look is drawn here (colours, geometric lines, rings): no game or Nintendo
 // artwork is in the repository.
 //
-// The launcher runs tools/make_build.py and reads its protocol: "@@PLAN <id> <title>", "@@STEP <id> <state> <text>",
-// "@@NEED wsl", "@@DONE ok|fail"; every other line goes to the log. Settings live in launcher.ini beside the
-// executable. The interface speaks Portuguese and English (the system's language first, a toggle at the top right).
+// Build screen: the player picks the folder with their own dump and the targets, and the launcher runs
+// tools/make_build.py, reading its protocol ("@@PLAN <id> <title>", "@@STEP <id> <state> <text>", "@@NEED wsl",
+// "@@DONE ok|fail"; every other line goes to the log). It shows while the game for this PC is not forged yet, or after
+// an update (VERSION differs from build/forge-state.json), or on "Forge again".
+//
+// Play screen: once the game for this PC is there (dist/aoc-windows on Windows, dist/aoc-deck on Linux), the window
+// turns into the game's launcher: the main settings of that folder's aoc.ini (the keys runtime/cfg.c reads, edited in
+// place the way cfg_save does: the line of a key keeps its spelling, a missing key goes into its section, the rest of
+// the file is untouched), Play, Report (tools/make_report.py), the game folder and Forge again.
+//
+// The interface speaks Portuguese and English (the system's language first, a toggle at the top right). Launcher
+// settings live in launcher.ini beside the executable.
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
 #ifdef _WIN32
@@ -18,6 +26,8 @@
 #include <unistd.h>
 #endif
 
+#include <algorithm>
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <cmath>
@@ -27,6 +37,7 @@
 #include <filesystem>
 #include <fstream>
 #include <mutex>
+#include <sstream>
 #include <string>
 #include <thread>
 #include <vector>
@@ -53,16 +64,18 @@ static ImU32 col(const ImVec4 &c, float a = -1) { return ImGui::GetColorU32(ImVe
 
 // ---- the interface's text, Portuguese and English
 enum Str {
-    T_SUBTITLE, T_FILES, T_FILES_HINT, T_BROWSE, T_NO_FOLDER, T_BASE, T_UPDATE, T_DLC, T_DLC_N, T_KEYS_OK, T_MISSING,
+    T_KICKER, T_FILES, T_FILES_HINT, T_BROWSE, T_NO_FOLDER, T_BASE, T_UPDATE, T_DLC, T_DLC_N, T_KEYS_OK, T_MISSING,
     T_TARGET, T_DECK, T_DECK_LINUX, T_ROMFS, T_SEND, T_HOST, T_WINDOWS, T_ADVANCED, T_DISTRO, T_DISTRO_HINT, T_WORK,
-    T_WORK_HINT, T_FORGE, T_FORGING, T_CHECK, T_CANCEL, T_PROGRESS, T_HOW1, T_HOW2, T_HOW2_LINUX, T_HOW3, T_HOW4, T_DONE_SKIP,
-    T_CHECKED, T_FORGED, T_FAILED, T_CANCELED, T_LOG, T_FOLLOW, T_OPEN_DECK, T_OPEN_WIN, T_PLAY_WIN, T_PLAY_LINUX,
-    T_FOOTER, T_GUIDE, T_NEED_WSL, T_NEED_WSL2, T_INSTALL_WSL, T_WSL_RUNNING, T_WSL_DONE, T_WSL_FAIL, T_CANCELLED_LOG,
-    T_NO_PYTHON, T_COUNT
+    T_WORK_HINT, T_FORGE, T_FORGING, T_CHECK, T_CANCEL, T_PROGRESS, T_HOW1, T_HOW2, T_HOW2_LINUX, T_HOW3, T_HOW4,
+    T_DONE_SKIP, T_CHECKED, T_FORGED, T_FORGED_DECK, T_FAILED, T_CANCELED, T_LOG, T_FOLLOW, T_OPEN_DECK, T_FOOTER,
+    T_GUIDE, T_NEED_WSL, T_NEED_WSL2, T_INSTALL_WSL, T_WSL_RUNNING, T_WSL_DONE, T_WSL_FAIL, T_CANCELLED_LOG,
+    T_NO_PYTHON, T_UPDATE_NOTE, T_GRAPHICS, T_CONTROLS, T_GFX_NOTE, T_CTL_NOTE, T_PLAY, T_PLAYING, T_REPORT,
+    T_REPORTING, T_REPORT_DONE, T_REPORT_FAIL, T_GAME_FOLDER, T_LOGS_FOLDER, T_FORGE_AGAIN, T_BACK_TO_GAME, T_SAVE,
+    T_SAVED, T_SAVE_FAIL, T_CLOSE, T_FRAMERATE, T_FRAMERATE_VAL, T_FRAMERATE_DESC, T_UNSAVED, T_PLAY_FAIL, T_COUNT
 };
 static const char *STR[T_COUNT][2] = {
-    {"forja do seu port, a partir da sua cópia", "forge your own port, from your own copy"},
-    {"1 · SEUS ARQUIVOS", "1 · YOUR FILES"},
+    {"HYRULE WARRIORS  ·  RECOMPILADO", "HYRULE WARRIORS  ·  RECOMPILED"},
+    {"SUA CÓPIA", "YOUR COPY"},
     {"Pasta com os NSPs (base, update 1.3.0, DLCs) e o prod.keys", "Folder with the NSPs (base, update 1.3.0, DLCs) and prod.keys"},
     {"Procurar...", "Browse..."},
     {"pasta não encontrada", "folder not found"},
@@ -72,7 +85,7 @@ static const char *STR[T_COUNT][2] = {
     {"%d encontrado(s)", "%d found"},
     {"(conteúdo nunca exibido)", "(contents never shown)"},
     {"(faltando)", "(missing)"},
-    {"2 · ONDE VAI JOGAR", "2 · WHERE YOU WILL PLAY"},
+    {"ONDE VAI JOGAR", "WHERE YOU WILL PLAY"},
     {"Steam Deck / Linux", "Steam Deck / Linux"},
     {"Steam Deck / Linux (este PC)", "Steam Deck / Linux (this PC)"},
     {"incluir o romfs.bin (primeira instalação, 10,9 GiB)", "include romfs.bin (first install, 10.9 GiB)"},
@@ -84,30 +97,28 @@ static const char *STR[T_COUNT][2] = {
     {"AoC-Recomp (automática)", "AoC-Recomp (automatic)"},
     {"pasta de trabalho (Windows)", "work folder (Windows)"},
     {"padrão", "default"},
-    {"FORJAR O PORT", "FORGE THE PORT"},
+    {"FORJAR", "FORGE"},
     {"FORJANDO...", "FORGING..."},
-    {"Só conferir os arquivos", "Only check the files"},
+    {"Só conferir", "Only check"},
     {"Cancelar", "Cancel"},
     {"PROGRESSO", "PROGRESS"},
     {"1. Escolha a pasta com a sua cópia do jogo (NSPs e prod.keys).", "1. Pick the folder with your copy of the game (NSPs and prod.keys)."},
     {"2. Marque onde vai jogar: Steam Deck / Linux, Windows ou os dois.", "2. Tick where you will play: Steam Deck / Linux, Windows or both."},
     {"2. Deixe marcado Steam Deck / Linux (a pasta serve para este PC e para o Deck).",
      "2. Keep Steam Deck / Linux ticked (the folder works on this PC and on the Deck)."},
-    {"3. Clique em FORJAR O PORT e deixe o PC trabalhar.", "3. Click FORGE THE PORT and let the PC work."},
+    {"3. Clique em FORJAR e deixe o PC trabalhar.", "3. Click FORGE and let the PC work."},
     {"A primeira vez leva de 1 a 2 horas (baixa ~2 GB de ferramentas e compila tudo).\nDepois, só o que mudou: minutos.",
      "The first time takes 1 to 2 hours (downloads ~2 GB of tools and compiles everything).\nAfter that, only what changed: minutes."},
     {"(já feito)", "(already done)"},
     {"Arquivos conferidos: tudo certo.", "Files checked: all good."},
     {"Pronto. O port foi forjado.", "Done. The port is forged."},
+    {"Pronto. Copie a pasta do Deck para o Steam Deck (veja o guia).", "Done. Copy the Deck folder to the Steam Deck (see the guide)."},
     {"Falhou. Veja o registro abaixo.", "Failed. See the log below."},
     {"Cancelado.", "Cancelled."},
     {"Registro", "Log"},
     {"acompanhar", "follow"},
-    {"Abrir pasta do Deck/Linux", "Open the Deck/Linux folder"},
-    {"Abrir pasta do Windows", "Open the Windows folder"},
-    {"Jogar no Windows", "Play on Windows"},
-    {"Jogar neste PC", "Play on this PC"},
-    {"Use somente a sua cópia, extraída do seu console. Nada do jogo é distribuído: tudo é gerado e fica neste PC.",
+    {"Pasta do Deck", "Deck folder"},
+    {"Use somente a sua cópia, extraída do seu console. Nada do jogo é distribuído: tudo é gerado neste PC.",
      "Use only your own copy, dumped from your console. Nothing from the game is distributed: it is all made on this PC."},
     {"Guia", "Guide"},
     {"O WSL (Linux dentro do Windows) é necessário para a versão do Steam Deck.",
@@ -121,6 +132,35 @@ static const char *STR[T_COUNT][2] = {
      "The WSL install did not finish (code %d). Try again or see the guide."},
     {"cancelado pelo usuário", "cancelled by the user"},
     {"não consegui iniciar o Python: ", "could not start Python: "},
+    {"Versão nova do AoC Recomp: forje de novo para atualizar o jogo (só o que mudou é refeito).",
+     "New AoC Recomp version: forge again to update the game (only what changed is redone)."},
+    {"GRÁFICOS", "GRAPHICS"},
+    {"CONTROLE E SOM", "CONTROLS AND SOUND"},
+    {"Valem na próxima vez que o jogo abrir. Mais opções no jogo: F1.",
+     "They apply the next time the game starts. More options in the game: F1."},
+    {"Em jogo, F1 (ou Menos + Mais no controle) abre o menu completo: remapear botões, cores, HDR.",
+     "In the game, F1 (or Minus + Plus on a controller) opens the full menu: remap buttons, colours, HDR."},
+    {"JOGAR", "PLAY"},
+    {"JOGANDO", "PLAYING"},
+    {"Relatório...", "Report..."},
+    {"Gerando o relatório...", "Making the report..."},
+    {"aoc-report.zip criado na pasta do AoC Recomp (registros e dados do PC, nada do jogo).",
+     "aoc-report.zip made in the AoC Recomp folder (logs and PC details, nothing of the game)."},
+    {"O relatório não foi criado.", "The report could not be made."},
+    {"Pasta do jogo", "Game folder"},
+    {"Registros", "Logs"},
+    {"Forjar de novo", "Forge again"},
+    {"Voltar ao jogo", "Back to the game"},
+    {"Salvar", "Save"},
+    {"Configurações salvas.", "Settings saved."},
+    {"Não consegui gravar o aoc.ini.", "Could not write aoc.ini."},
+    {"Fechar", "Close"},
+    {"Taxa de quadros", "Frame rate"},
+    {"30 fps (a do jogo)", "30 fps (the game's own)"},
+    {"30 FPS é a taxa do próprio jogo: ele anda um passo fixo por quadro. 60 FPS precisa de um patch que ainda não foi portado.",
+     "30 FPS is the game's own rate: it moves a fixed step per frame. 60 FPS needs a patch that is not ported yet."},
+    {"alterações não salvas", "unsaved changes"},
+    {"Não consegui abrir o jogo.", "Could not start the game."},
 };
 static int g_lang = 0;   // 0 Portuguese, 1 English
 static const char *tr(Str s) { return STR[s][g_lang]; }
@@ -184,6 +224,33 @@ static void settings_save() {
       << "\nwindows=" << S.windows << "\nsend=" << S.send << "\nwith_romfs=" << S.with_romfs << "\n";
 }
 
+static std::string read_text(const fs::path &p) {
+    std::ifstream f(p, std::ios::binary);
+    std::stringstream ss;
+    ss << f.rdbuf();
+    return ss.str();
+}
+static std::string trim(std::string s) {
+    size_t a = s.find_first_not_of(" \t\r\n"), b = s.find_last_not_of(" \t\r\n");
+    return a == std::string::npos ? "" : s.substr(a, b - a + 1);
+}
+
+// The game this PC plays: dist/aoc-windows on Windows, dist/aoc-deck on Linux.
+static fs::path game_dir() { return g_root / "dist" / (IS_WINDOWS ? "aoc-windows" : "aoc-deck"); }
+static bool game_ready() {
+    std::error_code ec;
+    return fs::is_regular_file(game_dir() / (IS_WINDOWS ? "aoc.exe" : "aoc"), ec);
+}
+// "version" of build/forge-state.json (tools/make_build.py writes it after a successful forge).
+static std::string forged_version() {
+    std::string t = read_text(g_root / "build" / "forge-state.json");
+    size_t k = t.find("\"version\"");
+    if (k == std::string::npos) return "";
+    size_t a = t.find('"', t.find(':', k) + 1), b = a == std::string::npos ? a : t.find('"', a + 1);
+    return b == std::string::npos ? "" : t.substr(a + 1, b - a - 1);
+}
+static std::string package_version() { return trim(read_text(g_root / "VERSION")); }
+
 // ---- the dump folder at a glance (names only; the build checks the contents)
 struct DumpScan {
     int nsp = 0, dlc = 0;
@@ -210,6 +277,218 @@ static DumpScan scan_dump(const std::string &dir) {
         else if (name.find("01002B00111A3") != std::string::npos) d.dlc++;
     }
     return d;
+}
+
+// ---- aoc.ini, edited in place (the rules of runtime/cfg.c cfg_load and cfg_save)
+struct GameIni {
+    fs::path path;
+    std::vector<std::string> lines;   // without their line ends
+    bool crlf = false, bom = false;
+
+    // "KEY" of a "key = value" line (upper case, no AOC_ prefix); "" for anything else
+    static std::string key_of(const std::string &l) {
+        std::string t = trim(l);
+        if (t.empty() || t[0] == '#' || t[0] == ';' || t[0] == '[') return "";
+        size_t eq = t.find('=');
+        if (eq == std::string::npos) return "";
+        std::string k = trim(t.substr(0, eq));
+        for (auto &c : k) c = (char)toupper((unsigned char)c);
+        if (k.rfind("AOC_", 0) == 0) k = k.substr(4);
+        return k;
+    }
+    static std::string section_of_line(const std::string &l) {
+        std::string t = trim(l);
+        if (t.size() < 2 || t[0] != '[') return "";
+        size_t e = t.find(']');
+        return e == std::string::npos ? "" : t.substr(1, e - 1);
+    }
+    void load(const fs::path &p) {
+        path = p;
+        lines.clear();
+        std::string t = read_text(p);
+        bom = t.rfind("\xEF\xBB\xBF", 0) == 0;
+        if (bom) t.erase(0, 3);
+        crlf = t.find("\r\n") != std::string::npos;
+        size_t s = 0;
+        while (s < t.size()) {
+            size_t e = t.find('\n', s);
+            std::string l = t.substr(s, e == std::string::npos ? std::string::npos : e - s);
+            if (!l.empty() && l.back() == '\r') l.pop_back();
+            lines.push_back(l);
+            if (e == std::string::npos) break;
+            s = e + 1;
+        }
+    }
+    int find(const std::string &key) const {   // the last line of the key (the one cfg_load keeps)
+        int at = -1;
+        for (int i = 0; i < (int)lines.size(); i++)
+            if (key_of(lines[i]) == key) at = i;
+        return at;
+    }
+    std::string get(const std::string &key) const {
+        int i = find(key);
+        if (i < 0) return "";
+        std::string v = trim(lines[i].substr(lines[i].find('=') + 1));
+        if (v.size() >= 2 && v.front() == '"' && v.back() == '"') v = v.substr(1, v.size() - 2);
+        return v;
+    }
+    void set(const std::string &key, const std::string &value, const char *section) {
+        int i = find(key);
+        if (i >= 0) {   // keep the line's indentation and key spelling
+            size_t eq = lines[i].find('=');
+            std::string k = lines[i].substr(0, eq);
+            while (!k.empty() && (k.back() == ' ' || k.back() == '\t')) k.pop_back();
+            lines[i] = k + " = " + value;
+            return;
+        }
+        std::string lk = key;
+        for (auto &c : lk) c = (char)tolower((unsigned char)c);
+        int in = 0, tail = -1;
+        for (int j = 0; j < (int)lines.size(); j++) {
+            std::string sec = section_of_line(lines[j]);
+            if (!sec.empty()) {
+                in = sec == section;
+                if (in) tail = j;
+                continue;
+            }
+            if (in && !trim(lines[j]).empty()) tail = j;
+        }
+        if (tail >= 0) {
+            lines.insert(lines.begin() + tail + 1, lk + " = " + value);
+        } else {
+            while (!lines.empty() && trim(lines.back()).empty()) lines.pop_back();
+            if (!lines.empty()) lines.push_back("");
+            lines.push_back(std::string("[") + section + "]");
+            lines.push_back(lk + " = " + value);
+        }
+    }
+    bool save() const {
+        std::string eol = crlf ? "\r\n" : "\n", out = bom ? "\xEF\xBB\xBF" : "";
+        for (auto &l : lines) out += l + eol;
+        fs::path tmp = path;
+        tmp += ".tmp";
+        {
+            std::ofstream f(tmp, std::ios::binary | std::ios::trunc);
+            if (!f) return false;
+            f << out;
+            if (!f) return false;
+        }
+        std::error_code ec;
+        fs::rename(tmp, path, ec);
+        return !ec;
+    }
+};
+
+// The settings the play screen shows: keys, values and defaults as runtime/cfg.c's metas has them; the texts follow
+// runtime/ui_text.c. Only settings measured on Age of Calamity are here; the in-game menu (F1) has the rest.
+struct Opt {
+    const char *key, *section, *def;
+    int kind;   // 0 choice, 1 slider (integer), 2 toggle
+    std::vector<const char *> vals;
+    std::vector<std::array<const char *, 2>> names;
+    int lo, hi, step;
+    const char *label[2], *desc[2];
+    const char *needs_off;   // shown disabled while this toggle key is "1"
+};
+static const std::vector<Opt> GFX = {
+    {"FULLSCREEN", "display", "0", 0, {"0", "1"}, {{{"Janela", "Windowed"}}, {{"Tela cheia", "Fullscreen"}}}, 0, 0, 0,
+     {"Modo da janela", "Window mode"},
+     {"Tela cheia ocupa a tela inteira; F11 alterna durante o jogo.", "Fullscreen fills the screen; F11 toggles it while playing."}, nullptr},
+    {"WINDOW_SIZE", "display", "1920x1080", 0, {"1280x720", "1600x900", "1920x1080", "2560x1440"},
+     {{{"1280 × 720", "1280 × 720"}}, {{"1600 × 900", "1600 × 900"}}, {{"1920 × 1080", "1920 × 1080"}}, {{"2560 × 1440", "2560 × 1440"}}},
+     0, 0, 0, {"Tamanho da janela", "Window size"},
+     {"Tamanho da janela do jogo fora da tela cheia.", "Size of the game window when not fullscreen."}, "FULLSCREEN"},
+    {"VK_PRESENT", "display", "mailbox", 0, {"mailbox", "fifo", "immediate"},
+     {{{"Mailbox (recomendado)", "Mailbox (recommended)"}}, {{"VSync", "VSync"}}, {{"Imediato", "Immediate"}}}, 0, 0, 0,
+     {"Apresentação", "Presentation"},
+     {"Como os quadros prontos chegam à tela. Mailbox: sem rasgos e com pouca espera. VSync: espera a tela. Imediato: a menor espera, pode rasgar a imagem.",
+      "How finished frames reach the screen. Mailbox: no tearing and little waiting. VSync: waits for the screen. Immediate: the least waiting, may tear."}, nullptr},
+    {"OUTPUT_RES", "display", "1920x1080", 0, {"1920x1080", "1280x720"},
+     {{{"1920 × 1080 (a do jogo)", "1920 × 1080 (the game's)"}}, {{"1280 × 720 (mais leve)", "1280 × 720 (lighter)"}}}, 0, 0, 0,
+     {"Resolução do jogo", "Game resolution"},
+     {"O tamanho em que a imagem e a interface são desenhadas. 1920 × 1080 é o do jogo; 1280 × 720 é o da tela do Steam Deck e poupa a placa de vídeo.",
+      "The size the picture and interface are drawn in. 1920 × 1080 is the game's own; 1280 × 720 matches the Steam Deck's screen and spares the GPU."}, nullptr},
+    {"OPERATION_MODE", "language", "docked", 0, {"docked", "handheld"},
+     {{{"TV (mais nítida)", "TV (sharper)"}}, {{"Portátil (mais leve)", "Handheld (lighter)"}}}, 0, 0, 0,
+     {"Resolução interna", "Internal resolution"},
+     {"TV: o jogo desenha na resolução do modo TV, mais nítida e mais pesada. Portátil: a do modo portátil, mais leve para a placa de vídeo e a bateria.",
+      "TV: the game draws at its docked resolution, sharper and heavier. Handheld: its handheld resolution, lighter on the GPU and the battery."}, nullptr},
+    {"RENDER_SCALE", "display", "game", 0, {"game", "50", "60", "67", "85", "100"},
+     {{{"Do jogo (75 %)", "Game (75 %)"}}, {{"50 %", "50 %"}}, {{"60 %", "60 %"}}, {{"67 %", "67 %"}}, {{"85 %", "85 %"}}, {{"100 %", "100 %"}}},
+     0, 0, 0, {"Escala 3D", "3D render scale"},
+     {"Tamanho da cena 3D em relação à resolução do jogo; o FSR do jogo a amplia até esse tamanho. Mais alto: mais nítido e mais pesado.",
+      "Size of the 3D scene relative to the game resolution; the game's FSR scales it up. Higher: sharper and heavier."}, nullptr},
+    {"ASPECT", "display", "fit", 0, {"fit", "stretch"}, {{{"Barras pretas", "Black bars"}}, {{"Esticar", "Stretch"}}}, 0, 0, 0,
+     {"Formato da imagem", "Picture shape"},
+     {"Numa tela de outro formato (uma imagem 16:9 numa tela 21:9): manter o formato com barras pretas ou esticar.",
+      "On a screen of another shape (a 16:9 picture on a 21:9 screen): keep the shape with black bars, or stretch it."}, nullptr},
+    {"ANISO", "display", "game", 0, {"game", "2", "4", "8", "16"},
+     {{{"Do jogo", "Game"}}, {{"2x", "2x"}}, {{"4x", "4x"}}, {{"8x", "8x"}}, {{"16x", "16x"}}}, 0, 0, 0,
+     {"Filtragem de texturas", "Texture filtering"},
+     {"Chão, estradas e paredes vistos de lado continuam nítidos na distância. Do jogo: o nível que o jogo pede, como no Switch.",
+      "Ground, roads and walls seen at a shallow angle stay sharp into the distance. Game: the level the game asks for, as on the Switch."}, nullptr},
+    {"SHADOW_RES", "display", "game", 0, {"game", "1024", "1536", "2048"},
+     {{{"Do jogo (varia)", "Game (changes)"}}, {{"1024", "1024"}}, {{"1536", "1536"}}, {{"2048", "2048"}}}, 0, 0, 0,
+     {"Sombras", "Shadows"},
+     {"Tamanho do mapa de sombras do sol. Um tamanho fixo deixa as sombras mais firmes e nítidas; acima de 1024 custa mais da placa de vídeo.",
+      "Size of the sun's shadow map. A fixed size keeps shadows steadier and sharper; above 1024 it costs more GPU time."}, nullptr},
+    {"PERF_OVERLAY", "display", "off", 0, {"off", "fps", "full"},
+     {{{"Desligado", "Off"}}, {{"FPS", "FPS"}}, {{"Completo", "Full"}}}, 0, 0, 0,
+     {"Indicador de desempenho", "Performance overlay"},
+     {"Taxa de quadros no canto da tela. Completo mostra também tempos de quadro, CPU, GPU e memória. F10 alterna.",
+      "Frame rate in the corner of the screen. Full adds frame times, CPU, GPU and memory. F10 cycles it."}, nullptr},
+};
+static const std::vector<Opt> CTL = {
+    {"PAD_LAYOUT", "input", "auto", 0, {"auto", "nintendo", "xbox"},
+     {{{"Automático", "Automatic"}}, {{"Nintendo (A à direita)", "Nintendo (A right)"}}, {{"Xbox (A embaixo)", "Xbox (A bottom)"}}},
+     0, 0, 0, {"Layout dos botões", "Button layout"},
+     {"Qual botão é o A. Nintendo: o da direita, como no Switch. Xbox: o de baixo. Automático escolhe pelo controle.",
+      "Which button is A. Nintendo: the right one, as on a Switch. Xbox: the bottom one. Automatic picks by controller."}, nullptr},
+    {"RUMBLE_STRENGTH", "input", "130", 1, {}, {}, 0, 300, 10, {"Vibração", "Vibration"},
+     {"Quão forte o controle vibra. 0 desliga.", "How strong the controller vibrates. 0 turns it off."}, nullptr},
+    {"STICK_DEADZONE", "input", "8", 1, {}, {}, 0, 50, 1, {"Zona morta dos analógicos", "Stick dead zone"},
+     {"Quanto o analógico precisa se mover antes de o jogo perceber. Aumente se o personagem ou a câmera andam sozinhos.",
+      "How far a stick must move before the game notices. Raise it if the character or the camera drifts."}, nullptr},
+    {"INVERT_RX", "input", "0", 2, {}, {}, 0, 0, 0, {"Inverter câmera (horizontal)", "Invert camera (horizontal)"},
+     {"Espelha o eixo horizontal do analógico direito.", "Mirrors the right stick's horizontal axis."}, nullptr},
+    {"INVERT_RY", "input", "0", 2, {}, {}, 0, 0, 0, {"Inverter câmera (vertical)", "Invert camera (vertical)"},
+     {"Espelha o eixo vertical do analógico direito.", "Mirrors the right stick's vertical axis."}, nullptr},
+    {"VOLUME", "audio", "100", 1, {}, {}, 0, 100, 5, {"Volume", "Volume"},
+     {"Volume geral do jogo.", "Master volume of the game."}, nullptr},
+    {"MUTE_BACKGROUND", "audio", "0", 2, {}, {}, 0, 0, 0, {"Mudo em segundo plano", "Mute in the background"},
+     {"Silencia o jogo enquanto outra janela estiver ativa.", "Silences the game while another window is active."}, nullptr},
+    {"MENU_LANG", "language", "", 0, {"", "pt-BR", "en"},
+     {{{"Automático", "Automatic"}}, {{"Português (Brasil)", "Português (Brasil)"}}, {{"English", "English"}}}, 0, 0, 0,
+     {"Idioma do menu do jogo", "In-game menu language"},
+     {"Idioma do menu do port (F1) e do indicador de desempenho. O idioma do jogo em si segue o do sistema.",
+      "Language of the port's menu (F1) and the performance overlay. The game's own language follows the system."}, nullptr},
+};
+
+static GameIni g_ini;
+static std::vector<std::string> g_vals_gfx, g_vals_ctl, g_saved_gfx, g_saved_ctl;
+static void ini_load() {
+    g_ini.load(game_dir() / "aoc.ini");
+    auto fill = [](const std::vector<Opt> &opts, std::vector<std::string> &v) {
+        v.clear();
+        for (auto &o : opts) {
+            std::string x = g_ini.get(o.key);
+            v.push_back(x.empty() ? o.def : x);
+        }
+    };
+    fill(GFX, g_vals_gfx), fill(CTL, g_vals_ctl);
+    g_saved_gfx = g_vals_gfx, g_saved_ctl = g_vals_ctl;
+}
+static bool ini_dirty() { return g_vals_gfx != g_saved_gfx || g_vals_ctl != g_saved_ctl; }
+static bool ini_save() {
+    g_ini.load(game_dir() / "aoc.ini");   // what the game may have written meanwhile stays
+    auto put = [](const std::vector<Opt> &opts, const std::vector<std::string> &v, const std::vector<std::string> &old) {
+        for (size_t i = 0; i < opts.size(); i++)
+            if (v[i] != old[i]) g_ini.set(opts[i].key, v[i], opts[i].section);
+    };
+    put(GFX, g_vals_gfx, g_saved_gfx), put(CTL, g_vals_ctl, g_saved_ctl);
+    if (!g_ini.save()) return false;
+    g_saved_gfx = g_vals_gfx, g_saved_ctl = g_vals_ctl;
+    return true;
 }
 
 // ---- the build process
@@ -307,11 +586,14 @@ static void reset_run(bool check_only) {
     g_need_wsl = false;
 }
 
-#ifdef _WIN32
-static HANDLE g_job, g_proc;
+// A small job in the background (the report): its exit code lands here; -1 while it runs.
+static std::atomic<int> g_job_state{0};   // 0 idle, 1 running, 2 ok, 3 failed
 
-// The Python that runs make_build.py: the one the release package carries (python/, with cryptography, lz4 and
-// numpy), else MSYS2's (a developer's tree), else the one on PATH.
+#ifdef _WIN32
+static HANDLE g_job, g_proc, g_game;
+
+// The Python that runs the tools: the one the release package carries (python/, with cryptography, lz4 and numpy),
+// else MSYS2's (a developer's tree), else the one on PATH.
 static fs::path python_exe() {
     std::error_code ec;
     for (fs::path p : {g_root / "python" / "python.exe", fs::path("C:/msys64/ucrt64/bin/python3.exe")})
@@ -391,8 +673,38 @@ static void open_path(const fs::path &p) {
     if ((INT_PTR)ShellExecuteW(nullptr, L"open", p.wstring().c_str(), nullptr, nullptr, SW_SHOW) <= 32)
         ShellExecuteW(nullptr, L"open", L"notepad.exe", quote(p.wstring()).c_str(), nullptr, SW_SHOW);
 }
-static void play(const fs::path &dir) {
-    ShellExecuteW(nullptr, L"open", (dir / "aoc.exe").wstring().c_str(), nullptr, dir.wstring().c_str(), SW_SHOW);
+// The game without a console window: its log goes to logs/aoc.log anyway.
+static bool play() {
+    fs::path d = game_dir();
+    std::wstring cl = quote((d / "aoc.exe").wstring()), cwd = d.wstring();
+    STARTUPINFOW si{sizeof si};
+    PROCESS_INFORMATION pi{};
+    if (!CreateProcessW(nullptr, cl.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, cwd.c_str(), &si, &pi))
+        return false;
+    CloseHandle(pi.hThread);
+    if (g_game) CloseHandle(g_game);
+    g_game = pi.hProcess;
+    return true;
+}
+static bool game_running() { return g_game && WaitForSingleObject(g_game, 0) == WAIT_TIMEOUT; }
+
+static void start_report() {
+    g_job_state = 1;
+    std::thread([]() {
+        std::wstring cl = quote(python_exe().wstring()) + L" " + quote((g_root / "tools" / "make_report.py").wstring());
+        STARTUPINFOW si{sizeof si};
+        PROCESS_INFORMATION pi{};
+        std::wstring cwd = g_root.wstring();
+        if (!CreateProcessW(nullptr, cl.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, cwd.c_str(), &si, &pi)) {
+            g_job_state = 3;
+            return;
+        }
+        WaitForSingleObject(pi.hProcess, INFINITE);
+        DWORD code = 1;
+        GetExitCodeProcess(pi.hProcess, &code);
+        CloseHandle(pi.hThread), CloseHandle(pi.hProcess);
+        g_job_state = code == 0 ? 2 : 3;
+    }).detach();
 }
 
 // WSL install, elevated: wsl.exe --install --no-distribution (the tools step makes the distro afterwards).
@@ -422,7 +734,7 @@ static void install_wsl() {
     }).detach();
 }
 #else
-static pid_t g_pid;
+static pid_t g_pid, g_game_pid;
 
 static void start_build(bool check_only) {
     reset_run(check_only);
@@ -474,22 +786,48 @@ static void cancel_build() {
     if (g_pid > 0) kill(-g_pid, SIGTERM);
 }
 
-static void spawn_detached(const std::vector<std::string> &cmd, const fs::path &cwd) {
+static pid_t spawn_detached(const std::vector<std::string> &cmd, const fs::path &cwd) {
     pid_t pid = fork();
     if (pid == 0) {
         setsid();
         if (!cwd.empty() && chdir(cwd.c_str())) _exit(126);
+        int nul = open("/dev/null", O_RDWR);
+        if (nul >= 0) dup2(nul, 0), dup2(nul, 1), dup2(nul, 2);
         std::vector<char *> argv;
         for (auto &s : cmd) argv.push_back((char *)s.c_str());
         argv.push_back(nullptr);
         execvp(argv[0], argv.data());
         _exit(127);
     }
+    return pid;
 }
 static void open_path(const fs::path &p) { spawn_detached({"xdg-open", p.string()}, {}); }
-static void play(const fs::path &dir) { spawn_detached({(dir / "aoc.sh").string()}, dir); }
-static void reap_children() {
-    while (waitpid(-1, nullptr, WNOHANG) > 0) {}
+static bool play() {
+    g_game_pid = spawn_detached({(game_dir() / "aoc.sh").string()}, game_dir());
+    return g_game_pid > 0;
+}
+static bool game_running() {
+    if (g_game_pid <= 0) return false;
+    int st;
+    if (waitpid(g_game_pid, &st, WNOHANG) == g_game_pid) g_game_pid = 0;
+    return g_game_pid > 0;
+}
+static void start_report() {
+    g_job_state = 1;
+    std::thread([]() {
+        pid_t pid = fork();
+        if (pid == 0) {
+            if (chdir(g_root.c_str())) _exit(126);
+            int nul = open("/dev/null", O_RDWR);
+            if (nul >= 0) dup2(nul, 0), dup2(nul, 1), dup2(nul, 2);
+            std::string script = (g_root / "tools" / "make_report.py").string();
+            execlp("python3", "python3", script.c_str(), (char *)nullptr);
+            _exit(127);
+        }
+        int st = 1;
+        if (pid > 0) waitpid(pid, &st, 0);
+        g_job_state = pid > 0 && WIFEXITED(st) && WEXITSTATUS(st) == 0 ? 2 : 3;
+    }).detach();
 }
 #endif
 
@@ -504,37 +842,38 @@ static void SDLCALL on_folder(void *, const char *const *list, int) {
 
 // ---- drawing helpers
 static ImFont *F_BODY, *F_HEAD, *F_TITLE, *F_SMALL;
+static float g_scale = 1;
 
 static void draw_background(float t) {
     ImDrawList *dl = ImGui::GetBackgroundDrawList();
     ImVec2 sz = ImGui::GetIO().DisplaySize;
     dl->AddRectFilledMultiColor(ImVec2(0, 0), sz, col(C_BG1), col(C_BG1), col(C_BG0), col(C_BG0));
     // the Calamity's glow along the bottom
-    dl->AddRectFilledMultiColor(ImVec2(0, sz.y * 0.70f), sz, col(C_RED, 0.0f), col(C_RED, 0.0f), col(C_RED, 0.16f),
-                                col(C_RED, 0.16f));
+    dl->AddRectFilledMultiColor(ImVec2(0, sz.y * 0.70f), sz, col(C_RED, 0.0f), col(C_RED, 0.0f), col(C_RED, 0.14f),
+                                col(C_RED, 0.14f));
     // a faint technical grid
-    for (float x = 0; x < sz.x; x += 48) dl->AddLine(ImVec2(x, 0), ImVec2(x, sz.y), col(C_CYAN, 0.035f));
-    for (float y = 0; y < sz.y; y += 48) dl->AddLine(ImVec2(0, y), ImVec2(sz.x, y), col(C_CYAN, 0.035f));
+    for (float x = 0; x < sz.x; x += 48) dl->AddLine(ImVec2(x, 0), ImVec2(x, sz.y), col(C_CYAN, 0.03f));
+    for (float y = 0; y < sz.y; y += 48) dl->AddLine(ImVec2(0, y), ImVec2(sz.x, y), col(C_CYAN, 0.03f));
     // slow concentric rings, upper right
-    ImVec2 c(sz.x * 0.86f, sz.y * 0.20f);
+    ImVec2 c(sz.x * 0.84f, sz.y * 0.13f);
     for (int i = 0; i < 6; i++) {
-        float r = 60.0f + i * 34.0f, a0 = t * (0.15f + 0.05f * i) * (i % 2 ? -1 : 1) + i;
+        float r = 50.0f + i * 30.0f, a0 = t * (0.15f + 0.05f * i) * (i % 2 ? -1 : 1) + i;
         dl->PathArcTo(c, r, a0, a0 + 3.14159f * (0.6f + 0.15f * i), 48);
         dl->PathStroke(col(i % 3 == 2 ? C_ORANGE : C_CYAN, 0.10f + 0.02f * (5 - i)), 0, 2.0f);
         dl->AddCircle(c, r, col(C_CYAN, 0.035f), 96, 1.0f);
     }
     for (int k = 0; k < 12; k++) {   // tick marks on the outer ring
-        float a = k * 3.14159f / 6 + t * 0.05f, r0 = 60 + 5 * 34 + 6, r1 = r0 + 12;
+        float a = k * 3.14159f / 6 + t * 0.05f, r0 = 50 + 5 * 30 + 6, r1 = r0 + 10;
         dl->AddLine(ImVec2(c.x + cosf(a) * r0, c.y + sinf(a) * r0), ImVec2(c.x + cosf(a) * r1, c.y + sinf(a) * r1),
-                    col(C_CYAN, 0.18f), 2.0f);
+                    col(C_CYAN, 0.16f), 2.0f);
     }
 }
 
-// Panel with a Sheikah-style frame: thin border, bright corner brackets.
+// Panel with a Sheikah-style frame: thin border, bright corner brackets, a spaced-out title.
 static void panel_begin(const char *id, const char *title, ImVec2 size) {
     ImGui::PushStyleColor(ImGuiCol_ChildBg, C_PANEL);
     ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 4.0f);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(18, 14));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(18 * g_scale, 14 * g_scale));
     ImGui::BeginChild(id, size, ImGuiChildFlags_Borders | ImGuiChildFlags_AlwaysUseWindowPadding);
     ImDrawList *dl = ImGui::GetWindowDrawList();
     ImVec2 p0 = ImGui::GetWindowPos(), p1(p0.x + ImGui::GetWindowWidth(), p0.y + ImGui::GetWindowHeight());
@@ -546,12 +885,25 @@ static void panel_begin(const char *id, const char *title, ImVec2 size) {
     dl->AddLine(ImVec2(p1.x - L, p1.y), p1, cc, 2), dl->AddLine(ImVec2(p1.x, p1.y - L), p1, cc, 2);
     if (title) {
         ImGui::PushFont(F_HEAD);
-        ImGui::TextColored(C_CYAN, "%s", title);
+        ImVec2 p = ImGui::GetCursorScreenPos();
+        float x = p.x;
+        for (const char *c = title; *c;) {   // letter-spaced, like an engraved plate
+            int n = 1;
+            unsigned char u = (unsigned char)*c;
+            if (u >= 0xF0) n = 4;
+            else if (u >= 0xE0) n = 3;
+            else if (u >= 0xC0) n = 2;
+            std::string ch(c, (size_t)n);
+            dl->AddText(ImVec2(x, p.y), col(C_ORANGE), ch.c_str());
+            x += ImGui::CalcTextSize(ch.c_str()).x + 2.5f * g_scale;
+            c += n;
+        }
+        ImGui::Dummy(ImVec2(x - p.x, ImGui::GetTextLineHeight()));
         ImGui::PopFont();
         ImVec2 q = ImGui::GetCursorScreenPos();
         dl->AddRectFilledMultiColor(ImVec2(q.x, q.y), ImVec2(q.x + ImGui::GetContentRegionAvail().x, q.y + 1),
                                     col(C_CYAN, 0.6f), col(C_CYAN, 0.0f), col(C_CYAN, 0.0f), col(C_CYAN, 0.6f));
-        ImGui::Dummy(ImVec2(0, 8));
+        ImGui::Dummy(ImVec2(0, 6 * g_scale));
     }
 }
 static void panel_end() {
@@ -602,9 +954,9 @@ static void step_marker(const std::string &st, float t) {
     ImGui::Dummy(ImVec2(24, h));
 }
 
-// The big "forge" button: gradient body, glow when hovered.
-static bool forge_button(const char *label, ImVec2 size, bool enabled, float t) {
-    ImGui::PushID("forge");
+// The big action button (FORGE / PLAY): Guardian-orange to Calamity-red body, spaced letters, glow when hovered.
+static bool big_button(const char *id, const char *label, ImVec2 size, bool enabled, float t) {
+    ImGui::PushID(id);
     ImVec2 p = ImGui::GetCursorScreenPos();
     bool pressed = ImGui::InvisibleButton("b", size) && enabled;
     bool hov = ImGui::IsItemHovered() && enabled;
@@ -620,26 +972,92 @@ static bool forge_button(const char *label, ImVec2 size, bool enabled, float t) 
     }
     dl->AddRect(p, q, col(enabled ? C_TEXT : C_MUTED, 0.6f), 4, 0, 1.5f);
     ImGui::PushFont(F_HEAD);
-    ImVec2 ts = ImGui::CalcTextSize(label);
-    dl->AddText(ImVec2(p.x + (size.x - ts.x) * 0.5f, p.y + (size.y - ts.y) * 0.5f), col(enabled ? C_TEXT : C_MUTED), label);
+    float w = 0;
+    for (const char *c = label; *c; c++) w += ImGui::CalcTextSize(c, c + 1).x + 4 * g_scale;
+    float x = p.x + (size.x - w + 4 * g_scale) * 0.5f, y = p.y + (size.y - ImGui::GetTextLineHeight()) * 0.5f;
+    for (const char *c = label; *c; c++) {
+        dl->AddText(ImVec2(x, y), col(enabled ? C_TEXT : C_MUTED), c, c + 1);
+        x += ImGui::CalcTextSize(c, c + 1).x + 4 * g_scale;
+    }
     ImGui::PopFont();
     ImGui::PopID();
     return pressed;
 }
 
+static void tooltip(const char *text) {
+    if (!ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort | ImGuiHoveredFlags_AllowWhenDisabled)) return;
+    ImGui::BeginTooltip();
+    ImGui::PushTextWrapPos(360 * g_scale);
+    ImGui::TextUnformatted(text);
+    ImGui::PopTextWrapPos();
+    ImGui::EndTooltip();
+}
+
 // Small two-state toggle for the language, top right.
-static bool lang_chip(const char *label, bool on, float scale) {
+static bool lang_chip(const char *label, bool on) {
     ImGui::PushStyleColor(ImGuiCol_Button, on ? ImVec4(C_CYAN_DIM.x, C_CYAN_DIM.y, C_CYAN_DIM.z, 0.9f) : ImVec4(0, 0, 0, 0));
     ImGui::PushStyleColor(ImGuiCol_Text, on ? C_TEXT : C_MUTED);
-    bool r = ImGui::Button(label, ImVec2(40 * scale, 0));
+    bool r = ImGui::Button(label, ImVec2(40 * g_scale, 0));
     ImGui::PopStyleColor(2);
     return r;
+}
+
+// One settings row: the label on the left, the control on the right, the description as a tooltip on both.
+static void opt_row(const Opt &o, std::string &v, const std::vector<std::string> &all, const std::vector<Opt> &opts) {
+    bool disabled = false;
+    if (o.needs_off)
+        for (size_t i = 0; i < opts.size(); i++)
+            if (!strcmp(opts[i].key, o.needs_off) && all[i] == "1") disabled = true;
+    ImGui::TableNextRow();
+    ImGui::TableSetColumnIndex(0);
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextColored(disabled ? C_MUTED : C_TEXT, "%s", o.label[g_lang]);
+    tooltip(o.desc[g_lang]);
+    ImGui::TableSetColumnIndex(1);
+    ImGui::SetNextItemWidth(-1);
+    ImGui::BeginDisabled(disabled);
+    ImGui::PushID(o.key);
+    if (o.kind == 0) {
+        int cur = -1;
+        for (size_t i = 0; i < o.vals.size(); i++)
+            if (v == o.vals[i]) cur = (int)i;
+        std::string shown = cur >= 0 ? o.names[(size_t)cur][g_lang] : v;   // a value set elsewhere stays visible
+        if (ImGui::BeginCombo("##c", shown.c_str())) {
+            for (size_t i = 0; i < o.vals.size(); i++)
+                if (ImGui::Selectable(o.names[i][g_lang], (int)i == cur)) v = o.vals[i];
+            ImGui::EndCombo();
+        }
+    } else if (o.kind == 1) {
+        int x = atoi(v.c_str());
+        if (ImGui::SliderInt("##s", &x, o.lo, o.hi, "%d %%")) {
+            x = std::clamp((x + o.step / 2) / o.step * o.step, o.lo, o.hi);
+            v = std::to_string(x);
+        }
+    } else {
+        bool on = v == "1";
+        if (ImGui::Checkbox(on ? (g_lang ? "On" : "Ligado") : (g_lang ? "Off" : "Desligado"), &on)) v = on ? "1" : "0";
+    }
+    ImGui::PopID();
+    ImGui::EndDisabled();
+    tooltip(o.desc[g_lang]);
+}
+
+static void opt_table(const char *id, const std::vector<Opt> &opts, std::vector<std::string> &vals) {
+    ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(6 * g_scale, 4 * g_scale));
+    if (ImGui::BeginTable(id, 2, ImGuiTableFlags_SizingStretchProp)) {
+        ImGui::TableSetupColumn("l", ImGuiTableColumnFlags_WidthStretch, 0.46f);
+        ImGui::TableSetupColumn("v", ImGuiTableColumnFlags_WidthStretch, 0.54f);
+        for (size_t i = 0; i < opts.size(); i++) opt_row(opts[i], vals[i], vals, opts);
+        ImGui::EndTable();
+    }
+    ImGui::PopStyleVar();
 }
 
 static void apply_theme() {
     ImGuiStyle &s = ImGui::GetStyle();
     s.WindowRounding = 0, s.FrameRounding = 3, s.GrabRounding = 3, s.ChildRounding = 4, s.ScrollbarRounding = 3;
-    s.FramePadding = ImVec2(10, 6), s.ItemSpacing = ImVec2(10, 8), s.WindowBorderSize = 0, s.ChildBorderSize = 1;
+    s.PopupRounding = 3, s.FramePadding = ImVec2(10, 6), s.ItemSpacing = ImVec2(10, 8), s.WindowBorderSize = 0;
+    s.ChildBorderSize = 1, s.GrabMinSize = 12;
     ImVec4 *c = s.Colors;
     c[ImGuiCol_Text] = C_TEXT;
     c[ImGuiCol_TextDisabled] = C_MUTED;
@@ -651,9 +1069,14 @@ static void apply_theme() {
     c[ImGuiCol_FrameBgHovered] = ImVec4(0.09f, 0.18f, 0.28f, 1);
     c[ImGuiCol_FrameBgActive] = ImVec4(0.11f, 0.22f, 0.34f, 1);
     c[ImGuiCol_CheckMark] = C_CYAN;
+    c[ImGuiCol_SliderGrab] = C_CYAN;
+    c[ImGuiCol_SliderGrabActive] = C_ORANGE;
     c[ImGuiCol_Button] = ImVec4(0.08f, 0.20f, 0.30f, 1);
     c[ImGuiCol_ButtonHovered] = ImVec4(0.12f, 0.30f, 0.44f, 1);
     c[ImGuiCol_ButtonActive] = ImVec4(0.16f, 0.40f, 0.56f, 1);
+    c[ImGuiCol_Header] = ImVec4(0.10f, 0.26f, 0.38f, 1);
+    c[ImGuiCol_HeaderHovered] = ImVec4(0.12f, 0.30f, 0.44f, 1);
+    c[ImGuiCol_HeaderActive] = ImVec4(0.16f, 0.40f, 0.56f, 1);
     c[ImGuiCol_ScrollbarBg] = ImVec4(0, 0, 0, 0.2f);
     c[ImGuiCol_ScrollbarGrab] = ImVec4(C_CYAN_DIM.x, C_CYAN_DIM.y, C_CYAN_DIM.z, 0.6f);
     c[ImGuiCol_Separator] = ImVec4(C_CYAN.x, C_CYAN.y, C_CYAN.z, 0.25f);
@@ -689,6 +1112,372 @@ static int system_lang() {
     return r;
 }
 
+// ---- the two screens
+enum Screen { SCR_BUILD, SCR_PLAY };
+static Screen g_screen;
+static std::string g_status;     // the bottom bar's message
+static ImVec4 g_status_col = C_MUTED;
+static double g_status_t;
+
+static void set_status(const char *msg, const ImVec4 &c) { g_status = msg, g_status_col = c, g_status_t = now_s(); }
+
+// Header: a kicker line, the title with a soft glow, a line with diamonds; guide and language at the top right.
+static void draw_header(ImGuiIO &io, float pad) {
+    float s = g_scale;
+    ImGui::SetCursorPos(ImVec2(io.DisplaySize.x - pad - 40 * s * 2 - 90 * s - 20 * s, pad * 0.55f));
+    const fs::path guide = g_root / (g_lang ? "GUIDE.md" : "GUIA.md");
+    if (ImGui::Button(lab(T_GUIDE, "guide").c_str(), ImVec2(90 * s, 0))) open_path(guide);
+    ImGui::SameLine(0, 20 * s);
+    if (lang_chip("PT", g_lang == 0) && g_lang != 0) g_lang = 0, settings_save();
+    ImGui::SameLine(0, 4);
+    if (lang_chip("EN", g_lang == 1) && g_lang != 1) g_lang = 1, settings_save();
+
+    ImGui::SetCursorPos(ImVec2(pad, pad * 0.7f));
+    ImGui::PushFont(F_SMALL);
+    {
+        ImVec2 p = ImGui::GetCursorScreenPos();
+        float x = p.x;
+        ImDrawList *dl = ImGui::GetWindowDrawList();
+        for (const char *c = tr(T_KICKER); *c;) {
+            int n = (unsigned char)*c >= 0xC0 ? ((unsigned char)*c >= 0xE0 ? 3 : 2) : 1;
+            dl->AddText(ImVec2(x, p.y), col(C_CYAN, 0.85f), c, c + n);
+            x += ImGui::CalcTextSize(c, c + n).x + 3 * s;
+            c += n;
+        }
+        ImGui::Dummy(ImVec2(x - p.x, ImGui::GetTextLineHeight()));
+    }
+    ImGui::PopFont();
+    ImGui::SetCursorPosX(pad);
+    ImGui::PushFont(F_TITLE);
+    {
+        ImVec2 tp = ImGui::GetCursorScreenPos();
+        ImDrawList *dl = ImGui::GetWindowDrawList();
+        for (int i = 1; i <= 3; i++)   // a soft glow under the title
+            for (int k = 0; k < 4; k++)
+                dl->AddText(ImVec2(tp.x + (k & 1 ? i : -i) * 1.2f, tp.y + (k & 2 ? i : -i) * 1.2f), col(C_CYAN, 0.06f),
+                            "AGE OF CALAMITY");
+    }
+    ImGui::TextColored(C_TEXT, "AGE OF CALAMITY");
+    ImGui::PopFont();
+    ImDrawList *dl = ImGui::GetWindowDrawList();
+    ImVec2 q = ImGui::GetCursorScreenPos();
+    float w = io.DisplaySize.x - 2 * pad;
+    q.x = pad, q.y += 4 * s;
+    dl->AddRectFilledMultiColor(q, ImVec2(q.x + w, q.y + 2), col(C_CYAN, 0.9f), col(C_ORANGE, 0.0f), col(C_ORANGE, 0.0f),
+                                col(C_CYAN, 0.9f));
+    for (int i = 0; i < 3; i++) {   // small diamonds on the line
+        ImVec2 d(q.x + 60 + i * 18, q.y + 1);
+        dl->AddQuadFilled(ImVec2(d.x, d.y - 5), ImVec2(d.x + 5, d.y), ImVec2(d.x, d.y + 5), ImVec2(d.x - 5, d.y),
+                          col(i == 1 ? C_ORANGE : C_CYAN));
+    }
+    ImGui::Dummy(ImVec2(0, 18 * s));
+}
+
+// The bottom bar's small buttons, all of one height.
+static bool bar_button(Str s, const char *id) {
+    return ImGui::Button(lab(s, id).c_str(), ImVec2(0, 44 * g_scale));
+}
+
+static void report_status() {
+    static int shown = 0;
+    int st = g_job_state.load();
+    if (st == shown) return;
+    shown = st;
+    if (st == 1) set_status(tr(T_REPORTING), C_MUTED);
+    else if (st == 2) set_status(tr(T_REPORT_DONE), C_OK), open_path(g_root);
+    else if (st == 3) set_status(tr(T_REPORT_FAIL), C_RED);
+}
+
+static void screen_play(ImGuiIO &io, float pad, float t, bool &quit) {
+    float s = g_scale;
+    float total_w = io.DisplaySize.x - 2 * pad, gap = 16 * s;
+    float bar_h = 44 * s + 26 * s;
+    float body_h = io.DisplaySize.y - ImGui::GetCursorPosY() - bar_h - 12 * s;
+    float half = (total_w - gap) * 0.5f;
+
+    ImGui::SetCursorPosX(pad);
+    panel_begin("gfx", tr(T_GRAPHICS), ImVec2(half, body_h));
+    opt_table("##gfx", GFX, g_vals_gfx);
+    ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(6 * s, 4 * s));
+    if (ImGui::BeginTable("##fps", 2, ImGuiTableFlags_SizingStretchProp)) {   // the frame rate, as information
+        ImGui::TableSetupColumn("l", ImGuiTableColumnFlags_WidthStretch, 0.46f);
+        ImGui::TableSetupColumn("v", ImGuiTableColumnFlags_WidthStretch, 0.54f);
+        ImGui::TableNextRow();
+        ImGui::TableSetColumnIndex(0);
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextColored(C_TEXT, "%s", tr(T_FRAMERATE));
+        tooltip(tr(T_FRAMERATE_DESC));
+        ImGui::TableSetColumnIndex(1);
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextColored(C_ORANGE, "%s", tr(T_FRAMERATE_VAL));
+        tooltip(tr(T_FRAMERATE_DESC));
+        ImGui::EndTable();
+    }
+    ImGui::PopStyleVar();
+    ImGui::SetCursorPosY(ImGui::GetWindowHeight() - ImGui::GetTextLineHeightWithSpacing() * 2.2f);
+    ImGui::PushFont(F_SMALL);
+    ImGui::PushTextWrapPos(0);
+    ImGui::TextColored(C_MUTED, "%s", tr(T_GFX_NOTE));
+    ImGui::PopTextWrapPos();
+    ImGui::PopFont();
+    panel_end();
+
+    ImGui::SameLine(0, gap);
+    panel_begin("ctl", tr(T_CONTROLS), ImVec2(half, body_h));
+    opt_table("##ctl", CTL, g_vals_ctl);
+    ImGui::SetCursorPosY(ImGui::GetWindowHeight() - ImGui::GetTextLineHeightWithSpacing() * 2.2f);
+    ImGui::PushFont(F_SMALL);
+    ImGui::PushTextWrapPos(0);
+    ImGui::TextColored(C_MUTED, "%s", tr(T_CTL_NOTE));
+    ImGui::PopTextWrapPos();
+    ImGui::PopFont();
+    panel_end();
+
+    // ---- bottom bar: Report, game folder, forge again, save, close ... PLAY
+    ImGui::SetCursorPos(ImVec2(pad, io.DisplaySize.y - bar_h));
+    ImGui::BeginDisabled(g_job_state == 1);
+    if (bar_button(T_REPORT, "report")) start_report();
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    if (bar_button(T_GAME_FOLDER, "gfolder")) open_path(game_dir());
+    ImGui::SameLine();
+    if (bar_button(T_FORGE_AGAIN, "again")) g_screen = SCR_BUILD;
+    ImGui::SameLine();
+    bool dirty = ini_dirty();
+    ImGui::BeginDisabled(!dirty);
+    if (bar_button(T_SAVE, "save")) set_status(tr(ini_save() ? T_SAVED : T_SAVE_FAIL), ini_dirty() ? C_RED : C_OK);
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    if (bar_button(T_CLOSE, "close")) quit = true;
+    float play_w = 230 * s;
+    bool running = game_running();
+    ImGui::SameLine(io.DisplaySize.x - pad - play_w);
+    if (big_button("play", tr(running ? T_PLAYING : T_PLAY), ImVec2(play_w, 44 * s), !running, t)) {
+        if (dirty && !ini_save()) set_status(tr(T_SAVE_FAIL), C_RED);
+        else if (!play()) set_status(tr(T_PLAY_FAIL), C_RED);
+    }
+    // the message line under the bar
+    ImGui::SetCursorPos(ImVec2(pad, io.DisplaySize.y - 22 * s));
+    ImGui::PushFont(F_SMALL);
+    if (!g_status.empty() && now_s() - g_status_t < 8) ImGui::TextColored(g_status_col, "%s", g_status.c_str());
+    else if (dirty) ImGui::TextColored(C_ORANGE, "%s", tr(T_UNSAVED));
+    else ImGui::TextColored(C_MUTED, "%s", tr(T_FOOTER));
+    ImGui::PopFont();
+}
+
+static void screen_build(ImGuiIO &io, float pad, float t, DumpScan &scan, char *path_buf, size_t path_n, char *host_buf,
+                         size_t host_n, char *work_buf, size_t work_n, char *distro_buf, size_t distro_n,
+                         bool &autoscroll, bool &quit, SDL_Window *win) {
+    float s = g_scale;
+    bool running = g_running.load() != 0;
+    float total_w = io.DisplaySize.x - 2 * pad, gap = 16 * s;
+    float bar_h = 44 * s + 26 * s;
+    float left_w = total_w * 0.42f, right_w = total_w - left_w - gap;
+    float body_h = io.DisplaySize.y - ImGui::GetCursorPosY() - bar_h - 12 * s;
+
+    bool update = game_ready() && forged_version() != package_version();
+    if (update) {
+        ImGui::SetCursorPosX(pad);
+        ImGui::TextColored(C_ORANGE, "%s", tr(T_UPDATE_NOTE));
+        body_h -= ImGui::GetTextLineHeightWithSpacing();
+    }
+    float files_h = 236 * s;
+    ImGui::SetCursorPosX(pad);
+    ImGui::BeginGroup();
+    // ---- your copy
+    panel_begin("files", tr(T_FILES), ImVec2(left_w, files_h));
+    ImGui::TextColored(C_MUTED, "%s", tr(T_FILES_HINT));
+    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - 110 * s);
+    ImGui::BeginDisabled(running);
+    ImGui::InputText("##dir", path_buf, path_n);
+    ImGui::SameLine();
+    if (ImGui::Button(lab(T_BROWSE, "browse").c_str(), ImVec2(100 * s, 0)))
+        SDL_ShowOpenFolderDialog(on_folder, nullptr, win, S.game_dir.empty() ? nullptr : S.game_dir.c_str(), false);
+    ImGui::EndDisabled();
+    ImGui::Dummy(ImVec2(0, 2));
+    if (!scan.exists) {
+        status_dot(false, tr(T_NO_FOLDER));
+    } else {
+        status_dot(scan.base, tr(T_BASE), scan.base ? "01002B00111A2000" : tr(T_MISSING));
+        status_dot(scan.update, tr(T_UPDATE), scan.update ? "01002B00111A2800" : tr(T_MISSING));
+        char d[48];
+        snprintf(d, sizeof d, tr(T_DLC_N), scan.dlc);
+        status_dot(scan.dlc > 0, tr(T_DLC), d);
+        status_dot(scan.keys, "prod.keys", scan.keys ? tr(T_KEYS_OK) : tr(T_MISSING));
+    }
+    panel_end();
+    ImGui::Dummy(ImVec2(0, gap - ImGui::GetStyle().ItemSpacing.y * 2));
+    // ---- where you will play
+    panel_begin("targets", tr(T_TARGET), ImVec2(left_w, body_h - files_h - gap + ImGui::GetStyle().ItemSpacing.y));
+    ImGui::BeginDisabled(running);
+    ImGui::Checkbox(lab(IS_WINDOWS ? T_DECK : T_DECK_LINUX, "deck").c_str(), &S.deck);
+    if (S.deck) {
+        ImGui::Indent(26 * s);
+        ImGui::Checkbox(lab(T_ROMFS, "romfs").c_str(), &S.with_romfs);
+        ImGui::Checkbox(lab(T_SEND, "send").c_str(), &S.send);
+        if (S.send) {
+            ImGui::SetNextItemWidth(220 * s);
+            ImGui::InputText(lab(T_HOST, "host").c_str(), host_buf, host_n);
+        }
+        ImGui::Unindent(26 * s);
+    }
+    if (IS_WINDOWS) {
+        ImGui::Checkbox(lab(T_WINDOWS, "windows").c_str(), &S.windows);
+        ImGui::Dummy(ImVec2(0, 2 * s));
+        ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0, 0, 0, 0));
+        if (ImGui::CollapsingHeader(lab(T_ADVANCED, "adv").c_str())) {
+            ImGui::SetNextItemWidth(190 * s);
+            ImGui::InputTextWithHint(lab(T_DISTRO, "distro").c_str(), tr(T_DISTRO_HINT), distro_buf, distro_n);
+            ImGui::SetNextItemWidth(190 * s);
+            ImGui::InputTextWithHint(lab(T_WORK, "work").c_str(), tr(T_WORK_HINT), work_buf, work_n);
+        }
+        ImGui::PopStyleColor();
+    }
+    ImGui::EndDisabled();
+    panel_end();
+    ImGui::EndGroup();
+
+    // ---- progress and log
+    ImGui::SameLine(0, gap);
+    panel_begin("progress", tr(T_PROGRESS), ImVec2(right_w, body_h));
+    {
+        std::lock_guard<std::mutex> g(g_lock);
+        int done = 0;
+        for (auto &st : g_steps) done += st.state == "ok" || st.state == "skip";
+        float frac = g_steps.empty() ? 0.0f : (float)done / g_steps.size();
+        ImDrawList *dl = ImGui::GetWindowDrawList();
+        ImVec2 p = ImGui::GetCursorScreenPos();
+        float w = ImGui::GetContentRegionAvail().x, h = 8 * s;
+        dl->AddRectFilled(p, ImVec2(p.x + w, p.y + h), col(C_CYAN, 0.10f), 3);
+        if (frac > 0) dl->AddRectFilledMultiColor(p, ImVec2(p.x + w * frac, p.y + h), col(C_CYAN_DIM), col(C_CYAN),
+                                                  col(C_CYAN), col(C_CYAN_DIM));
+        if (g_running) {
+            float x = p.x + fmodf(t * 160 * s, w);
+            dl->AddRectFilled(ImVec2(x, p.y), ImVec2(fminf(x + 40 * s, p.x + w), p.y + h), col(C_ORANGE, 0.5f), 3);
+        }
+        ImGui::Dummy(ImVec2(w, h + 6));
+        if (g_steps.empty()) {   // the how-to, before the first run
+            ImGui::TextColored(C_TEXT, "%s", tr(T_HOW1));
+            ImGui::TextColored(C_TEXT, "%s", tr(IS_WINDOWS ? T_HOW2 : T_HOW2_LINUX));
+            ImGui::TextColored(C_TEXT, "%s", tr(T_HOW3));
+            ImGui::Dummy(ImVec2(0, 4));
+            ImGui::TextColored(C_MUTED, "%s", tr(T_HOW4));
+        }
+        for (auto &st : g_steps) {
+            step_marker(st.state, t);
+            ImGui::SameLine();
+            ImGui::TextColored(st.state == "pending" ? C_MUTED : C_TEXT, "%s", st.title.c_str());
+            if (st.t0 > 0) {
+                double el = (st.t1 > 0 ? st.t1 : now_s()) - st.t0;
+                ImGui::SameLine();
+                if (st.state == "skip") ImGui::TextColored(C_MUTED, "%s", tr(T_DONE_SKIP));
+                else ImGui::TextColored(C_MUTED, "%dm%02ds", (int)el / 60, (int)el % 60);
+            }
+            if (!st.note.empty()) {
+                ImGui::PushFont(F_SMALL);
+                ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 34 * s);
+                ImGui::PushTextWrapPos(0);
+                ImGui::TextColored(C_RED, "%s", st.note.c_str());
+                ImGui::PopTextWrapPos();
+                ImGui::PopFont();
+            }
+        }
+        if (g_done == "ok") {
+            Str msg = g_check_only ? T_CHECKED : (S.deck && !(IS_WINDOWS && S.windows) && IS_WINDOWS) ? T_FORGED_DECK : T_FORGED;
+            ImGui::TextColored(C_OK, "%s", tr(msg));
+        } else if (g_done == "fail") {
+            ImGui::TextColored(C_RED, "%s", tr(T_FAILED));
+        } else if (g_done == "cancel") {
+            ImGui::TextColored(C_ORANGE, "%s", tr(T_CANCELED));
+        }
+#ifdef _WIN32
+        // WSL missing: offer the elevated install
+        if (g_need_wsl || g_wsl_inst) {
+            ImGui::Dummy(ImVec2(0, 4));
+            ImGui::PushTextWrapPos(0);
+            if (g_wsl_inst == 2) {
+                ImGui::TextColored(C_OK, "%s", tr(T_WSL_DONE));
+            } else {
+                ImGui::TextColored(C_ORANGE, "%s", tr(T_NEED_WSL));
+                ImGui::TextColored(C_TEXT, "%s", tr(T_NEED_WSL2));
+                if (g_wsl_inst == 1) {
+                    ImGui::TextColored(C_MUTED, "%s", tr(T_WSL_RUNNING));
+                } else {
+                    if (g_wsl_inst == 3) ImGui::TextColored(C_RED, tr(T_WSL_FAIL), g_wsl_code.load());
+                    if (ImGui::Button(lab(T_INSTALL_WSL, "wslinst").c_str())) install_wsl();
+                }
+            }
+            ImGui::PopTextWrapPos();
+        }
+#endif
+        ImGui::Separator();
+        ImGui::PushFont(F_SMALL);
+        ImGui::TextColored(C_MUTED, "%s", tr(T_LOG));
+        ImGui::SameLine();
+        ImGui::Checkbox(lab(T_FOLLOW, "follow").c_str(), &autoscroll);
+        ImGui::BeginChild("log", ImVec2(0, ImGui::GetContentRegionAvail().y), ImGuiChildFlags_Borders,
+                          ImGuiWindowFlags_HorizontalScrollbar);
+        ImGuiListClipper clip;
+        clip.Begin((int)g_log.size());
+        while (clip.Step())
+            for (int i = clip.DisplayStart; i < clip.DisplayEnd; i++) {
+                const std::string &l = g_log[i];
+                bool err = l.rfind("ERRO", 0) == 0 || l.find("FAILED") != std::string::npos || l.find("error:") != std::string::npos;
+                ImGui::TextColored(err ? C_RED : C_MUTED, "%s", l.c_str());
+            }
+        if (autoscroll && g_running) ImGui::SetScrollHereY(1.0f);
+        ImGui::EndChild();
+        ImGui::PopFont();
+    }
+    panel_end();
+
+    // ---- bottom bar: Report, logs, Deck folder, back to the game, close ... FORGE (or Cancel)
+    ImGui::SetCursorPos(ImVec2(pad, io.DisplaySize.y - bar_h));
+    ImGui::BeginDisabled(g_job_state == 1);
+    if (bar_button(T_REPORT, "report")) start_report();
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    if (bar_button(T_LOGS_FOLDER, "logs")) {
+        std::error_code ec;
+        fs::create_directories(g_root / "build" / "logs", ec);
+        open_path(g_root / "build" / "logs");
+    }
+    ImGui::SameLine();
+    std::error_code ec;
+    fs::path deck_dir = g_root / "dist" / "aoc-deck";
+    if (IS_WINDOWS && fs::exists(deck_dir / "aoc", ec)) {
+        if (bar_button(T_OPEN_DECK, "odeck")) open_path(deck_dir);
+        ImGui::SameLine();
+    }
+    if (game_ready() && !running && !update) {
+        if (bar_button(T_BACK_TO_GAME, "back")) g_screen = SCR_PLAY;
+        ImGui::SameLine();
+    }
+    if (bar_button(T_CLOSE, "close")) quit = true;
+    bool ready = scan.base && scan.update && scan.keys && (S.deck || S.windows) && !g_root.empty();
+    float check_w = 120 * s, forge_w = 200 * s;
+    ImGui::SameLine(io.DisplaySize.x - pad - forge_w - check_w - 10 * s);
+    if (!running) {
+        ImGui::BeginDisabled(!scan.exists || !(S.deck || S.windows));
+        if (ImGui::Button(lab(T_CHECK, "check").c_str(), ImVec2(check_w, 44 * s))) start_build(true);
+        ImGui::EndDisabled();
+        ImGui::SameLine(0, 10 * s);
+        if (big_button("forge", tr(T_FORGE), ImVec2(forge_w, 44 * s), ready, t)) {
+            settings_save();
+            start_build(false);
+        }
+    } else {
+        if (ImGui::Button(lab(T_CANCEL, "cancel").c_str(), ImVec2(check_w, 44 * s))) cancel_build();
+        ImGui::SameLine(0, 10 * s);
+        big_button("forge", tr(T_FORGING), ImVec2(forge_w, 44 * s), false, t);
+    }
+    ImGui::SetCursorPos(ImVec2(pad, io.DisplaySize.y - 22 * s));
+    ImGui::PushFont(F_SMALL);
+    if (!g_status.empty() && now_s() - g_status_t < 8) ImGui::TextColored(g_status_col, "%s", g_status.c_str());
+    else ImGui::TextColored(C_MUTED, "%s", tr(T_FOOTER));
+    ImGui::PopFont();
+}
+
 int main(int argc, char **argv) {
     g_exe_dir = exe_dir();
     g_root = find_root(g_exe_dir);
@@ -700,8 +1489,10 @@ int main(int argc, char **argv) {
     g_lang = S.lang == "pt" ? 0 : S.lang == "en" ? 1 : system_lang();
     float scale = SDL_GetDisplayContentScale(SDL_GetPrimaryDisplay());
     if (scale <= 0) scale = 1;
-    SDL_Window *win = SDL_CreateWindow("Age of Calamity Recomp", (int)(1180 * scale), (int)(820 * scale),
+    g_scale = scale;
+    SDL_Window *win = SDL_CreateWindow("Age of Calamity Recomp", (int)(1100 * scale), (int)(800 * scale),
                                        SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
+    SDL_SetWindowMinimumSize(win, (int)(960 * scale), (int)(720 * scale));
     SDL_Renderer *ren = SDL_CreateRenderer(win, nullptr);
     SDL_SetRenderVSync(ren, 1);
     IMGUI_CHECKVERSION();
@@ -714,8 +1505,8 @@ int main(int argc, char **argv) {
     if (fs::is_regular_file(font, ec)) {
         F_BODY = io.Fonts->AddFontFromFileTTF(fp.c_str(), 17 * scale);
         F_SMALL = io.Fonts->AddFontFromFileTTF(fp.c_str(), 14 * scale);
-        F_HEAD = io.Fonts->AddFontFromFileTTF(fp.c_str(), 21 * scale);
-        F_TITLE = io.Fonts->AddFontFromFileTTF(fp.c_str(), 46 * scale);
+        F_HEAD = io.Fonts->AddFontFromFileTTF(fp.c_str(), 19 * scale);
+        F_TITLE = io.Fonts->AddFontFromFileTTF(fp.c_str(), 44 * scale);
     }
     if (!F_BODY) F_BODY = F_SMALL = F_HEAD = F_TITLE = io.Fonts->AddFontDefault();
     apply_theme();
@@ -731,9 +1522,15 @@ int main(int argc, char **argv) {
     snprintf(work_buf, sizeof work_buf, "%s", S.win_work.c_str());
     snprintf(distro_buf, sizeof distro_buf, "%s", S.wsl_distro.c_str());
     bool autoscroll = true, quit = false;
-    for (int i = 1; i < argc; i++)
-        if (!strcmp(argv[i], "--check-now")) start_build(true);
+    // The play screen once the game for this PC is forged from this version; else the build screen.
+    g_screen = game_ready() && forged_version() == package_version() ? SCR_PLAY : SCR_BUILD;
+    if (game_ready()) ini_load();
+    for (int i = 1; i < argc; i++) {
+        if (!strcmp(argv[i], "--check-now")) g_screen = SCR_BUILD, start_build(true);
+        if (!strcmp(argv[i], "--build")) g_screen = SCR_BUILD;
+    }
     double t_start = now_s();
+    std::string last_done;
 
     while (!quit) {
         SDL_Event e;
@@ -741,9 +1538,6 @@ int main(int argc, char **argv) {
             ImGui_ImplSDL3_ProcessEvent(&e);
             if (e.type == SDL_EVENT_QUIT || e.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED) quit = true;
         }
-#ifndef _WIN32
-        reap_children();
-#endif
         {
             std::lock_guard<std::mutex> g(g_pick_lock);
             if (!g_picked.empty()) {
@@ -753,6 +1547,23 @@ int main(int argc, char **argv) {
         }
         S.game_dir = path_buf, S.deck_host = host_buf, S.win_work = work_buf, S.wsl_distro = distro_buf;
         if (S.game_dir != scanned_dir) scan = scan_dump(S.game_dir), scanned_dir = S.game_dir;
+        // a forge that ends well with the game for this PC turns the window into the launcher
+        {
+            std::string d;
+            {
+                std::lock_guard<std::mutex> g(g_lock);
+                d = g_done;
+            }
+            if (d != last_done) {
+                last_done = d;
+                if (d == "ok" && !g_check_only && game_ready() && !g_running) {
+                    ini_load();
+                    g_screen = SCR_PLAY;
+                    set_status(tr(T_FORGED), C_OK);
+                }
+            }
+        }
+        report_status();
 
         ImGui_ImplSDLRenderer3_NewFrame();
         ImGui_ImplSDL3_NewFrame();
@@ -765,256 +1576,13 @@ int main(int argc, char **argv) {
         ImGui::Begin("root", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
                                           ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoSavedSettings);
         ImGui::PushFont(F_BODY);
-        float pad = 28 * scale;
-        bool running = g_running.load() != 0;
-
-        // ---- language and guide, top right
-        {
-            ImGui::SetCursorPos(ImVec2(io.DisplaySize.x - pad - 40 * scale * 2 - 90 * scale - 20 * scale, pad * 0.6f));
-            const fs::path guide = g_root / (g_lang ? "GUIDE.md" : "GUIA.md");
-            if (ImGui::Button(lab(T_GUIDE, "guide").c_str(), ImVec2(90 * scale, 0))) open_path(guide);
-            ImGui::SameLine(0, 20 * scale);
-            if (lang_chip("PT", g_lang == 0, scale) && g_lang != 0) g_lang = 0, settings_save();
-            ImGui::SameLine(0, 4);
-            if (lang_chip("EN", g_lang == 1, scale) && g_lang != 1) g_lang = 1, settings_save();
-        }
-        ImGui::SetCursorPos(ImVec2(pad, pad * 0.8f));
-
-        // ---- header
-        ImGui::PushFont(F_TITLE);
-        {
-            ImVec2 tp = ImGui::GetCursorScreenPos();
-            ImDrawList *dl = ImGui::GetWindowDrawList();
-            for (int i = 1; i <= 3; i++)   // a soft glow under the title
-                for (int k = 0; k < 4; k++)
-                    dl->AddText(ImVec2(tp.x + (k & 1 ? i : -i) * 1.2f, tp.y + (k & 2 ? i : -i) * 1.2f), col(C_CYAN, 0.06f),
-                                "AGE OF CALAMITY");
-        }
-        ImGui::TextColored(C_TEXT, "AGE OF CALAMITY");
-        ImGui::PopFont();
-        ImGui::SetCursorPosX(pad);
-        ImGui::PushFont(F_HEAD);
-        ImGui::TextColored(C_CYAN, "RECOMP");
-        ImGui::SameLine();
-        ImGui::TextColored(C_MUTED, "·  %s", tr(T_SUBTITLE));
-        ImGui::PopFont();
-        {
-            ImDrawList *dl = ImGui::GetWindowDrawList();
-            ImVec2 q = ImGui::GetCursorScreenPos();
-            float w = io.DisplaySize.x - 2 * pad;
-            q.x = pad, q.y += 6;
-            dl->AddRectFilledMultiColor(q, ImVec2(q.x + w, q.y + 2), col(C_CYAN, 0.9f), col(C_ORANGE, 0.0f),
-                                        col(C_ORANGE, 0.0f), col(C_CYAN, 0.9f));
-            for (int i = 0; i < 3; i++) {   // small diamonds on the line
-                ImVec2 d(q.x + 60 + i * 18, q.y + 1);
-                dl->AddQuadFilled(ImVec2(d.x, d.y - 5), ImVec2(d.x + 5, d.y), ImVec2(d.x, d.y + 5), ImVec2(d.x - 5, d.y),
-                                  col(i == 1 ? C_ORANGE : C_CYAN));
-            }
-        }
-        ImGui::Dummy(ImVec2(0, 20 * scale));
-
-        float total_w = io.DisplaySize.x - 2 * pad;
-        float left_w = total_w * 0.40f, right_w = total_w - left_w - 18 * scale;
-        float body_h = io.DisplaySize.y - ImGui::GetCursorPosY() - 46 * scale;
-
-        float gap = 10 * scale, files_h = 252 * scale, buttons_h = 54 * scale + ImGui::GetFrameHeight() + 3 * gap;
-        float targets_h = fmaxf(body_h - files_h - buttons_h - gap, 200 * scale);
-        ImGui::SetCursorPosX(pad);
-        ImGui::BeginGroup();
-        // ---- 1: files
-        panel_begin("files", tr(T_FILES), ImVec2(left_w, files_h));
-        ImGui::TextColored(C_MUTED, "%s", tr(T_FILES_HINT));
-        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - 110 * scale);
-        ImGui::BeginDisabled(running);
-        ImGui::InputText("##dir", path_buf, sizeof path_buf);
-        ImGui::SameLine();
-        if (ImGui::Button(lab(T_BROWSE, "browse").c_str(), ImVec2(100 * scale, 0)))
-            SDL_ShowOpenFolderDialog(on_folder, nullptr, win, S.game_dir.empty() ? nullptr : S.game_dir.c_str(), false);
-        ImGui::EndDisabled();
-        ImGui::Dummy(ImVec2(0, 4));
-        if (!scan.exists) {
-            status_dot(false, tr(T_NO_FOLDER));
-        } else {
-            status_dot(scan.base, tr(T_BASE), scan.base ? "01002B00111A2000" : tr(T_MISSING));
-            status_dot(scan.update, tr(T_UPDATE), scan.update ? "01002B00111A2800" : tr(T_MISSING));
-            char d[48];
-            snprintf(d, sizeof d, tr(T_DLC_N), scan.dlc);
-            status_dot(scan.dlc > 0, tr(T_DLC), d);
-            status_dot(scan.keys, "prod.keys", scan.keys ? tr(T_KEYS_OK) : tr(T_MISSING));
-        }
-        panel_end();
-        ImGui::Dummy(ImVec2(0, gap - ImGui::GetStyle().ItemSpacing.y));
-
-        // ---- 2: targets
-        panel_begin("targets", tr(T_TARGET), ImVec2(left_w, targets_h));
-        ImGui::BeginDisabled(running);
-        ImGui::Checkbox(lab(IS_WINDOWS ? T_DECK : T_DECK_LINUX, "deck").c_str(), &S.deck);
-        if (S.deck) {
-            ImGui::Indent(26 * scale);
-            ImGui::Checkbox(lab(T_ROMFS, "romfs").c_str(), &S.with_romfs);
-            ImGui::Checkbox(lab(T_SEND, "send").c_str(), &S.send);
-            if (S.send) {
-                ImGui::SetNextItemWidth(260 * scale);
-                ImGui::InputText(lab(T_HOST, "host").c_str(), host_buf, sizeof host_buf);
-            }
-            ImGui::Unindent(26 * scale);
-        }
-        if (IS_WINDOWS) {
-            ImGui::Checkbox(lab(T_WINDOWS, "windows").c_str(), &S.windows);
-            ImGui::Dummy(ImVec2(0, 2 * scale));
-            ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0, 0, 0, 0));
-            if (ImGui::CollapsingHeader(lab(T_ADVANCED, "adv").c_str())) {
-                ImGui::SetNextItemWidth(200 * scale);
-                ImGui::InputTextWithHint(lab(T_DISTRO, "distro").c_str(), tr(T_DISTRO_HINT), distro_buf, sizeof distro_buf);
-                ImGui::SetNextItemWidth(200 * scale);
-                ImGui::InputTextWithHint(lab(T_WORK, "work").c_str(), tr(T_WORK_HINT), work_buf, sizeof work_buf);
-            }
-            ImGui::PopStyleColor();
-        }
-        ImGui::EndDisabled();
-        panel_end();
-        ImGui::Dummy(ImVec2(0, gap - ImGui::GetStyle().ItemSpacing.y));
-
-        // ---- 3: forge
-        bool ready = scan.base && scan.update && scan.keys && (S.deck || S.windows) && !g_root.empty();
-        float bw = left_w;
-        if (!running) {
-            if (forge_button(tr(T_FORGE), ImVec2(bw, 54 * scale), ready, t)) {
-                settings_save();
-                start_build(false);
-            }
-            ImGui::BeginDisabled(!scan.exists || !(S.deck || S.windows));
-            if (ImGui::Button(lab(T_CHECK, "check").c_str(), ImVec2(bw, 0))) start_build(true);
-            ImGui::EndDisabled();
-        } else {
-            forge_button(tr(T_FORGING), ImVec2(bw, 54 * scale), false, t);
-            if (ImGui::Button(lab(T_CANCEL, "cancel").c_str(), ImVec2(bw, 0))) cancel_build();
-        }
-        ImGui::EndGroup();
-
-        // ---- progress and log
-        ImGui::SameLine(0, 18 * scale);
-        ImGui::BeginGroup();
-        panel_begin("progress", tr(T_PROGRESS), ImVec2(right_w, body_h));
-        {
-            std::lock_guard<std::mutex> g(g_lock);
-            int done = 0;
-            for (auto &s : g_steps) done += s.state == "ok" || s.state == "skip";
-            float frac = g_steps.empty() ? 0.0f : (float)done / g_steps.size();
-            // progress bar: Sheikah blue fill with a moving highlight
-            ImDrawList *dl = ImGui::GetWindowDrawList();
-            ImVec2 p = ImGui::GetCursorScreenPos();
-            float w = ImGui::GetContentRegionAvail().x, h = 8 * scale;
-            dl->AddRectFilled(p, ImVec2(p.x + w, p.y + h), col(C_CYAN, 0.10f), 3);
-            if (frac > 0) dl->AddRectFilledMultiColor(p, ImVec2(p.x + w * frac, p.y + h), col(C_CYAN_DIM), col(C_CYAN),
-                                                      col(C_CYAN), col(C_CYAN_DIM));
-            if (g_running) {
-                float x = p.x + fmodf(t * 160 * scale, w);
-                dl->AddRectFilled(ImVec2(x, p.y), ImVec2(fminf(x + 40 * scale, p.x + w), p.y + h), col(C_ORANGE, 0.5f), 3);
-            }
-            ImGui::Dummy(ImVec2(w, h + 6));
-            if (g_steps.empty()) {   // the how-to, before the first run
-                ImGui::TextColored(C_TEXT, "%s", tr(T_HOW1));
-                ImGui::TextColored(C_TEXT, "%s", tr(IS_WINDOWS ? T_HOW2 : T_HOW2_LINUX));
-                ImGui::TextColored(C_TEXT, "%s", tr(T_HOW3));
-                ImGui::Dummy(ImVec2(0, 4));
-                ImGui::TextColored(C_MUTED, "%s", tr(T_HOW4));
-            }
-            for (auto &s : g_steps) {
-                step_marker(s.state, t);
-                ImGui::SameLine();
-                ImGui::TextColored(s.state == "pending" ? C_MUTED : C_TEXT, "%s", s.title.c_str());
-                if (s.t0 > 0) {
-                    double el = (s.t1 > 0 ? s.t1 : now_s()) - s.t0;
-                    ImGui::SameLine();
-                    if (s.state == "skip") ImGui::TextColored(C_MUTED, "%s", tr(T_DONE_SKIP));
-                    else ImGui::TextColored(C_MUTED, "%dm%02ds", (int)el / 60, (int)el % 60);
-                }
-                if (!s.note.empty()) {
-                    ImGui::PushFont(F_SMALL);
-                    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 34 * scale);
-                    ImGui::PushTextWrapPos(0);
-                    ImGui::TextColored(C_RED, "%s", s.note.c_str());
-                    ImGui::PopTextWrapPos();
-                    ImGui::PopFont();
-                }
-            }
-            if (g_done == "ok") ImGui::TextColored(C_OK, "%s", tr(g_check_only ? T_CHECKED : T_FORGED));
-            else if (g_done == "fail") ImGui::TextColored(C_RED, "%s", tr(T_FAILED));
-            else if (g_done == "cancel") ImGui::TextColored(C_ORANGE, "%s", tr(T_CANCELED));
-#ifdef _WIN32
-            // WSL missing: offer the elevated install
-            if (g_need_wsl || g_wsl_inst) {
-                ImGui::Dummy(ImVec2(0, 4));
-                ImGui::PushTextWrapPos(0);
-                if (g_wsl_inst == 2) {
-                    ImGui::TextColored(C_OK, "%s", tr(T_WSL_DONE));
-                } else {
-                    ImGui::TextColored(C_ORANGE, "%s", tr(T_NEED_WSL));
-                    ImGui::TextColored(C_TEXT, "%s", tr(T_NEED_WSL2));
-                    if (g_wsl_inst == 1) {
-                        ImGui::TextColored(C_MUTED, "%s", tr(T_WSL_RUNNING));
-                    } else {
-                        if (g_wsl_inst == 3) ImGui::TextColored(C_RED, tr(T_WSL_FAIL), g_wsl_code.load());
-                        if (ImGui::Button(lab(T_INSTALL_WSL, "wslinst").c_str())) install_wsl();
-                    }
-                }
-                ImGui::PopTextWrapPos();
-            }
-#endif
-            ImGui::Separator();
-            ImGui::PushFont(F_SMALL);
-            ImGui::TextColored(C_MUTED, "%s", tr(T_LOG));
-            ImGui::SameLine();
-            ImGui::Checkbox(lab(T_FOLLOW, "follow").c_str(), &autoscroll);
-            float log_h = ImGui::GetContentRegionAvail().y - 40 * scale;
-            ImGui::BeginChild("log", ImVec2(0, log_h), ImGuiChildFlags_Borders, ImGuiWindowFlags_HorizontalScrollbar);
-            ImGuiListClipper clip;
-            clip.Begin((int)g_log.size());
-            while (clip.Step())
-                for (int i = clip.DisplayStart; i < clip.DisplayEnd; i++) {
-                    const std::string &l = g_log[i];
-                    bool err = l.rfind("ERRO", 0) == 0 || l.find("FAILED") != std::string::npos || l.find("error:") != std::string::npos;
-                    ImGui::TextColored(err ? C_RED : C_MUTED, "%s", l.c_str());
-                }
-            if (autoscroll && g_running) ImGui::SetScrollHereY(1.0f);
-            ImGui::EndChild();
-            ImGui::PopFont();
-        }
-        // the finished folders
-        std::error_code ec2;
-        fs::path deck_dir = g_root / "dist" / "aoc-deck", win_dir = g_root / "dist" / "aoc-windows";
-        bool has_deck = fs::exists(deck_dir / "aoc", ec2), has_win = fs::exists(win_dir / "aoc.exe", ec2);
-        ImGui::BeginDisabled(!has_deck);
-        if (ImGui::Button(lab(T_OPEN_DECK, "odeck").c_str())) open_path(deck_dir);
-        ImGui::EndDisabled();
-        ImGui::SameLine();
-        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(C_ORANGE.x * 0.55f, C_ORANGE.y * 0.40f, 0.10f, 1));
-        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(C_ORANGE.x * 0.75f, C_ORANGE.y * 0.55f, 0.15f, 1));
-        if (IS_WINDOWS) {
-            ImGui::PopStyleColor(2);
-            ImGui::BeginDisabled(!has_win);
-            if (ImGui::Button(lab(T_OPEN_WIN, "owin").c_str())) open_path(win_dir);
-            ImGui::SameLine();
-            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(C_ORANGE.x * 0.55f, C_ORANGE.y * 0.40f, 0.10f, 1));
-            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(C_ORANGE.x * 0.75f, C_ORANGE.y * 0.55f, 0.15f, 1));
-            if (ImGui::Button(lab(T_PLAY_WIN, "pwin").c_str())) play(win_dir);
-            ImGui::PopStyleColor(2);
-            ImGui::EndDisabled();
-        } else {
-            ImGui::BeginDisabled(!has_deck);
-            if (ImGui::Button(lab(T_PLAY_LINUX, "plin").c_str())) play(deck_dir);
-            ImGui::EndDisabled();
-            ImGui::PopStyleColor(2);
-        }
-        panel_end();
-        ImGui::EndGroup();
-
-        // ---- footer
-        ImGui::SetCursorPos(ImVec2(pad, io.DisplaySize.y - 30 * scale));
-        ImGui::PushFont(F_SMALL);
-        ImGui::TextColored(C_MUTED, "%s", tr(T_FOOTER));
-        ImGui::PopFont();
+        float pad = 26 * scale;
+        draw_header(io, pad);
+        if (g_screen == SCR_PLAY && game_ready())
+            screen_play(io, pad, t, quit);
+        else
+            screen_build(io, pad, t, scan, path_buf, sizeof path_buf, host_buf, sizeof host_buf, work_buf,
+                         sizeof work_buf, distro_buf, sizeof distro_buf, autoscroll, quit, win);
         ImGui::PopFont();
         ImGui::End();
 

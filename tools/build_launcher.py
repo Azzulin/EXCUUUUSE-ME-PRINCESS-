@@ -22,8 +22,7 @@ SOURCES = [ROOT / "launcher" / "launcher.cpp"] + [IMGUI / f for f in ("imgui.cpp
 CXXFLAGS = ["-O2", "-std=c++17", "-DNDEBUG", "-I", str(IMGUI), "-I", str(IMGUI / "backends")]
 
 
-def build_windows() -> Path:
-    out = ROOT / "build" / "launcher"
+def build_windows(out: Path) -> Path:
     out.mkdir(parents=True, exist_ok=True)
     res = out / "launcher.res.o"
     windres = shutil.which("llvm-windres") or shutil.which("windres")
@@ -53,10 +52,9 @@ def build_windows() -> Path:
     return exe
 
 
-def build_linux(sysroot: Path) -> Path:
+def build_linux(sysroot: Path, out: Path) -> Path:
     if not (sysroot / "usr/lib/x86_64-linux-gnu/libSDL3.a").is_file():
         sys.exit(f"ERRO: {sysroot} não tem a SDL3 estática; rode antes tools/build.py dist (baixa o sniper)")
-    out = ROOT / "build" / "launcher-linux"
     out.mkdir(parents=True, exist_ok=True)
     exe = out / "aoc-launcher"
     cc = ["clang++", "--target=x86_64-linux-gnu", f"--sysroot={sysroot}", "-fuse-ld=lld"]
@@ -78,8 +76,10 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--linux", action="store_true")
     ap.add_argument("--sysroot", type=Path, default=Path.home() / "aoc-build" / "toolchain" / "sniper")
+    ap.add_argument("--out", type=Path, help="output folder (default: build/launcher or build/launcher-linux)")
     args = ap.parse_args()
-    exe = build_linux(args.sysroot) if args.linux else build_windows()
+    out = (args.out or ROOT / "build" / ("launcher-linux" if args.linux else "launcher")).resolve()
+    exe = build_linux(args.sysroot, out) if args.linux else build_windows(out)
     print(f"pronto: {exe} ({exe.stat().st_size / 2**20:.1f} MiB)")
     return 0
 

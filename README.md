@@ -13,7 +13,7 @@ Windows).
 ## Para jogar
 
 Baixe o pacote do **launcher** na página *Releases* (Windows `.zip` ou Linux `.tar.gz`), extraia, abra o
-`AoC-Launcher.exe` (ou `./aoc-launcher`), aponte a pasta com a sua cópia e clique em **FORJAR O PORT**. Ele prepara
+`AoC-Launcher.exe` (ou `./aoc-launcher`), aponte a pasta com a sua cópia e clique em **FORJAR**. Ele prepara
 sozinho as ferramentas (Linux do WSL, compilador) e compila o jogo para o Steam Deck / Linux e para o Windows.
 Passo a passo: **[GUIA.md](GUIA.md)** (português) · **[GUIDE.md](GUIDE.md)** (English).
 

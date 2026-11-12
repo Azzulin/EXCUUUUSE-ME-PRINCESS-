@@ -999,3 +999,27 @@ efeito para o usuário (um clique), sem hospedar nada além do nosso código.
   o disco virtual dela chegou a 35 GB e o notebook ficou com 2,7 GB livres. O mesmo `build.py gen guest dist` já tinha
   rodado inteiro na distro `AoC-Recomp`. Testes apagados (distros `AoC-LinuxTest` e `AoC-Recomp`, `C:\Teste AoC`,
   MSYS2 de teste); o espaço do disco virtual apagado não voltou na hora (provavelmente preso pelo Windows até reiniciar).
+
+### Sessão 12, parte 3: launcher no padrão do B2recomp
+
+Pedido do dono: deixar o launcher parecido com o do port de Bayonetta 2 (B2recomp, na pasta de Downloads). O launcher
+dele (`launcher/launcher.c`, GPL: só lido para entender o comportamento) é uma janela que primeiro faz o build a partir
+do dump e depois vira o launcher do jogo: painéis GRAPHICS e CONTROLLER com linhas "rótulo → caixa", dicas ao passar o
+mouse, barra inferior (Report, Mods, Config folder, Save, Close) e um PLAY grande; volta à tela de build quando o
+pacote é atualizado.
+
+- O nosso agora tem as mesmas duas telas, com o tema Sheikah/Calamidade:
+  - **Forja**, como antes;
+  - **Jogo**, que aparece sozinha quando a forja termina: GRÁFICOS (modo e tamanho da janela, apresentação, resolução
+    do jogo 1080p/720p, resolução interna TV/portátil, escala 3D, formato, filtragem, sombras, indicador; 30 fps como
+    informação) e CONTROLE E SOM (layout, vibração, zona morta, inverter a câmera, volume, mudo em segundo plano,
+    idioma do menu).
+  - Só opções medidas no AoC; as outras do menu herdadas do TotK ficam no F1.
+- O launcher edita o `aoc.ini` com as regras do `cfg_save`. Testado com cliques simulados: "Tela cheia" e volume 50
+  entraram em `[display]` e `[audio]`, e a linha que já existia ficou igual.
+- **JOGAR** abre o `aoc.exe` sem janela de console (o registro vai para `logs/aoc.log` de qualquer jeito).
+- **Relatório…**: `tools/make_report.py` gera `aoc-report.zip` com `system.txt`, os registros da forja (o
+  `make_build.py` agora grava `build/logs/forge-<data>.log`, os dez últimos) e os do jogo. Medido: 7 KiB, nada do jogo.
+- `build/forge-state.json` (versão e destinos forjados) decide a tela inicial; com outro `VERSION` (atualização
+  extraída por cima) o launcher mostra a forja com um aviso.
+- `tools/build_launcher.py --out`; launcher Linux compilado e visto pelo WSLg.

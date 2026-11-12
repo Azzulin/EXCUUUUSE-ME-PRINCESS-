@@ -909,3 +909,39 @@ Depois: 60 fps opcional, 16:10, DLCs, co-op.
 - **Deck, 10 min de batalha** (`route-long.txt`, perfil do Deck): memória **plana em 3 299 MiB** dos 4,5 aos 10 min;
   30 fps nos últimos 5 min sem nenhum quadro acima de 100 ms; APU média 5,1 W (pico 7,8 W), CPU ≤ 64 °C, GPU ≤ 60 °C;
   0 erros. O binário no Deck é este (com o 1280×720 corrigido, que segue fora do perfil).
+
+## Sessão 12 — 2026-11-12 (notebook): launcher para forjar o port a partir da própria cópia
+
+Pedido do dono: um launcher em que a pessoa escolhe os próprios arquivos e gera a sua build (como o projeto do
+Bayonetta 2 faz), com tema de Zelda/Age of Calamity. Escolhas: destinos **Deck e Windows**, **app nativo C++ +
+Dear ImGui**.
+
+- **`tools/make_build.py`** (orquestrador, 265 linhas): passos `check`, `extract`, `romfs`, `deck`, `wingen`,
+  `winxlate`, `winbuild`, `windist`, `send`; cada um pula o que já está feito. Imprime `@@PLAN`, `@@STEP <id>
+  run|ok|skip|fail <título>` e `@@DONE ok|fail` para o launcher acompanhar. Força UTF-8 em si e nos filhos (o console
+  do Windows quebrava nos nomes dos NSPs). O `windist` monta `dist/aoc-windows` (aoc.exe, as DLLs do MSYS2 que ele
+  importa via `ldd`, tradutor, ExeFS, RomFS por hardlink, índice, `aoc.ini`). `tools/windows/merge_romfs.ps1` ganhou
+  `-GameDir`.
+- **`launcher/launcher.cpp`** (727 linhas, ImGui 1.91.9 + back ends SDL3/SDL_Renderer 3 copiados do LAS Recomp, MIT):
+  fundo em degradê com grade e anéis Sheikah animados, brilho vermelho da Calamidade embaixo, cantos de painel,
+  título "AGE OF CALAMITY". Painel 1: pasta (campo + diálogo nativo) e o inventário (base, update 1.3.0, DLCs,
+  `prod.keys` sem nunca mostrar conteúdo). Painel 2: Deck (com/sem `romfs.bin`, envio por SSH), Windows, "Avançado"
+  (distro do WSL, pasta de trabalho). Botão "FORJAR O PORT" e "Só conferir os arquivos". Progresso: barra, passos com
+  tempo, registro com clipper, abrir as pastas, "Jogar no Windows". Roda o `make_build.py` por `CreateProcessW` num
+  job object (cancelar mata a árvore e o `build.py` do WSL). Configuração em `launcher.ini` ao lado do exe.
+- `launcher.bat` na raiz compila o launcher na primeira vez (`tools/build_launcher.py`, MSYS2 UCRT64: windres +
+  clang++, 1,0 MB + 7,7 MB de DLLs em `build/launcher/`) e o abre.
+- `tools/build.py`: os back ends SDL do ImGui ficam fora do executável do jogo (a primeira forja os compilou dentro do
+  `aoc`); `write_if_changed` grava e compara em UTF-8 (um `modules.c` gravado antes em cp1252 derrubava o passo
+  `winbuild` com o modo UTF-8 ligado).
+
+### Medido
+
+- Launcher: layout sem barras de rolagem a 1180×820 (capturas `launcher3..5`); "Só conferir" lista o dump real e
+  termina em "Arquivos conferidos: tudo certo.".
+- Forja real do Deck pelo `make_build.py` (a mesma linha de comando do launcher): `@@DONE ok`, incremental
+  (gen/guest em dia, host e dist religados em segundos), `dist/aoc-deck` montada.
+- Forja real **Deck + Windows** pelo `make_build.py`: a primeira falhou no `winbuild` (o `modules.c` em cp1252,
+  acima); com a correção, `@@DONE ok` em todos os passos (os dois builds incrementais). A pasta `dist/aoc-windows`
+  aberta sozinha (fora de `C:\aoc-win`): boot, RomFS pelo índice, áudio, 600 quadros e um `fs commit save` em 50 s.
+- Não testado: forja do zero numa máquina sem WSL/MSYS2 prontos, e o passo `send` pelo launcher.

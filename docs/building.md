@@ -4,6 +4,33 @@ Decisão do projeto: **tudo é compilado no PC** (WSL2 no Windows, i7-12700) e o
 (`dist/aoc-deck/`) que é só copiar para o Steam Deck — por FTP, armazenamento na nuvem ou cabo. O Deck não compila
 nada.
 
+## 0. Launcher (o jeito fácil)
+
+`launcher.bat` na raiz abre o **launcher** (`launcher/launcher.cpp`, Dear ImGui + SDL3, tema Sheikah/Calamidade): a
+pessoa escolhe a pasta com a **própria cópia** (NSPs da base, update 1.3.0, DLCs e `prod.keys`), marca os destinos e
+clica em **FORJAR O PORT**. Na primeira vez o `.bat` compila o launcher (`python3 tools/build_launcher.py` no MSYS2
+UCRT64 → `build/launcher/aoc-launcher.exe`, com as DLLs do MSYS2 ao lado).
+
+- **Seus arquivos:** confere base, update, DLCs e a presença do `prod.keys` (o conteúdo das chaves nunca aparece).
+- **Destino:** Steam Deck (`dist/aoc-deck/`, opcionalmente com o `romfs.bin` de 10,9 GiB e envio por SSH no fim) e/ou
+  Windows (`dist/aoc-windows/`, botão "Jogar no Windows"). Em "Avançado": distro do WSL e pasta de trabalho do
+  Windows.
+- **Progresso:** barra, passos com tempo e o registro completo; cancelar mata a árvore de processos (job object) e o
+  `build.py` no WSL.
+
+Por baixo, o launcher só roda `tools/make_build.py` (o mesmo pode ser usado no terminal) e lê as linhas `@@PLAN`,
+`@@STEP <id> run|ok|skip|fail` e `@@DONE` que ele imprime:
+
+```sh
+python tools/make_build.py --game-dir "D:/dump" --deck --windows [--with-romfs] [--send] [--check-only]
+```
+
+Passos: `check` (inventário e ferramentas), `extract` (ExeFS), `romfs` (`build/v130/romfs.bin`; o índice do RomFS do executável sai dele), `deck`
+(`build.py gen guest host dist` no WSL), `wingen` (copia o C gerado para a pasta do Windows), `winxlate` (tradutor
+win-x64 pelo `dotnet` do WSL), `winbuild` (`aoc.exe` no MSYS2), `windist` (monta `dist/aoc-windows`) e `send`
+(`tools/deck/deploy.sh`). Passos já feitos são pulados (`skip`), então forjar de novo é incremental. Precisa do WSL
+(passo 1) e, para o Windows, do MSYS2 (seção "Windows nativo").
+
 ## 1. Preparar o WSL (uma vez)
 
 Atalho: clique duas vezes em `build.bat` na raiz (chama `tools\windows\build_wsl.bat`) — confere o WSL, faz este

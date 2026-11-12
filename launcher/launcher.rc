@@ -1,0 +1,3 @@
+/* The launcher's application manifest: the same as aoc.exe's (runtime/aoc.manifest: UTF-8 code page, per-monitor DPI
+   v2), resource 1 of type 24 (RT_MANIFEST). tools/build_launcher.py compiles this with windres. */
+1 24 "../runtime/aoc.manifest"

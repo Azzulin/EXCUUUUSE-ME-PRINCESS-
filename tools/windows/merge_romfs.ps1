@@ -8,9 +8,12 @@
 # Uso, na raiz do repositorio (ou clique duas vezes em merge_romfs.bat):
 #   powershell -ExecutionPolicy Bypass -File tools\windows\merge_romfs.ps1
 #
+# Com -GameDir <pasta> os NSPs vem dessa pasta em vez de 'Game Files' (o launcher passa a pasta escolhida).
+#
 # Resultado: build\v130\romfs.bin (imagem RomFS 1.3.0 completa) e build\v130\merge.log.
 # Arquivo deste script so com ASCII de proposito (PowerShell 5.1 le .ps1 sem BOM como ANSI).
 
+param([string]$GameDir = '')
 $ErrorActionPreference = 'Stop'
 $Repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $Hactool = Join-Path $Repo 'toolchain\hactool-1.4.0-win\hactool.exe'
@@ -27,7 +30,7 @@ if (-not (Test-Path -LiteralPath (Join-Path $HacHome '.switch\title.keys'))) {
     Fail "rode antes: python tools/extract.py hactool-home" }
 if (Test-Path -LiteralPath $Out) { Fail "$Out ja existe; apague-o para refazer" }
 
-$GameDir = Join-Path $Repo 'Game Files'
+if (-not $GameDir) { $GameDir = Join-Path $Repo 'Game Files' }
 $BaseNsp = Get-ChildItem -LiteralPath $GameDir -Recurse -File -Filter '*.nsp' |
     Where-Object { $_.Name -match '01002B00111A2000' -and $_.Name -match 'Base' } | Select-Object -First 1
 $UpdNsp = Get-ChildItem -LiteralPath $GameDir -Recurse -File -Filter '*.nsp' |

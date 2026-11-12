@@ -4,8 +4,10 @@ Atualizado em 2026-11-12 (fim da sessão 8: rastros descartados, cache de shader
 em `docs/historico.md` (sessão 7), `docs/handover.md` §6 e `docs/aoc.md` ("Resolução de saída menor: vistas 2D e
 minimapa", "Deck: consumo e temperatura na primeira batalha").
 
-## Estado (2026-11-12, fim da sessão 11)
+## Estado (2026-11-12, fim da sessão 12)
 
+- **Launcher** (sessão 12): `launcher.bat` → escolher a pasta com a própria cópia → forjar `dist/aoc-deck` e/ou
+  `dist/aoc-windows` (`docs/building.md` §0). Falta: empacotar WSL/MSYS2 para quem não tem o ambiente montado.
 - **Vazamento de memória corrigido** e medido no Deck (10 min de batalha: memória plana, 30 fps, 5,1 W de média).
 - **Ainda bloqueia uma jogatina longa:** saves nunca verificados em jogo real.
 - No Deck: o binário atual (vazamento corrigido + 1280×720 corrigido, fora do perfil). Travadas de shader em

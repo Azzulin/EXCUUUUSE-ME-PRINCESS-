@@ -222,12 +222,15 @@ def vma_include() -> Path:
 
 
 def runtime_sources() -> list[Path]:
-    """Todo runtime/*.c, *.cpp, platform/*.c, ui/*.cpp e o Dear ImGui, sem os arquivos de outro sistema (Win32); no
+    """Todo runtime/*.c, *.cpp, platform/*.c, ui/*.cpp e o Dear ImGui (sem os back ends SDL, que são do launcher), sem
+    os arquivos de outro sistema (Win32); no
     Windows também o runtime/aoc.rc (manifesto do aoc.exe: DPI por monitor e página de código UTF-8)."""
     pats = ("*.c", "*.cpp", "*.rc", "platform/*.c", "ui/*.cpp", "third_party/imgui/*.cpp",
             "third_party/imgui/backends/*.cpp")
 
     def other_os(p: Path) -> bool:
+        if p.name.startswith("imgui_impl_sdl"):   # back ends SDL do launcher (tools/build_launcher.py), não do jogo
+            return True
         if WIN:
             return p.stem.endswith("_sdl") or p.name == "linux.c"
         return p.stem.endswith("_win") or p.name == "win32.c" or p.suffix == ".rc"
@@ -284,9 +287,12 @@ def module_glue(gen: Path, exefs: Path) -> str:
 
 
 def write_if_changed(path: Path, text: str) -> None:
-    if path.exists() and path.read_text() == text:
+    # Sempre UTF-8: no Windows o padrão depende do modo UTF-8 do Python (o tools/make_build.py o liga), e um arquivo
+    # gravado na página de código antiga não decodifica; ilegível conta como mudado.
+    data = text.encode("utf-8")
+    if path.exists() and path.read_bytes() == data:
         return
-    path.write_text(text)
+    path.write_bytes(data)
 
 
 def step_host(args, gen: Path, lib: Path) -> Path:

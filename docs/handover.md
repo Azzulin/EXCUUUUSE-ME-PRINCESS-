@@ -110,6 +110,7 @@ partir de 100 s, `AOC_TRACE=perf`, vigia de travada).
 | `docs/` | `levantamento.md` (o jogo e as referências), `arquitetura.md`, `plano.md` (fases e portões), `aoc.md` (fatos medidos), `steam-deck.md`, `building.md`, `referencias.md`, este `handover.md`, `historico.md` |
 | `recomp/` | lifter e gerador vindos do Astral Chain (MIT); só `layout.py` mudou; `jumptables.py` tem uma correção nossa em `_bounds` |
 | `runtime/` | runtime do Astral Chain + porta Linux do TotK, adaptado ao AoC (ver `runtime/README.md`) |
+| `launcher/` | launcher do Windows (`launcher.cpp`, ImGui + SDL3); compila com `tools/build_launcher.py`, abre por `launcher.bat` |
 | `tests/` | `test_tools.py` (sintético, roda no CI) e os testes diferenciais do Astral Chain (precisam do ExeFS) |
 | `tools/` | `nx.py` (NSP/NCA/ticket/ExeFS/RomFS em Python), `extract.py`, `inspect_dump.py`, `census_*.py`, `build.py` (gen/guest/host/dist), `romfs_index.py`, `spin_waits.py`, `setup_wsl.sh`, `check_content.py`, `fetch_refs.sh`, `windows/*.bat/.ps1` |
 
@@ -148,6 +149,10 @@ partir de 100 s, `AOC_TRACE=perf`, vigia de travada).
 - **Vazamento de memória: CORRIGIDO e medido no Deck (sessão 11).** As cópias das gravações de command buffer
   não eram liberadas porque o runtime não chamava o callback de memória de comando do jogo quando o anel enchia.
   Deck, 10 min de batalha: memória plana em 3,3 GB, 30 fps, APU 5,1 W de média. Detalhes em `historico.md`.
+- **Launcher (sessão 12):** `launcher.bat` abre `build/launcher/aoc-launcher.exe` (Dear ImGui + SDL3, tema
+  Sheikah/Calamidade; compila sozinho na primeira vez). A pessoa aponta a pasta com a própria cópia e forja
+  `dist/aoc-deck` e/ou `dist/aoc-windows`; por baixo roda `tools/make_build.py` (protocolo `@@PLAN/@@STEP/@@DONE`).
+  Uso e passos em `building.md` §0. Ainda depende de WSL e MSYS2 instalados.
 - **Saves nunca verificados em jogo real** (sessão 10): nenhum commit nas corridas; testar até o primeiro
   salvamento automático e recarregar num processo novo.
 - **Meta do dono:** consumo perto de 12 W no Deck, sem esquentar. Ainda não há medição de potência.

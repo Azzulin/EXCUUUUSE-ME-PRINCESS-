@@ -77,6 +77,8 @@ TEXT = {
                  "WSL is not installed: click \"Install WSL\" (asks for administrator) and restart the PC"),
     "wsl_install": ("criando a distro Linux privada {0} (Arch Linux, ~1 GB, só na primeira vez)...",
                     "creating the private Linux distro {0} (Arch Linux, ~1 GB, first time only)..."),
+    "wsl_old": ("o WSL não criou a distro: atualize-o (num terminal como administrador: wsl --update) e forje de novo",
+                "WSL could not create the distro: update it (in an administrator terminal: wsl --update) and forge again"),
     "no_distro": ("a distro do WSL \"{0}\" não existe (wsl -l -v)", "the WSL distro \"{0}\" does not exist (wsl -l -v)"),
     "msys_get": ("baixando o MSYS2 ({0:.0f} MB, só na primeira vez)...", "downloading MSYS2 ({0:.0f} MB, first time only)..."),
     "msys_hash": ("o download do MSYS2 não bate com o hash fixado", "the MSYS2 download does not match the pinned hash"),
@@ -244,7 +246,10 @@ def tools_wsl(args) -> None:
         out(tr("wsl_install", d))
         loc = Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "AoC-Recomp" / "wsl"
         loc.mkdir(parents=True, exist_ok=True)
-        run(["wsl", "--install", "archlinux", "--name", d, "--location", loc, "--no-launch"])
+        try:
+            run(["wsl", "--install", "archlinux", "--name", d, "--location", loc, "--no-launch"])
+        except StepFailed:   # --name and --location need WSL 2.4 or newer (Windows 10 may ship an older one)
+            raise StepFailed(tr("wsl_old"))
     # The managed distro runs as root (the Arch image's default user); a distro of the user's own runs as its user.
     wsl(args, f"cd {sh_quote(wsl_path(ROOT))} && bash tools/setup_wsl.sh --minimal", root=d == DISTRO)
 

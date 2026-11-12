@@ -14,7 +14,7 @@ nothing you make should be shared.
 | | |
 |---|---|
 | **Your game files**, in one folder | the base game NSP (`01002B00111A2000`), the **update 1.3.0** NSP (`01002B00111A2800`), the DLC NSPs (optional) and your console's **`prod.keys`**, all dumped from **your own** Switch |
-| **A PC** | Windows 10 (version 2004 or newer) or Windows 11, or a 64-bit Linux; **8 GB of RAM** (16 GB is better) |
+| **A PC** | Windows 10 (version 2004 or newer) or Windows 11, or a 64-bit Linux with `python3` (almost every distribution has it); **8 GB of RAM** (16 GB is better) |
 | **Free disk space** | about **45 GB** the first time (it drops to ~25 GB when the build is done) |
 | **Internet** | only the first time: the launcher downloads ~2 GB of free tools (compiler, Linux for Windows) |
 | **To play on the PC** | a graphics card with Vulkan (any recent NVIDIA, AMD or Intel) |

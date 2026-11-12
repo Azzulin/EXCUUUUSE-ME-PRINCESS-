@@ -14,7 +14,7 @@ ser compartilhado.
 | | |
 |---|---|
 | **Os arquivos do seu jogo**, numa pasta | o NSP do jogo base (`01002B00111A2000`), o NSP do **update 1.3.0** (`01002B00111A2800`), os NSPs das DLCs (opcional) e o **`prod.keys`** do seu console, tudo extraído do **seu** Switch |
-| **Um PC** | Windows 10 (versão 2004 ou mais nova) ou Windows 11, ou um Linux 64 bits; **8 GB de RAM** (16 GB é melhor) |
+| **Um PC** | Windows 10 (versão 2004 ou mais nova) ou Windows 11, ou um Linux 64 bits com `python3` (quase toda distribuição tem); **8 GB de RAM** (16 GB é melhor) |
 | **Espaço livre** | cerca de **45 GB** na primeira vez (cai para ~25 GB quando termina) |
 | **Internet** | só na primeira vez: o launcher baixa ~2 GB de ferramentas gratuitas (compilador, Linux para Windows) |
 | **Para jogar no PC** | placa de vídeo com Vulkan (qualquer NVIDIA, AMD ou Intel recente) |

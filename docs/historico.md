@@ -945,3 +945,57 @@ Dear ImGui**.
   acima); com a correção, `@@DONE ok` em todos os passos (os dois builds incrementais). A pasta `dist/aoc-windows`
   aberta sozinha (fora de `C:\aoc-win`): boot, RomFS pelo índice, áudio, 600 quadros e um `fs commit save` em 50 s.
 - Não testado: forja do zero numa máquina sem WSL/MSYS2 prontos, e o passo `send` pelo launcher.
+
+### Sessão 12, parte 2: pacote para qualquer jogador (Windows e Linux) e release v0.1.0
+
+Pedido do dono: "empacotar o WSL" para que qualquer usuário de Windows ou Linux baixe e use; release com o exe; guia
+em inglês ou idioma escolhível; o mais simples e didático possível.
+
+**Decisão:** em vez de redistribuir uma imagem Linux pronta (~1 GB, com as obrigações da GPL de cada pacote), o
+launcher cria uma distro **privada** a partir da imagem oficial do Arch: `wsl --install archlinux --name AoC-Recomp
+--location %LOCALAPPDATA%\AoC-Recomp\wsl --no-launch` (17 s) e roda `tools/setup_wsl.sh --minimal` como root. Mesmo
+efeito para o usuário (um clique), sem hospedar nada além do nosso código.
+
+- `tools/make_build.py` ganhou o passo **`tools`** (WSL + distro, MSYS2 em `C:/msys64` a partir do `msys2-base`
+  2026-09-27 fixado por sha256, ou os pacotes da distro no Linux), mensagens em português e inglês (`--lang`), conferência
+  de disco e RAM, `@@NEED wsl` (o launcher oferece `wsl --install --no-distribution` com elevação) e execução nativa
+  no Linux. `tools/merge_romfs.py` substitui o PowerShell na mescla do RomFS.
+- Launcher: português/inglês (padrão pelo idioma do sistema, troca no canto), roda no Linux (fork/exec, grupo de
+  processos para cancelar, `xdg-open`), botão "Instalar o WSL", explicação em três passos, botão "Guia".
+- `tools/make_release.py`: pacotes `AoC-Recomp-0.1.0-Windows.zip` (68,7 MB: launcher + SDL3.dll oficial, Python
+  3.13.17 embarcado com cryptography/lz4/numpy, hactool, tradutor win-x64 e linux-x64) e `-Linux.tar.gz` (6,4 MB:
+  launcher contra o sniper + `libSDL3.so.0`, hactool compilado contra o sniper, tradutor). Ninguém precisa de .NET.
+- Guias do jogador: `GUIDE.md` (inglês) e `GUIA.md`.
+
+**Armadilhas encontradas e resolvidas:**
+- A imagem Arch do WSL só gera o chaveiro do pacman na primeira abertura interativa; por `wsl -e` o pacman recusa tudo
+  ("required key missing"). O `setup_wsl.sh` gera o chaveiro se a chave-mestra `pacman@localhost` não existe (um
+  pacman que falhou deixa um `pubring.kbx` vazio de 32 bytes, que não serve de sinal).
+- `wsl.exe` imprime UTF-16; `WSL_UTF8=1` em todas as chamadas.
+- A primeira atualização de um MSYS2 novo troca o núcleo e encerra todos os processos dele, inclusive o shell (código 1):
+  a primeira rodada do `pacman -Syuu` pode "falhar", a segunda tem de passar.
+- O Python embarcável com `._pth` não põe a pasta do script no `sys.path`; o `._pth` lista `..\tools` e `..\recomp`.
+- A SDL3 estática do MSYS2 puxa a libiconv (LGPL): o launcher do Windows fica com a `SDL3.dll` oficial ao lado. A SDL3
+  estática do sniper liga ALSA/X11/Wayland direto: o launcher Linux leva a `libSDL3.so.0` do sniper (rpath `$ORIGIN`).
+- A identidade do tradutor calculada no Windows difere da do Linux (o Python do Windows ordena caminhos sem caixa):
+  o `make_release.py` a calcula no WSL.
+- O modo mínimo esqueceu os headers do Vulkan (o `dist` os copia do sistema) e o MSYS2 novo não tinha
+  `python-cryptography` (o passo `host` indexa o RomFS com o `nx.py`): os dois achados só no teste de ponta a ponta.
+
+**Medido (pacote do Windows extraído em `C:\Teste AoC\`, caminho com espaço):**
+- Forja do Deck do zero: distro criada e preparada sozinha; ExeFS; RomFS mesclado pelo `merge_romfs.py` **idêntico
+  byte a byte** ao do PowerShell (sha256 `9006c2b8…`); gen 99 s; guest 1 596 s; dist com o tradutor do pacote. O
+  `dist/aoc-deck` resultante: `--selftest` passa, 30,0 fps estáveis sem GPU (`AOC_GPU=null`), sem erros.
+- MSYS2 do zero pelo passo `tools`: 414 s; a segunda chamada só confere (3,7 s). Forja só-Windows (C gerado no próprio
+  Windows pelo Python embarcado): guest 1 594 s, host 24 s; o `aoc.exe` do pacote roda 70 s (quadro 1 800, som, save).
+- Espaço: distro `AoC-Recomp` 5,9 GB, MSYS2 2,7 GB.
+- Launcher Linux pelo WSLg: abre, confere os arquivos, inglês pelo idioma do sistema.
+- Não testado: o botão "Instalar o WSL" (o notebook já tem WSL), `pkexec` num desktop Linux, distros apt e dnf.
+- **Pacote Linux, nativo**, numa distro Arch limpa fazendo o papel de um PC Linux (só o `python` instalado antes):
+  `check`, `tools` (pacman como root), `extract` e `romfs` passaram com o `hactool` Linux do pacote (seis níveis IVFC
+  bons). Dois achados: a checagem da mescla recusava as assinaturas RSA da Nintendo, que o hactool compilado no Linux
+  marca FAIL e o `hactool.exe` marca GOOD (agora ignoradas: a integridade são os níveis IVFC), e o NSP em outro disco
+  (`/mnt/c`) era copiado (11 GB) em vez de ligado (agora link simbólico). A compilação nessa distro foi interrompida:
+  o disco virtual dela chegou a 35 GB e o notebook ficou com 2,7 GB livres. O mesmo `build.py gen guest dist` já tinha
+  rodado inteiro na distro `AoC-Recomp`. Testes apagados (distros `AoC-LinuxTest` e `AoC-Recomp`, `C:\Teste AoC`,
+  MSYS2 de teste); o espaço do disco virtual apagado não voltou na hora (provavelmente preso pelo Windows até reiniciar).

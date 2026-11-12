@@ -63,9 +63,14 @@ def link_or_copy(src: Path, dst: Path) -> None:
         return
     try:
         os.link(src, dst)   # mesmo disco: não copia nada
+        return
     except OSError:
-        print(f"hardlink falhou; copiando {dst.name} (pode demorar)...", flush=True)
-        shutil.copyfile(src, dst)
+        pass
+    if not WIN:   # outro disco (ex.: o dump em /mnt/c no WSL): o hactool do Linux abre qualquer caminho
+        os.symlink(src, dst)
+        return
+    print(f"hardlink falhou; copiando {dst.name} (pode demorar)...", flush=True)
+    shutil.copyfile(src, dst)
 
 
 def run_hactool(args: list, env=None, log=None) -> int:
@@ -118,9 +123,9 @@ def main() -> int:
                             str(HAC_HOME / ".switch" / "prod.keys"), f"--basenca={base_nca}", f"--section1={OUT}",
                             str(upd_nca)], env=env, log=log)
     text = LOG.read_text(encoding="utf-8", errors="replace")
-    # Sem as chaves públicas da Nintendo, o hactool sempre marca as assinaturas como FAIL: não é erro de dados.
-    checked = "\n".join(l for l in text.splitlines()
-                        if not re.search(r"(Fixed-Key Signature|NPDM Signature) \(FAIL\)", l))
+    # As assinaturas RSA da Nintendo (fixed-key, NPDM, ACID) não dizem nada sobre os dados: o hactool.exe da release
+    # as marca GOOD e o compilado no Linux (tools/build_hactool_linux.sh) FAIL. A integridade são os seis níveis IVFC.
+    checked = "\n".join(l for l in text.splitlines() if not re.search(r"Signature \(FAIL\)", l))
     levels = sum(1 for i in range(6) if f"Level {i} (GOOD)" in text)
     if code or re.search(r"\(FAIL\)|\(INVALID\)|Failed to|Error:", checked) or levels != 6:
         OUT.unlink(missing_ok=True)

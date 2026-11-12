@@ -4,15 +4,13 @@ Atualizado em 2026-11-12 (fim da sessão 8: rastros descartados, cache de shader
 em `docs/historico.md` (sessão 7), `docs/handover.md` §6 e `docs/aoc.md` ("Resolução de saída menor: vistas 2D e
 minimapa", "Deck: consumo e temperatura na primeira batalha").
 
-## Estado (2026-11-12, fim da sessão 8)
+## Estado (2026-11-12, fim da sessão 10)
 
-- **No Deck, medido (sessão 7):** batalha a 27–30 fps, APU 7,6–8,7 W, CPU 68–72 °C, GPU 62–65 °C.
-- **No Deck (sessão 8, medido):** cache de shaders estável — 28 traduções com cache quente (antes 89), entrada da
-  batalha 1,77 s (antes 6,55 s), batalha 28–30 fps a 7,1–7,8 W.
-- **Fechado na sessão 8:** rastros (não existem: bandeiras ao vento); travada da entrada da batalha (o cache de
-  shaders gerava chaves novas a cada corrida: 50–70 traduções → 15 e 1,9 s → 0,78 s no notebook).
-- **Aberto:** minimapa sem marcadores em 1280×720 (as nove vistas de `main+0x1583c00` são o layout do HUD e não
-  são a causa); medir no Deck a entrada da batalha com o cache novo.
+- **Bloqueia jogatina longa:** vazamento de memória (~400–500 MiB/min em batalha) e saves nunca verificados em
+  jogo real. Varredura completa em `historico.md`, sessão 10.
+- No Deck: batalha a 27–30 fps, 7,1–7,8 W (sessão 8). Binário com 1280×720 corrigido pronto em `dist/`, não
+  enviado (Deck em repouso).
+- Notebook: 36 min de batalha a 30 fps sem queda (Windows com imagem e Linux sem GPU).
 
 ## Regras da rodada (pedido do dono)
 
@@ -22,12 +20,16 @@ Deck com `totk` ou `aoc` abertos.
 
 ## Plano, em ordem
 
-1. Feito na sessão 8 (envio e medição no Deck).
-2. **1280×720 no Deck (corrigido no notebook, sessão 9).** `deploy.sh --no-build` (a pasta já tem o binário),
-   depois `deckbattle.sh` com `AOC_OUTPUT_RES=1280x720` (cena padrão 75 %) e com `AOC_RENDER_SCALE=85`, contra a
-   referência em 1080p (27–30 fps, 7,1–7,8 W); conferir a janela com `AOC_PRESENT_SHOT`. Se for melhor e a imagem
-   estiver certa, pôr `OUTPUT_RES=1280x720` no perfil do Deck (`cfg.c`, `DECK`).
-3. Consumo: sessão longa do dono (`./aoc-logs.sh lista`); se sobrar trabalho, shaders antecipados.
+1. **Vazamento de memória** (~400–500 MiB/min em batalha; também sem GPU). Medir onde: contadores de objetos
+   e de bytes por tipo no runtime (texturas, buffers, programas, command buffers, memória de comando, eventos,
+   handles do kernel, buffers de áudio), uma linha por minuto, na build Linux sem GPU pelo WSL (`wsl_null.sh` com
+   `route-long.txt`) e no Windows; o que cresce sem parar é o suspeito. Critério: memória estável em 30 min de
+   batalha.
+2. **Saves:** jogar (ou um roteiro) até o primeiro salvamento automático; `fs commit save` no log; reabrir no
+   ponto salvo.
+3. Deck: enviar o binário (720p corrigido), apagar `shots7/` do cartão, medir 1280×720 (75 % e 85 %) e testar o
+   repouso com o jogo aberto.
+4. Travadas de shader em conteúdo novo: tradução antecipada ou prewarm.
 
 ## Prompt para colar numa sessão nova
 
@@ -72,7 +74,7 @@ Ambiente (Windows nativo, MSYS2 UCRT64):
 - Armadilha: em heredoc, "\\n" chega como quebra de linha e "\a"/"\b" como controle; para texto com barras invertidas
   use a ferramenta de escrita/edição, não heredoc.
 
-Tarefa 1: medir 1280x720 no Deck e decidir o perfil (passo 2 do plano). Tarefa 2: consumo e travadas restantes (passo 3).
+Tarefa 1: vazamento de memória (passo 1). Tarefa 2: saves (passo 2). Tarefa 3: Deck (passo 3). Tarefa 2: consumo e travadas restantes (passo 3).
 Medir rastros: streaks.py marca bandeiras ao vento em 1920x1080; confirmar cada detecção com
 C:\aoc-win\streakzoom.py. Perfil de um frame lento: AOC_PROFILE=<arq> AOC_PROFILE_SLOW=<ms> e
 python C:\aoc-win\profslow.py <arq>.f<frame>.

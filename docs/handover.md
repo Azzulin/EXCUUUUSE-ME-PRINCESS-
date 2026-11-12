@@ -145,6 +145,11 @@ partir de 100 s, `AOC_TRACE=perf`, vigia de travada).
   `tools/xlate/patches/0014-branch-elimination-keeps-phi-edges.patch` (muda 11 dos 5 563 shaders conhecidos: o FS
   do efeito e 10 compute shaders grandes). Centro da tela limpo em 245 capturas, 0 rastros em 201, luma igual.
   Tradutor novo (identidade `b05fcac8…`) no WSL, no Windows e no Deck.
+- **VAZAMENTO DE MEMÓRIA (sessão 10, prioridade 1):** ~400–500 MiB por minuto em batalha, no Windows com Vulkan e
+  na build Linux sem GPU (núcleo, não o Vulkan); 24 GB de memória privada após 36 min no notebook. No Deck derruba
+  o jogo em ~20–30 min de batalha. Logs: `C:oc-win\soakW.log`, `soakL.log`, `leakL.log`.
+- **Saves nunca verificados em jogo real** (sessão 10): nenhum commit nas corridas; testar até o primeiro
+  salvamento automático e recarregar num processo novo.
 - **Meta do dono:** consumo perto de 12 W no Deck, sem esquentar. Ainda não há medição de potência.
 - **Do HWDER (outro projeto do dono, 2026-11-11):** inverter eixos (aba Controles), Mudo e Mudo em segundo plano (aba
   Som), teclas I J K L = X B A Y. O menu do F1 já existia (F1, Esc ou Menos+Mais). Compila e o `--probe-cfg` passa;

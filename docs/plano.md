@@ -92,7 +92,8 @@ classificadas.
 
 - [ ] Entrada SDL3: controles do Deck, Xbox/PlayStation/Pro, teclado; layout de botões Nintendo/Xbox; gyro.
 - [x] Áudio SDL3 contínuo (música, vozes, vídeos): música e cinemáticas voltaram na sessão 5 (ordem dos submixes com splitter); falta ouvir no Deck.
-- [ ] Save/load em pasta do host, recarga em processo novo.
+- [ ] Save/load em pasta do host, recarga em processo novo (sessão 10: nenhum commit em jogo real visto ainda).
+- [ ] Memória estável em sessão longa (sessão 10: vazamento de ~400–500 MiB/min em batalha, também sem GPU).
 - [ ] Script de entrada que vai do boot à primeira batalha (regressão automática).
 - [ ] Menu ImGui (F1 / botão segurado) e overlay de desempenho (F10 / L3+R3).
 

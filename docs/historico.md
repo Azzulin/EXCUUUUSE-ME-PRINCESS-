@@ -812,3 +812,56 @@ mandar, cada peça escrita na sessão 5 rodou no notebook (regra: nada vai ao De
   já tem o binário novo, falta enviar e medir 1280×720 (cena a 75 % e a 85 %) contra os 7,1–7,8 W de hoje.
 - Ferramentas: `C:\aoc-win\gdbui.py`, `gdbseq.py`, `gdbdraw.py` (cadeia do jogo de um draw grande), `gdbquad.py`
   (quem chama o quad imediato e com que posições), `gdbvw.py` (watchpoint num vértice).
+
+## Sessão 10 — 2026-11-12 (notebook): testes longos e varredura para uma jogatina longa
+
+O Deck ficou fora do ar (em repouso, o dono longe); os testes rodaram no notebook. Roteiro novo
+`C:\aoc-win\route-long.txt`: a rota até a primeira batalha e depois 40 min de luta (andar em oito direções, Y Y Y X,
+esquiva, câmera).
+
+### Sessões longas (encerradas aos ~36 min a pedido do dono: disco quase cheio)
+
+- **Windows, com imagem, caminho do Deck** (`AOC_MEMORY=import AOC_SHADOW=1 AOC_REPLAY_ASYNC=1`, 30 fps, portátil):
+  36 min sem queda, sem travamento, 0 erros de validação; **30 fps em todas as 549 janelas de 4 s**; áudio: 1 janela
+  muda em 444 (o boot).
+- **WSL, build Linux do Deck sem GPU** (`AOC_GPU=null`): 36 min sem queda; 30 fps em todas as janelas; 2 janelas mudas
+  em 444.
+- **Vazamento de memória (achado principal):** no Windows a memória privada sobe em linha reta, ~500 MiB por minuto
+  (6,4 GB aos 1,3 min → 24,2 GB aos 36 min), e o working set cai porque o excesso vai para o arquivo de paginação (que
+  cresceu e encheu o disco; voltou a encolher quando o jogo foi fechado: 31 → 44 GB livres). Também nas corridas
+  curtas de 175 s, em qualquer modo de memória (`mirror` +3 GB, `import` +1,5 GB). Na build Linux sem GPU (3 min,
+  `/proc/<pid>/status`): ~60 MiB/min nos menus e **~400 MiB/min na batalha** (RSS 3,46 → 3,88 GB em 60 s): o vazamento
+  está no núcleo (front-end NVN, kernel, áudio ou arquivos), não no Vulkan. No Deck (16 GB compartilhados) isso derruba
+  o jogo em algo como 20–30 min de batalha. Primeira tarefa da próxima sessão.
+- **Saves:** nenhum commit de save nas corridas (o último save gravado é de 2026-11-04, o do primeiro boot); toda
+  corrida termina descartando a cópia de trabalho. A rota não chega a um ponto de salvamento (fim de batalha,
+  acampamento), então o save do AoC em jogo de verdade e a recarga num processo novo **nunca foram verificados**.
+- Saída pelo Steam: no jogo com janela o SDL transforma SIGTERM em pedido de fechar, e esse caminho espera o commit de
+  save em andamento (`gfx_window_closed` → `fs_save_flush`).
+
+### Espaço em disco
+
+- Apagados os artefatos reproduzíveis de `C:\aoc-win` (dumps de frame, capturas, retraduções de teste, perfis): 12 GB;
+  56 GB livres no fim. Mantidos `img` (cache do `a64.py`), `retangulo` e os logs das sessões longas
+  (`soakW.log`, `soakL.log`, `leakL.log`). Limpos os temporários do WSL (`/tmp/xldbg` etc.); o disco virtual do WSL não
+  encolhe sozinho (compactar com `wsl --shutdown` + `diskpart compact vdisk`, como administrador).
+- No cartão SD do Deck ficou `shots7/` (1,6 GB de capturas da sessão 8): apagar quando o Deck voltar.
+
+### Varredura: o que falta para uma jogatina longa no Deck
+
+Bloqueia:
+1. **Vazamento de memória** (~400–500 MiB/min em batalha, acima).
+2. **Saves sem verificação** em jogo real: jogar até o primeiro salvamento automático (fim da primeira batalha),
+   conferir `fs commit save` no log, fechar e reabrir no ponto salvo. O mecanismo (commit atômico, recuperação, três
+   backups em `profile/save-backup`) existe e é o do TotK.
+
+Importa:
+3. **Repouso do Deck com o jogo aberto** (botão de energia): nunca testado — relógio do jogo, áudio, Vulkan.
+4. **Travadas de tradução de shaders em conteúdo novo**: 17,5 s na primeira entrada na primeira batalha com cache
+   frio no Deck; cada fase, personagem e chefe novos repetem isso até o cache encher. Caminho: tradução antecipada
+   (plano, fase E) ou prewarm dos inputs guardados.
+5. **Só a rota até a primeira batalha foi exercitada**: acampamento, lojas e melhorias, outros personagens, outras
+   fases, chefes, Bestas Divinas, cinemáticas posteriores e vídeos nunca rodaram aqui.
+6. Envio ao Deck do binário com 1280×720 corrigido (pasta pronta) e medição de 1280×720 a 75 % e 85 %.
+
+Depois: 60 fps opcional, 16:10, DLCs, co-op.

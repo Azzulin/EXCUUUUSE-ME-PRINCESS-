@@ -24,7 +24,7 @@ Output in build/release/; the sha256 of each package is printed and written next
 import argparse
 import hashlib
 import io
-import os
+import shutil
 import subprocess
 import sys
 import tarfile
@@ -42,6 +42,8 @@ PY_EMBED = ("https://www.python.org/ftp/python/3.13.17/python-3.13.17-embed-amd6
 SDL_WIN = ("https://github.com/libsdl-org/SDL/releases/download/release-3.4.18/SDL3-3.4.18-win32-x64.zip",
            "75c2c0fc74e7d1206aaedc22893a35887332f4f85f5c8b74fddc10d177985f2c")
 WHEELS = ["cryptography", "lz4", "numpy"]
+# MSYS2 has no git of its own by default: Git for Windows, else the one on PATH.
+GIT = next((g for g in ("C:/Program Files/Git/cmd/git.exe",) if Path(g).is_file()), None) or shutil.which("git") or "git"
 # Python's own search path for the launcher's make_build.py and the tools it starts: with a ._pth file the embeddable
 # Python ignores the script's folder, so tools/ and recomp/ are listed (no module name is in both).
 PTH = "python313.zip\n.\nLib\\site-packages\n..\\tools\n..\\recomp\nimport site\n"
@@ -75,7 +77,7 @@ def fetch(url: str, sha: str) -> bytes:
 
 def git_tree() -> list:
     """(path, mode, bytes) of every file at HEAD, from git archive (keeps the executable bits)."""
-    tar = subprocess.run(["git", "-C", str(ROOT), "archive", "--format=tar", "HEAD"], check=True,
+    tar = subprocess.run([GIT, "-C", str(ROOT), "archive", "--format=tar", "HEAD"], check=True,
                          capture_output=True).stdout
     files = []
     with tarfile.open(fileobj=io.BytesIO(tar)) as t:
@@ -136,7 +138,7 @@ def main() -> int:
     ap.add_argument("--allow-dirty", action="store_true", help="package HEAD even with uncommitted changes")
     args = ap.parse_args()
     version = (ROOT / "VERSION").read_text().strip()
-    dirty = subprocess.run(["git", "-C", str(ROOT), "status", "--porcelain", "--untracked-files=no"],
+    dirty = subprocess.run([GIT, "-C", str(ROOT), "status", "--porcelain", "--untracked-files=no"],
                            capture_output=True, text=True).stdout.strip()
     if dirty and not args.allow_dirty:
         sys.exit(f"ERRO: há mudanças não commitadas (o pacote leva o HEAD):\n{dirty}")
@@ -144,10 +146,12 @@ def main() -> int:
     stage = OUT / "stage"
     stage.mkdir(exist_ok=True)
 
-    # The translator must match the sources at HEAD (its identity is a hash of them; tools/build_xlate.py).
-    sys.path.insert(0, str(ROOT / "tools"))
-    import build_xlate
-    ident = build_xlate.identity()
+    # The translator must match the sources at HEAD (its identity is a hash of them; tools/build_xlate.py). Computed
+    # in WSL, where the translator is built: on Windows Python sorts paths without case, which changes the hash.
+    ident = subprocess.run(["wsl", "-d", args.wsl_distro, "-e", "bash", "-lc",
+                            f"cd '{wsl_path(ROOT)}' && python3 -c 'import sys; sys.path.insert(0, \"tools\"); "
+                            f"import build_xlate; print(build_xlate.identity())'"],
+                           check=True, capture_output=True, text=True).stdout.strip().splitlines()[-1]
     print(f"identidade do tradutor: {ident[:16]}")
 
     # Linux parts, made in WSL: the launcher, hactool, the Linux translator, and the Windows wheels (pip download)

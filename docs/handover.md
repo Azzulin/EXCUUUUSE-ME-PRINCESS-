@@ -149,10 +149,13 @@ partir de 100 s, `AOC_TRACE=perf`, vigia de travada).
 - **Vazamento de memória: CORRIGIDO e medido no Deck (sessão 11).** As cópias das gravações de command buffer
   não eram liberadas porque o runtime não chamava o callback de memória de comando do jogo quando o anel enchia.
   Deck, 10 min de batalha: memória plana em 3,3 GB, 30 fps, APU 5,1 W de média. Detalhes em `historico.md`.
-- **Launcher (sessão 12):** `launcher.bat` abre `build/launcher/aoc-launcher.exe` (Dear ImGui + SDL3, tema
-  Sheikah/Calamidade; compila sozinho na primeira vez). A pessoa aponta a pasta com a própria cópia e forja
-  `dist/aoc-deck` e/ou `dist/aoc-windows`; por baixo roda `tools/make_build.py` (protocolo `@@PLAN/@@STEP/@@DONE`).
-  Uso e passos em `building.md` §0. Ainda depende de WSL e MSYS2 instalados.
+- **Launcher e pacote para jogadores (sessão 12):** release `v0.1.0` com `AoC-Recomp-<v>-Windows.zip` e
+  `-Linux.tar.gz` (`tools/make_release.py`). O launcher (português/inglês, Windows e Linux) roda `tools/make_build.py`,
+  cujo passo `tools` monta o ambiente sozinho: distro WSL privada **`AoC-Recomp`** (Arch oficial, `wsl --install
+  archlinux --name`), MSYS2 em `C:/msys64` se faltar, pacotes da distro no Linux. O pacote traz Python embarcado,
+  hactool e o tradutor prontos (sem .NET para o jogador). Guias: `GUIA.md` / `GUIDE.md`; detalhes em `building.md` §0.
+  No notebook do dono o launcher usa a distro `archlinux` (`build/launcher/launcher.ini`), para aproveitar o
+  `~/aoc-build` pronto.
 - **Saves nunca verificados em jogo real** (sessão 10): nenhum commit nas corridas; testar até o primeiro
   salvamento automático e recarregar num processo novo.
 - **Meta do dono:** consumo perto de 12 W no Deck, sem esquentar. Ainda não há medição de potência.

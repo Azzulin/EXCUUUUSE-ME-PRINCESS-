@@ -10,15 +10,20 @@ Windows).
 > fornecidas. O jogo é montado a partir dos seus arquivos, na sua máquina — o resultado contém o jogo e é só para uso
 > próprio.
 
+## Para jogar
+
+Baixe o pacote do **launcher** na página *Releases* (Windows `.zip` ou Linux `.tar.gz`), extraia, abra o
+`AoC-Launcher.exe` (ou `./aoc-launcher`), aponte a pasta com a sua cópia e clique em **FORJAR O PORT**. Ele prepara
+sozinho as ferramentas (Linux do WSL, compilador) e compila o jogo para o Steam Deck / Linux e para o Windows.
+Passo a passo: **[GUIA.md](GUIA.md)** (português) · **[GUIDE.md](GUIDE.md)** (English).
+
 ## Status
 
-**Fase 1 — lifter.** Ainda não roda nada do jogo. O que existe:
-
-- levantamento técnico completo e plano por fases ([docs/](docs/));
-- guarda de conteúdo (hook + CI) que impede dados do jogo e chaves de entrarem no git;
-- extração direto dos NSPs e censos do jogo (código, RomFS, RDB, texturas, shaders, DLCs) — resultados em `docs/aoc.md`;
-- lifter ARM64 → C dos três módulos sem instrução não suportada, testado contra Unicorn, e `tools/build.py` para
-  compilar o código do jogo no WSL.
+- **Roda do começo à batalha** no Steam Deck (SteamOS, RADV) e no Windows (RTX 3050): 30 fps na primeira batalha do
+  Deck, memória estável em sessões de 10 min ou mais, som, vídeos e menus. Detalhes e números em
+  [docs/handover.md](docs/handover.md) e [docs/historico.md](docs/historico.md).
+- **Em aberto:** saves ainda não verificados numa jogatina real, travadas de shader em conteúdo novo, DLCs,
+  60 fps opcional. Fases e portões em [docs/plano.md](docs/plano.md).
 
 ## Como funciona (resumo)
 

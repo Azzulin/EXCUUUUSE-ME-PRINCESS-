@@ -162,6 +162,7 @@ static void settings_load() {
     std::string line;
     while (std::getline(f, line)) {
         if (!line.empty() && line.back() == '\r') line.pop_back();
+        if (line.rfind("\xEF\xBB\xBF", 0) == 0) line.erase(0, 3);   // a UTF-8 BOM (an editor saved the file)
         size_t eq = line.find('=');
         if (eq == std::string::npos) continue;
         std::string k = line.substr(0, eq), v = line.substr(eq + 1);

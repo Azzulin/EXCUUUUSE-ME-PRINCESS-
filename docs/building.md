@@ -6,30 +6,47 @@ nada.
 
 ## 0. Launcher (o jeito fácil)
 
-`launcher.bat` na raiz abre o **launcher** (`launcher/launcher.cpp`, Dear ImGui + SDL3, tema Sheikah/Calamidade): a
-pessoa escolhe a pasta com a **própria cópia** (NSPs da base, update 1.3.0, DLCs e `prod.keys`), marca os destinos e
-clica em **FORJAR O PORT**. Na primeira vez o `.bat` compila o launcher (`python3 tools/build_launcher.py` no MSYS2
-UCRT64 → `build/launcher/aoc-launcher.exe`, com as DLLs do MSYS2 ao lado).
+Para quem só quer jogar: o pacote da release (guia em [GUIA.md](../GUIA.md) / [GUIDE.md](../GUIDE.md)). Esta seção é
+como ele funciona e como se faz um.
 
-- **Seus arquivos:** confere base, update, DLCs e a presença do `prod.keys` (o conteúdo das chaves nunca aparece).
-- **Destino:** Steam Deck (`dist/aoc-deck/`, opcionalmente com o `romfs.bin` de 10,9 GiB e envio por SSH no fim) e/ou
-  Windows (`dist/aoc-windows/`, botão "Jogar no Windows"). Em "Avançado": distro do WSL e pasta de trabalho do
-  Windows.
-- **Progresso:** barra, passos com tempo e o registro completo; cancelar mata a árvore de processos (job object) e o
-  `build.py` no WSL.
-
-Por baixo, o launcher só roda `tools/make_build.py` (o mesmo pode ser usado no terminal) e lê as linhas `@@PLAN`,
-`@@STEP <id> run|ok|skip|fail` e `@@DONE` que ele imprime:
+**O launcher** (`launcher/launcher.cpp`, Dear ImGui + SDL3, tema Sheikah/Calamidade, português e inglês) roda no
+Windows e no Linux. A pessoa aponta a pasta com a **própria cópia** (NSPs da base, update 1.3.0, DLCs e `prod.keys`),
+marca os destinos e clica em **FORJAR O PORT**. Por baixo ele roda `tools/make_build.py` e lê as linhas `@@PLAN`,
+`@@STEP <id> run|ok|skip|fail`, `@@NEED wsl` e `@@DONE`. No repositório, `launcher.bat` compila o launcher na primeira
+vez (`python3 tools/build_launcher.py` no MSYS2 UCRT64; `--linux` no WSL, contra o sniper) e o abre.
 
 ```sh
-python tools/make_build.py --game-dir "D:/dump" --deck --windows [--with-romfs] [--send] [--check-only]
+python tools/make_build.py --game-dir "D:/dump" --deck --windows [--with-romfs] [--send] [--lang en] [--check-only]
 ```
 
-Passos: `check` (inventário e ferramentas), `extract` (ExeFS), `romfs` (`build/v130/romfs.bin`; o índice do RomFS do executável sai dele), `deck`
-(`build.py gen guest host dist` no WSL), `wingen` (copia o C gerado para a pasta do Windows), `winxlate` (tradutor
-win-x64 pelo `dotnet` do WSL), `winbuild` (`aoc.exe` no MSYS2), `windist` (monta `dist/aoc-windows`) e `send`
-(`tools/deck/deploy.sh`). Passos já feitos são pulados (`skip`), então forjar de novo é incremental. Precisa do WSL
-(passo 1) e, para o Windows, do MSYS2 (seção "Windows nativo").
+Passos (os prontos são pulados, então forjar de novo é incremental):
+
+| Passo | O que faz |
+|---|---|
+| `check` | nomes dos NSPs, `prod.keys`, inventário (`extract.py inventory`), espaço em disco (~23 GB para a mescla do RomFS, ~7 GB por destino) e RAM |
+| `tools` | **prepara o ambiente sozinho.** Windows + Deck: confere o WSL (sem ele imprime `@@NEED wsl`, e o launcher oferece `wsl --install --no-distribution` com elevação) e cria a distro privada **`AoC-Recomp`** com `wsl --install archlinux --name AoC-Recomp --location %LOCALAPPDATA%\AoC-Recomp\wsl --no-launch`, depois `tools/setup_wsl.sh --minimal` como root (o script gera o chaveiro do pacman, que a imagem Arch só gera numa primeira abertura interativa). Windows como destino: MSYS2 em `C:/msys64` (se faltar, o `msys2-base` fixado é baixado e extraído) e os pacotes UCRT64. Linux: `setup_wsl.sh --minimal` (pacman, apt ou dnf; sem terminal, `pkexec` pede a senha). `--wsl-distro` usa outra distro (a de desenvolvimento, por exemplo) |
+| `extract` | `build/v130/exefs` (`extract.py exefs`) |
+| `romfs` | `build/v130/romfs.bin` com `tools/merge_romfs.py` (o `merge_romfs.ps1` em Python, para Windows e Linux; hactool de `prebuilt/hactool/` ou `toolchain/`) |
+| `deck` | `build.py gen guest dist` no WSL (ou nativo no Linux) → `dist/aoc-deck` |
+| `wingen` | o C gerado para o Windows: copiado do WSL se o passo `deck` rodou, senão gerado no próprio Windows |
+| `winxlate` | `aoc_xlate.exe` de `prebuilt/xlate/win-x64` (pacote) ou publicado pelo `dotnet` do WSL (repositório) |
+| `winbuild` | `build.py guest host` no MSYS2 |
+| `windist` | `dist/aoc-windows` (exe, DLLs do MSYS2, tradutor, ExeFS, RomFS por hardlink, índice, `aoc.ini`) |
+| `send` | `tools/deck/deploy.sh --no-build` |
+
+**Os pacotes da release** saem de `tools/make_release.py` (no MSYS2, com a distro de desenvolvimento do WSL pronta):
+o repositório no HEAD (`git archive`) mais o que o PC do jogador não pode compilar antes do launcher existir —
+
+- Windows (`AoC-Recomp-<versão>-Windows.zip`): `AoC-Launcher.exe` + `SDL3.dll` oficial 3.4.18; `python/` (Python
+  3.13.17 embarcável com cryptography, lz4 e numpy; o `python313._pth` lista `../tools` e `../recomp`, porque com ele o
+  Python ignora a pasta do script); `prebuilt/hactool/win-x64`; `prebuilt/xlate/win-x64` e `linux-x64`.
+- Linux (`AoC-Recomp-<versão>-Linux.tar.gz`): `aoc-launcher` + `libSDL3.so.0` do sniper (rpath `$ORIGIN`; a SDL3
+  estática do sniper liga ALSA, X11 etc. direto, e um launcher assim não abriria numa distro sem uma delas);
+  `prebuilt/hactool/linux-x64` (`tools/build_hactool_linux.sh`, contra o sniper); `prebuilt/xlate/linux-x64`.
+
+O tradutor pronto evita que o jogador precise do .NET. O `make_release.py` recusa um tradutor cuja identidade não bate
+com as fontes no HEAD; a identidade é calculada no WSL, porque no Windows o Python ordena os caminhos sem diferenciar
+maiúsculas e o hash muda. Com o tradutor em `prebuilt/xlate/linux-x64`, o `build.py dist` o copia em vez de compilar.
 
 ## 1. Preparar o WSL (uma vez)
 

@@ -20,12 +20,13 @@ else
 fi
 
 # O que a forja precisa: clang, lld e llvm-ar (código do jogo e o executável do Deck contra o sysroot sniper), ninja,
-# Python com venv, make e curl (passo dist: zstd estática e o sysroot). O modo completo junta as bibliotecas do
-# runtime (SDL3, Opus, libvpx, zstd, Vulkan) para o executável de desenvolvimento, pkg-config, git e gdb.
+# Python com venv, make e curl (passo dist: zstd estática e o sysroot) e os headers do Vulkan (o dist os copia para
+# compilar contra o sniper). O modo completo junta as bibliotecas do runtime (SDL3, Opus, libvpx, zstd, o loader do
+# Vulkan) para o executável de desenvolvimento, pkg-config, git e gdb.
 have_minimal() {
     command -v clang >/dev/null && command -v ld.lld >/dev/null && command -v llvm-ar >/dev/null \
         && command -v ninja >/dev/null && command -v make >/dev/null && command -v curl >/dev/null \
-        && python3 -c 'import venv, ensurepip' >/dev/null 2>&1
+        && [ -f /usr/include/vulkan/vulkan.h ] && python3 -c 'import venv, ensurepip' >/dev/null 2>&1
 }
 have_full() {
     have_minimal && command -v pkg-config >/dev/null && pkg-config --exists sdl3 opus vpx libzstd vulkan
@@ -42,16 +43,16 @@ elif command -v pacman >/dev/null; then
         echo "Gerando o chaveiro do pacman (primeira vez)..."
         "${SUDO[@]}" sh -c 'pacman-key --init >/dev/null 2>&1 && pacman-key --populate archlinux >/dev/null 2>&1'
     fi
-    pkgs=(clang lld llvm ninja python make curl tar)
-    [ $MINIMAL = 0 ] && pkgs+=(python-pip git pkgconf gdb time sdl3 opus libvpx zstd vulkan-headers vulkan-icd-loader)
+    pkgs=(clang lld llvm ninja python make curl tar vulkan-headers)
+    [ $MINIMAL = 0 ] && pkgs+=(python-pip git pkgconf gdb time sdl3 opus libvpx zstd vulkan-icd-loader)
     "${SUDO[@]}" pacman -Syu --noconfirm --needed "${pkgs[@]}"
 elif command -v apt-get >/dev/null; then
-    pkgs=(clang lld llvm ninja-build python3-venv make curl ca-certificates)
+    pkgs=(clang lld llvm ninja-build python3-venv make curl ca-certificates libvulkan-dev)
     # SDL3 só existe no Ubuntu 25.04 em diante (libsdl3-dev); a forja do Deck não precisa dela (usa a do sniper).
-    [ $MINIMAL = 0 ] && pkgs+=(python3-pip git pkg-config gdb libopus-dev libvpx-dev libzstd-dev libvulkan-dev libsdl3-dev)
+    [ $MINIMAL = 0 ] && pkgs+=(python3-pip git pkg-config gdb libopus-dev libvpx-dev libzstd-dev libsdl3-dev)
     "${SUDO[@]}" sh -c "export DEBIAN_FRONTEND=noninteractive; apt-get update && apt-get install -y ${pkgs[*]}"
 elif command -v dnf >/dev/null; then
-    pkgs=(clang lld llvm ninja-build python3 make curl tar)
+    pkgs=(clang lld llvm ninja-build python3 make curl tar vulkan-headers)
     [ $MINIMAL = 0 ] && pkgs+=(python3-pip git pkgconf gdb opus-devel libvpx-devel libzstd-devel vulkan-loader-devel SDL3-devel)
     "${SUDO[@]}" dnf install -y "${pkgs[@]}"
 else

@@ -45,8 +45,9 @@ VENV_PY = Path.home() / ".venvs" / "aoc" / "bin" / "python"
 # no MSYS2. The packages come from MSYS2's own mirrors.
 MSYS2_SFX = ("https://github.com/msys2/msys2-installer/releases/download/2026-09-27/msys2-base-x86_64-20260927.sfx.exe",
              "ad336cccfda47758b5e15cda993fbba421115cb0b126697daef1ee4dfe37209f")
+# python-cryptography and python-lz4: tools/build.py's host step indexes the RomFS (romfs_index.py imports nx.py).
 MSYS2_PKGS = ["clang", "lld", "llvm", "ninja", "sdl3", "opus", "libvpx", "zstd", "vulkan-headers", "vulkan-loader",
-              "vulkan-memory-allocator", "python"]
+              "vulkan-memory-allocator", "python", "python-cryptography", "python-lz4"]
 GIB = 2**30
 
 LANG = "pt"
@@ -283,8 +284,12 @@ def tools_msys2(args) -> None:
             (root.parent / "msys64").rename(root)
         sfx.unlink(missing_ok=True)
         msys(args, "true")   # first start: makes the home folder and the pacman keyring
-        # a fresh base updates its core first (pacman ends itself), then the rest
-        msys(args, "pacman -Syuu --noconfirm --disable-download-timeout || true")
+        # A fresh base updates its core first and MSYS2 closes every one of its processes, this shell included (exit
+        # code 1): that first round may "fail"; the second updates the rest and must succeed.
+        try:
+            msys(args, "pacman -Syuu --noconfirm --disable-download-timeout")
+        except StepFailed:
+            out("MSYS2: core updated, second round")
         msys(args, "pacman -Syuu --noconfirm --disable-download-timeout")
     pkgs = [f"mingw-w64-ucrt-x86_64-{p}" for p in MSYS2_PKGS]
     q = capture([bash, "-lc", "pacman -Q " + " ".join(pkgs)], env=dict(os.environ, MSYSTEM="UCRT64"))

@@ -135,9 +135,10 @@ de shader após a instalação; 1 h de sessão sem crash.
 
 - [ ] AppImage (Linux/Deck) e zip (Windows) que **compilam o jogo na máquina do jogador** a partir do dump dele —
       nenhum código derivado do jogo é distribuído.
-  - [x] Launcher no Windows (`launcher.bat`, `launcher/launcher.cpp` + `tools/make_build.py`): a pessoa aponta a
-        pasta com a própria cópia e forja `dist/aoc-deck` e/ou `dist/aoc-windows` — sessão 12. Ainda pede WSL e MSYS2
-        instalados na máquina; empacotar isso é o que falta para um jogador comum.
+  - [x] Launcher (Windows e Linux, português e inglês) que prepara sozinho o ambiente (distro WSL privada, MSYS2,
+        pacotes da distro) e forja `dist/aoc-deck` e/ou `dist/aoc-windows` — sessão 12, release `v0.1.0`.
+  - [ ] Testar o pacote Linux numa distro apt (Ubuntu/Debian) e dnf (Fedora); testar o botão "Instalar o WSL" num PC
+        sem WSL.
 - [ ] Atualização preservando saves e configurações.
 
 ---

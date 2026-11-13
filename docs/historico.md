@@ -1146,3 +1146,12 @@ Arquivos: `runtime/diag.c` (novo), `kernel.c`, `perf.c`, `flight.c/.h`, `vk_back
   `diag/hits`, `diag/marks` e `diag/dump`, mais as imagens 320×180 dos dois últimos relatórios. Testado no notebook:
   zip de 1 MB com o `aoc.log`, o log da sessão guiada e as 10 imagens do relatório de cena escura.
 - Guias (`GUIA.md`, `GUIDE.md`, seção 7): relatório automático, F8 e `monitor.bat`.
+
+### Sessão 13, parte 4: release v0.1.2 e Deck
+
+- Release `v0.1.2` publicada (zip do Windows 68,8 MB, tar.gz do Linux 6,5 MB, com os `.sha256`); o repositório
+  remoto agora se chama `Azzulin/EXCUUUUSE-ME-PRINCESS-` (o endereço antigo redireciona).
+- Deck: `tools/deck/deploy.sh` (agora também envia `ferramentas/diag_view.py`) mandou `aoc`, `LEIA-ME.txt`,
+  `aoc-logs.sh` e `ferramentas/diag_view.py`. Conferido no Deck: o binário traz o gravador de estado e a assinatura
+  nova do `pipeline-keys.bin`; boot com `AOC_GPU=null` por 25 s sem erro, gravador ligado e relatório de saída.
+  Com `AOC_GPU=null` a linha do tempo mostra frame 0 (o backend nulo não passa por `perf_present`); não afeta o jogo.

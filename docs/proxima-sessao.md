@@ -17,7 +17,9 @@ minimapa", "Deck: consumo e temperatura na primeira batalha").
   Próximo: medir as quedas numa sessão sem capturas e atacar a tradução antecipada de shaders.
 - **Falta o dono:** jogar até a cinemática do relato; se ficar preto ou travar, mandar o `logs/aoc.log` e a pasta
   `logs/diag/` (ou rodar `python tools/diag_view.py`). Olhar as faíscas de impacto nos inimigos.
-- **Falta o agente:** commit da sessão 12 parte 4 + sessão 13; `dist` do Deck com tudo; medir no Deck o custo da
+- **Release v0.1.2 publicada** (2026-11-13) e **Deck atualizado** com o binário 0.1.2 (gravador de estado, correções
+  de pipelines e views, `core_rebalance`); boot sem GPU de 25 s no Deck passou. Falta jogar no Deck.
+- **Falta o agente:** medir no Deck o custo da
   cópia 320×180 por segundo e a espera do pré-aquecimento no boot (notebook: 0,46 s com 191 pipelines).
 
 ## Estado anterior (2026-11-12, fim da sessão 12)

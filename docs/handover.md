@@ -127,7 +127,8 @@ partir de 100 s, `AOC_TRACE=perf`, vigia de travada).
   draws pulados na rota de 330 s: 865 → 11–18, 188–191 pipelines pré-montados no boot; e as views de buffer texture
   nunca eram liberadas (tabela de 4096 cheia aos ~10 min de jogo, listas lidas como zero depois). **Pendente:** o
   dono repetir a cinemática do relato com o `dist/aoc-windows/aoc.exe` novo; olhar as faíscas de impacto jogando;
-  refazer o binário do Deck (`dist`) com tudo isto; commit.
+  commit feito (`082f77c`), release `v0.1.2` publicada e binário do Deck enviado (2026-11-13). Falta jogar no Deck
+  e medir o custo da cópia 320×180 por segundo lá.
 
 - **Música e som das cinemáticas: corrigidos e medidos no notebook** (`audio_mixer.c` `mix_depth`: submixes que saem
   por splitter eram somados fora de ordem). 21 de 37 janelas de 5 s mudas → 1. O item 4 abaixo (som do vídeo de

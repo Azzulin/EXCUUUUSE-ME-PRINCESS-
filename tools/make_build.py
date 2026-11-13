@@ -425,6 +425,8 @@ def s_windist(args) -> str:
         except OSError:
             out("romfs.bin: copy (10.9 GiB)")
             shutil.copy2(rom, dst)
+    # monitor mode (captures of hits, F8 marks, frame dumps on a dark scene; runtime/diag.c), always the current one
+    shutil.copy2(ROOT / "tools/windows/monitor.bat", dist / "monitor.bat")
     ini = dist / "aoc.ini"
     if not ini.exists():
         lang = "en" if LANG == "en" else "pt-BR"

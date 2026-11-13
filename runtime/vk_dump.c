@@ -1003,9 +1003,31 @@ out:
 
 static void make_dirs(char *path) { plat_file_mkdir_p(path); }
 
+// AOC_DUMP=arm: no frame is named at start. vk_dump_trigger (diag.c: F8, a hit, a dark scene) asks for the next
+// frame; each dump goes to <AOC_DUMP_DIR>/<nn>-<why>-f<frame>/, at most AOC_DUMP_MAX (6) in a run, one at a time.
+static int arm_mode, arm_count, arm_max = 6;
+static char base_dir[300], arm_why[24];
+static volatile int32_t arm_pending;
+
+void vk_dump_trigger(const char *why) {
+    if (!arm_mode || passes_f || arm_count >= arm_max || __atomic_load_n(&arm_pending, __ATOMIC_RELAXED)) return;
+    snprintf(arm_why, sizeof arm_why, "%s", why);
+    __atomic_store_n(&arm_pending, 1, __ATOMIC_RELEASE);
+}
+
+static void open_files(void) {
+    make_dirs(dir);
+    char path[600];
+    snprintf(path, sizeof path, "%s/passes.txt", dir);
+    passes_f = fopen(path, "w");
+    snprintf(path, sizeof path, "%s/images.txt", dir);
+    images_f = fopen(path, "w");
+}
+
 void vk_dump_init(void) {
     const char *e = cfg_get("AOC_DUMP");
-    if (!e || !*e || !(dump_frame = strtoull(e, NULL, 10))) return;
+    arm_mode = e && !strcmp(e, "arm");
+    if (!arm_mode && (!e || !*e || !(dump_frame = strtoull(e, NULL, 10)))) return;
     const char *lf = cfg_get("AOC_DUMP_LOG");
     if (lf && *lf) log_from = strtoull(lf, NULL, 10);
     const char *sr = cfg_get("AOC_DUMP_SKIP_RUNS");
@@ -1023,12 +1045,18 @@ void vk_dump_init(void) {
     }
     const char *d = cfg_get("AOC_DUMP_DIR");
     snprintf(dir, sizeof dir, "%s", d && *d ? d : "dump");
-    make_dirs(dir);
     char path[600];
-    snprintf(path, sizeof path, "%s/passes.txt", dir);
-    passes_f = fopen(path, "w");
-    snprintf(path, sizeof path, "%s/images.txt", dir);
-    images_f = fopen(path, "w");
+    if (arm_mode) {
+        const char *mx = cfg_get("AOC_DUMP_MAX");
+        if (mx && *mx) arm_max = atoi(mx);
+        snprintf(base_dir, sizeof base_dir, "%s", dir);
+        dump_frame = UINT64_MAX;
+        finished = 1;
+        vk_dump_armed = 1;
+        rt_log("vk_dump: armed: up to %d frame dumps on request (F8, hit watch, dark scene) under %s", arm_max, base_dir);
+        return;
+    }
+    open_files();
     if (!passes_f || !images_f) rt_fatal("vk_dump: cannot write to %s", dir);
     const char *bf = cfg_get("AOC_DUMP_BUF");
     if (bf && *bf) {
@@ -1048,6 +1076,27 @@ void vk_dump_init(void) {
 }
 
 void vk_dump_present(uint64_t frame) {
+    if (arm_mode && !passes_f && __atomic_exchange_n(&arm_pending, 0, __ATOMIC_ACQUIRE)) {
+        plat_mutex_lock(&rec_lock);
+        snprintf(dir, sizeof dir, "%s/%02d-%s-f%llu", base_dir, ++arm_count, arm_why, (unsigned long long)frame + 1);
+        open_files();
+        if (!passes_f || !images_f) {
+            if (passes_f) fclose(passes_f);
+            if (images_f) fclose(images_f);
+            passes_f = images_f = NULL;
+            plat_mutex_unlock(&rec_lock);
+            rt_log("vk_dump: cannot write to %s; dump dropped", dir);
+            return;
+        }
+        seq = copied = nents = nluts = nluts_done = pass_draws = 0;
+        last_targets = 0;
+        __atomic_store_n(&png_bytes, 0, __ATOMIC_RELAXED);
+        dump_frame = frame + 1;
+        finished = 0;
+        plat_mutex_unlock(&rec_lock);
+        rt_log("vk_dump: frame %llu goes to %s (%s)", (unsigned long long)dump_frame, dir, arm_why);
+        return;
+    }
     if (frame != dump_frame) return;
     plat_mutex_lock(&rec_lock);
     finished = 1;

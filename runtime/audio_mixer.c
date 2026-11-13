@@ -348,6 +348,7 @@ static void voice_census(AudioRenderer *r, Mixer *m) {
 
 // Level meter (AOC_TRACE=audio): one line per 5 s of output, and the first nonzero frame.
 static void level_note(AudioRenderer *r, Mixer *m, const float *lr, int frames) {
+    diag_audio(lr, frames);
     if (!(rt_trace & RT_TRACE_AUDIO)) return;
     int sound = 0;
     for (int k = 0; k < 2 * frames; k++) {

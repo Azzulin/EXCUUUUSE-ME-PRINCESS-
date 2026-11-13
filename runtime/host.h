@@ -223,7 +223,24 @@ void kern_host_left(void *thread);                         // back at depth 0 wi
 int kern_core_diag_on(void);                               // AOC_CORE_DIAG
 void kern_core_diag_frame(uint64_t frame, uint64_t interval_ns);   // perf_present, every present (also logs the
                                                            // asynchronous preemption counters)
-void kern_watch_present(void);                            // every guest present: the hang watchdog (AOC_HANG_SECS)
+void kern_watch_present(void);                            // every guest present: stamps the time, starts diag.c
+uint64_t kern_last_present_ns(void);                       // kern_now_ns of the latest guest present, 0 before the first
+void kern_threads_report(const char *tag);                 // every guest thread to the log, lines prefixed "<tag>:"
+int kern_diag_brief(char *main_state, size_t cap);         // the main thread's state in a word; returns cores held
+// ---- state recorder (diag.c): a sample a second, a report on a stall, a black picture or F8
+void diag_setup(void);                                     // prof_start: asks for the picture copies; before the first present
+void diag_start(void);                                     // starts the recorder's thread, once
+void diag_frame(uint64_t frame);                           // perf_present
+void diag_audio(const float *lr, int frames);              // the mixed output, interleaved stereo, any thread
+void diag_read(uint64_t bytes);                            // RomFS bytes read
+const char *diag_record_path(void);                        // input.c: this run's default input recording, or NULL
+void diag_attack_button(int y);                            // input.c: the regular attack button's state, every poll
+void diag_exit(void);                                      // prof_write: a last report as the game exits
+void diag_rumble(float amp);                               // ov_input.c: a vibration starts
+int diag_shot_wanted(uint64_t present, char *path, size_t cap);   // boot.c, guest present: 1 with the PNG path to write
+int diag_thumb_wanted(uint64_t frame);                     // present thread: 1 when this present's picture is to be copied
+int movie_diag(char *buf, size_t cap);                     // ov_movie.c: live host decoders described; returns how many
+uint64_t perf_total(int kind);                             // PERF_CNT_* since the start, counted always
 void kern_sched_report(uint64_t frame);                    // AOC_TRACE=sched: per-thread time split, on present
 uint32_t kern_handle_new(int kind, void *obj);             // kind: KERN_SESSION or KERN_TMEM (ipc.c)
 void *kern_handle_get(uint32_t h, int kind);

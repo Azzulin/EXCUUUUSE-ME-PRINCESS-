@@ -118,6 +118,17 @@ partir de 100 s, `AOC_TRACE=perf`, vigia de travada).
 
 **Sessão 5 (2026-11-09) — ler primeiro; o plano passo a passo está em `docs/proxima-sessao.md`.**
 
+- **Sessão 13 (2026-11-13): gravador de estado e dois defeitos de imagem.** `runtime/diag.c` (sempre ligado) tira
+  uma amostra por segundo e escreve um relatório `diag:` no `aoc.log` quando não há present por `AOC_HANG_SECS`
+  (10 s), quando a **imagem fica preta por `AOC_BLACK_SECS` (15 s) com o jogo apresentando**, ou com **F8**: linha do
+  tempo dos últimos 45 s, todas as threads com a cadeia de chamadas do guest, e as últimas 10 cópias 320×180 da
+  imagem em `logs/diag/`. Leitura em português: **`python tools/diag_view.py [aoc.log] [--threads]`**.
+  Corrigidos e medidos no notebook: o `pipeline-keys.bin` era rejeitado em todo boot (assinatura gravada ≠ lida) —
+  draws pulados na rota de 330 s: 865 → 11–18, 188–191 pipelines pré-montados no boot; e as views de buffer texture
+  nunca eram liberadas (tabela de 4096 cheia aos ~10 min de jogo, listas lidas como zero depois). **Pendente:** o
+  dono repetir a cinemática do relato com o `dist/aoc-windows/aoc.exe` novo; olhar as faíscas de impacto jogando;
+  refazer o binário do Deck (`dist`) com tudo isto; commit.
+
 - **Música e som das cinemáticas: corrigidos e medidos no notebook** (`audio_mixer.c` `mix_depth`: submixes que saem
   por splitter eram somados fora de ordem). 21 de 37 janelas de 5 s mudas → 1. O item 4 abaixo (som do vídeo de
   abertura) era o mesmo defeito. Falta ouvir no Deck.
@@ -320,8 +331,19 @@ partir de 100 s, `AOC_TRACE=perf`, vigia de travada).
 - **MSYS2 pelo PowerShell**: `$env:MSYSTEM="UCRT64"; $env:CHERE_INVOKING="1"; & C:\msys64\usr\bin\bash.exe -lc "..."`.
   O `ninja` do Windows não usa shell: `tools/build.py` escreve aspas duplas e não usa `rm` quando `os.name == "nt"`.
 - **RAM no notebook**: o WSL segura memória; `wsl --shutdown` antes do build do guest no Windows.
-- **Travada intermitente**: o vigia (`AOC_HANG_SECS`, padrão 10 s) registra o estado de cada thread; a entrada da
-  batalha com cache frio passa de 6 s sem present e aparece no log sem ser travada (só tradução/pipelines).
+- **Travada intermitente**: o gravador de estado (`runtime/diag.c`; `AOC_HANG_SECS`, padrão 10 s) registra o estado
+  de cada thread; a entrada da batalha com cache frio passa de 6 s sem present e aparece no log sem ser travada (só
+  tradução/pipelines). Tela preta com o jogo apresentando: `AOC_BLACK_SECS` (15 s; as cargas mostram 5–6 s de
+  preto). Ler com `python tools/diag_view.py`.
+- **Sessão do Windows bloqueada** (tela de bloqueio, `LogonUI.exe` rodando): o jogo cai para ~21 fps com uma
+  engasgada de ~350 ms por segundo em qualquer configuração. Não medir fps assim.
+- **`pipeline-keys.bin`**: "has another format or version; it is rewritten" em todo boot era defeito (sessão 13), não
+  aviso inofensivo. Depois da correção a linha só pode aparecer uma vez, se o formato mudar de verdade.
+- **Núcleo virtual preso por thread de mesma prioridade** (sessão 12, parte 4): uma worker que gira em código do
+  jogo sem SVC (`main+0xfdff0c`) segurava o núcleo 0 e a principal (máscara 1) nunca rodava, com os núcleos 1 e 2
+  livres: tela preta numa cinemática. `core_rebalance` (`runtime/kernel.c`) migra o dono para o núcleo livre. Falta
+  o dono confirmar na cinemática e refazer o binário do Deck (`dist`). No relatório, olhar `core owners`,
+  a máscara de cada thread e o contador de migrações (`tools/diag_view.py` faz essa leitura).
 - **Endereços de pool mudam entre execuções** (às vezes): conferir em `passes.txt` antes de usar `AOC_DUMP_BUF`.
 - **Símbolos do SDK**: `sdk+0x...` vira nome pela tabela de exports do NSO (`recomp/nso.py`), e uma chamada de PLT do
   `main` (adrp/ldr x16/x17) pelo `JUMP_SLOT` do GOT — script de uma página, ver o histórico da sessão 3.

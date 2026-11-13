@@ -1462,13 +1462,41 @@ static Twin *twin_update(VkExec *ex, const VkTexImage *img) {
 // for its depth twin.
 // ---- buffer textures: a texel buffer view over the pool memory a buffer texture names (texel_view). The translator
 // declares a slot that a buffer texture is bound to as a texel buffer; the GPU reads the pool's current content when
-// the draw runs, as on the Switch. Views are kept by (buffer, offset, range, format) for the session: the game has a
-// few lists that it rewrites in place (Age of Calamity: KTGL's light and decal lists). A full table or an unsupported
-// format falls back to the zero view, logged once.
+// the draw runs, as on the Switch. Views are kept by (buffer, offset, range, format): the game has a few lists that it
+// rewrites in place (Age of Calamity: KTGL's light and decal lists) and many that move (about 6 new spans a second in
+// a battle). A view no draw bound for TVIEW_IDLE_NS is destroyed when the table passes three quarters (tviews_sweep):
+// kept for the session, the table filled after ten minutes of play and every new list read the zero view from then on
+// (1.3.0, "more than 4096 texel buffer views", lights and effect lists gone). An unsupported format falls back to
+// the zero view, logged once; vk_exec_zero_views counts every such binding.
 #define TVIEWS 4096
-typedef struct { VkBuffer buf; VkDeviceSize off, range; VkFormat fmt; VkBufferView view; } TexelView;
+#define TVIEW_IDLE_NS 10000000000ull   // far longer than a recorded command buffer waits for the GPU
+typedef struct { VkBuffer buf; VkDeviceSize off, range; VkFormat fmt; VkBufferView view; uint64_t used; } TexelView;
 static TexelView tviews[TVIEWS];
-static int tview_warned;
+static int tview_warned, tview_live;
+static uint64_t tview_swept, tview_sweep_at;
+static volatile int64_t tview_zero;   // bindings that fell back to the zero view (not the slots that hold no texture)
+
+uint64_t vk_exec_zero_views(void) { return (uint64_t)__atomic_load_n(&tview_zero, __ATOMIC_RELAXED); }
+
+// Holding the texture lock, as texel_view's callers do.
+static void tviews_sweep(uint64_t now) {
+    VkCtx *c = vk_ctx();
+    int n = 0;
+    for (int i = 0; i < TVIEWS; i++)
+        if (tviews[i].view && now - tviews[i].used > TVIEW_IDLE_NS) {
+            vkDestroyBufferView(c->device, tviews[i].view, NULL);
+            tviews[i] = (TexelView){0};
+            n++;
+        }
+    tview_live -= n;
+    tview_swept += (uint64_t)n;
+    tview_sweep_at = now;
+    static int logged;
+    if (logged < 8 || !(logged & (logged - 1)))
+        rt_log("vk: texel buffer views: %d idle for %d s destroyed, %d live (%llu destroyed so far)", n,
+               (int)(TVIEW_IDLE_NS / 1000000000ull), tview_live, (unsigned long long)tview_swept);
+    logged++;
+}
 
 // AOC_TEXEL_ZERO=<slot>[,<slot>...] (diagnosis): those sampled buffer-texture slots of draws read the zero view, to
 // tell which of a shader's lists changes the image.
@@ -1534,6 +1562,7 @@ static VkBufferView texel_view(uint64_t h, int storage) {
     int bw, bh, bpb = nvn_fmt_bpb(format, &bw, &bh);
     if (!bpb || bw != 1 || bh != 1 || !tex_vk_format(format, &f) || f.vk != f.ideal) {
         if (!tview_warned++) rt_log("vk: buffer texture of NVN format %#x has no texel buffer format: zero view", format);
+        plat_inc64(&tview_zero);
         return Z.zview;
     }
     // The translator declares every sampled texel buffer as float (Ryujinx Declarations.cs: TypeImage of FP32). On the
@@ -1572,6 +1601,7 @@ static VkBufferView texel_view(uint64_t h, int storage) {
     VkMemSpan sp;
     if (!vk_mem_resolve(addr, range, &sp) || sp.avail < range || sp.offset % (lim.minTexelBufferOffsetAlignment ? lim.minTexelBufferOffsetAlignment : 1)) {
         if (!tview_warned++) rt_log("vk: buffer texture at %#llx (%llu bytes) is not one aligned span: zero view", (unsigned long long)addr, (unsigned long long)range);
+        plat_inc64(&tview_zero);
         return Z.zview;
     }
     VK_MEM_USE(sp);
@@ -1579,20 +1609,28 @@ static VkBufferView texel_view(uint64_t h, int storage) {
     vkGetPhysicalDeviceFormatProperties(c->phys, f.vk, &fp);
     if (!(fp.bufferFeatures & (storage ? VK_FORMAT_FEATURE_STORAGE_TEXEL_BUFFER_BIT : VK_FORMAT_FEATURE_UNIFORM_TEXEL_BUFFER_BIT))) {
         if (!tview_warned++) rt_log("vk: format %d cannot be a texel buffer here: zero view", (int)f.vk);
+        plat_inc64(&tview_zero);
         return Z.zview;
     }
     uint64_t hsh = ((uint64_t)(uintptr_t)sp.buffer * 0x9e3779b97f4a7c15ull) ^ (sp.offset * 0xc2b2ae3d27d4eb4full) ^ range ^ ((uint64_t)f.vk << 40);
+    uint64_t now = kern_now_ns();
+    if (tview_live > TVIEWS * 3 / 4 && now - tview_sweep_at > 1000000000ull) tviews_sweep(now);
     for (uint32_t i = 0, k = (uint32_t)(hsh >> 20) % TVIEWS; i < TVIEWS; i++, k = (k + 1) % TVIEWS) {
         TexelView *t = &tviews[k];
-        if (t->view && t->buf == sp.buffer && t->off == sp.offset && t->range == range && t->fmt == f.vk) return t->view;
+        if (t->view && t->buf == sp.buffer && t->off == sp.offset && t->range == range && t->fmt == f.vk) {
+            t->used = now;
+            return t->view;
+        }
         if (t->view) continue;
         VkBufferViewCreateInfo bi = {.sType = VK_STRUCTURE_TYPE_BUFFER_VIEW_CREATE_INFO, .buffer = sp.buffer,
                                      .format = f.vk, .offset = sp.offset, .range = range};
         if (vkCreateBufferView(c->device, &bi, NULL, &t->view) != VK_SUCCESS) {
             t->view = VK_NULL_HANDLE;
+            plat_inc64(&tview_zero);
             return Z.zview;
         }
-        t->buf = sp.buffer, t->off = sp.offset, t->range = range, t->fmt = f.vk;
+        t->buf = sp.buffer, t->off = sp.offset, t->range = range, t->fmt = f.vk, t->used = now;
+        tview_live++;
         static int made;
         ++made;
         if (made <= 32 || made % 256 == 0)
@@ -1601,7 +1639,8 @@ static VkBufferView texel_view(uint64_t h, int storage) {
                    storage ? "storage" : "sampled");
         return t->view;
     }
-    if (!tview_warned++) rt_log("vk: more than %d texel buffer views: zero view", TVIEWS);
+    if (!tview_warned++) rt_log("vk: more than %d texel buffer views in use within %d s: zero view", TVIEWS, (int)(TVIEW_IDLE_NS / 1000000000ull));
+    plat_inc64(&tview_zero);
     return Z.zview;
 }
 
@@ -1666,6 +1705,7 @@ void vk_texel_views_forget(VkBuffer b) {
             tviews[i] = (TexelView){0};
             n++;
         }
+    tview_live -= n;
     vk_texture_unlock();
     static int logged;
     if (n && logged < 16) {

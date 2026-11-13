@@ -42,6 +42,7 @@ uint64_t perf_gpu_busy_total(void) { return (uint64_t)__atomic_load_n(&gpu_busy_
 
 void prof_start(void) {
     flight_init();
+    diag_setup();
     atexit(perf_summary_flush);   // boot.c's _exit path goes through prof_write instead
     perf_base = (rt_trace & RT_TRACE_PERF) || flight_on;
     perf_on = perf_base || overlay == 2;
@@ -49,6 +50,7 @@ void prof_start(void) {
 }
 
 void prof_write(void) {
+    diag_exit();
     perf_summary_flush();
     prof_sampler_write();
 }
@@ -98,9 +100,14 @@ void perf_replay(uint64_t t0) {
 
 static volatile int64_t counts[PERF_CNT_N];   // running totals: the perf log and the flight recorder take differences
 
+static volatile int64_t totals[PERF_CNT_N];   // since the start, counted whatever perf_on says (diag.c)
+
 void perf_count(int kind) {
+    plat_inc64(&totals[kind]);
     if (__atomic_load_n(&perf_on, __ATOMIC_RELAXED)) plat_inc64(&counts[kind]);
 }
+
+uint64_t perf_total(int kind) { return (uint64_t)__atomic_load_n(&totals[kind], __ATOMIC_RELAXED); }
 
 // ---- Frame-time summary, always on: every 60 s of play and at exit one line of frame count, mean fps, 1% low and the
 // frames over 25/50/100 ms, then the worst frames of the period with the render thread's waits in them. Per frame: a
@@ -271,6 +278,7 @@ void perf_present(uint64_t frame) {
     if (__atomic_load_n(&overlay, __ATOMIC_RELAXED))   // the overlay's only cost while it is off: this branch
         perfmon_frame(now, d, frame_ns, rep, __atomic_load_n(&counts[PERF_CNT_TEX_UP], __ATOMIC_RELAXED));
     kern_core_diag_frame(frame, d);
+    diag_frame(frame);
     if (flight_on) flight_frame(frame, now, d, frame_ns, counts);
     if (!(rt_trace & RT_TRACE_PERF)) {
         memset(frame_ns, 0, sizeof frame_ns);

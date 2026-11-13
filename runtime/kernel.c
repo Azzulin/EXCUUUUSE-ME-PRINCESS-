@@ -303,6 +303,7 @@ static uint32_t block_inner(RtThread *t, int kind, int64_t ns) {
 // in main+0x82e00 or hangs at the title menu. The start log and every crash report say so (kern_free_cores_note).
 static RtThread *g_core_owner[NCORE], *g_core_wait;
 static int g_cores_on = -1, g_held_max;
+static uint64_t g_core_moved;   // owners moved to a free core for a waiter (core_rebalance)
 
 static void diag_init(void);
 static void ap_init(void);
@@ -872,6 +873,36 @@ static void core_grant(int c) {
     plat_cond_signal(&b->cv);
 }
 
+// Migration, as Horizon's scheduler does for an idle core (it takes the running thread of a core that has another
+// thread queued): while a core is free and a waiter may run only on held cores, an owner that may run on the free core
+// moves there and its old core goes to the best waiter allowed on it. Without it a thread that spins in game code with
+// no SVC kept core 0 for good while the main thread (mask 1, same priority, so no preempt request either) waited for
+// it and cores 1 and 2 sat free: 1.3.0, the worker in main+0xfdff0c..0xfe0008 releases and retakes a lock bit until
+// another thread clears [x19+0x88] (hang watchdog, black screen entering a cutscene, Windows). The owner's core
+// number changes under it, as it does on the Switch and at any checkpoint here.
+static void core_rebalance(void) {
+    for (int j = 0; j < NCORE; j++) {
+        if (g_core_owner[j]) continue;
+        int from = -1, fpri = 0;
+        for (int i = 0; i < NCORE; i++) {
+            RtThread *o = g_core_owner[i];
+            if (!o || !core_allowed(o, j)) continue;
+            for (const RtThread *w = g_core_wait; w; w = w->cnext)
+                if (core_allowed(w, i) && (from < 0 || prio_of(w) < fpri)) {
+                    from = i;
+                    fpri = prio_of(w);
+                }
+        }
+        if (from < 0) continue;
+        RtThread *o = g_core_owner[from];
+        g_core_owner[j] = o;
+        __atomic_store_n(&o->cur_core, j, __ATOMIC_RELAXED);
+        g_core_owner[from] = NULL;
+        g_core_moved++;
+        core_grant(from);
+    }
+}
+
 static void core_put(RtThread *t) {
     if (t->cur_core < 0) return;
     int c = t->cur_core;
@@ -893,6 +924,7 @@ static void core_put(RtThread *t) {
     t->preempt = 0;
     g_core_owner[c] = NULL;
     core_grant(c);
+    if (!g_core_owner[c] && g_core_wait) core_rebalance();
 }
 
 // Whether a waiter better than t may run on core c.
@@ -973,7 +1005,8 @@ static void core_take(RtThread *t) {
         t->dg_since = kern_now_ns();
         memset(&t->dg_rel, 0, sizeof t->dg_rel);
     }
-    core_kick();
+    core_rebalance();
+    if (t->cur_core < 0) core_kick();
     if (g_diag > 0) t->dg_cls = dg_class0(t);
     if (g_ap_int && t->target && t->cur_core < 0) {   // most waits end within microseconds: spin before interrupting
         uint64_t end = kern_now_ns() + AP_FIRST_NS;
@@ -2280,26 +2313,53 @@ HOST_OVERRIDE(KERN_SYM_FINALIZE_FIBER, kern_fiber_finalize);
 HOST_OVERRIDE(KERN_SYM_SWITCH_TO_FIBER, kern_fiber_switch);
 HOST_OVERRIDE(KERN_SYM_GET_CURRENT_FIBER, kern_fiber_current);
 
-// ---- hang watchdog (AOC_HANG_SECS, default 10; 0 off). The present (nvn_api_obj.c nvnQueuePresentTexture) stamps the
-// time; a host thread started at the first present checks it once a second and, when no present came for that long,
-// logs every guest thread once per stall: wait kind and object (with the lock or arbiter word), the virtual core it
-// holds, host call depth, its last spin-wait site and the guest pc/lr/sp of its current context. The report reads the
-// thread list without G (a deadlock may hold it); threads are not freed while the game runs, so the walk is safe, but
-// fields may be mid-update.
+// ---- thread report for the state recorder (diag.c): no present for AOC_HANG_SECS, a black picture or F8. The present
+// (nvn_api_obj.c nvnQueuePresentTexture) stamps the time and starts the recorder's thread. The report logs every guest
+// thread: wait kind and object (with the lock or arbiter word), the virtual core it holds and its affinity mask, host
+// call depth, its last spin-wait site, the guest pc/lr/sp of its current context and its guest call chain (the frame
+// records between sp and the top of its stack). It reads the thread list without G (a deadlock may hold it); threads
+// are not freed while the game runs, so the walk is safe, but fields may be mid-update.
 static volatile uint64_t g_present_ns;
-static int g_watch_started;
 
-static void hang_report(uint64_t stalled_ns) {
+// "main+0x12f8420": the short form of rt_guest_name, for the call chain.
+static int short_name(uint64_t a, char *buf, int size) {
+    for (int i = 0; i < ldr_count(); i++) {
+        const RtLoaded *m = ldr_module(i);
+        if (a - m->base < m->size) return snprintf(buf, (size_t)size, "%s+%#llx", m->name, (unsigned long long)(a - m->base));
+    }
+    return snprintf(buf, (size_t)size, "%#llx", (unsigned long long)a);
+}
+
+// The return addresses of the AAPCS64 frame records from x29 up, while they stay inside [sp, stack top) and climb.
+// A thread on a fiber has another stack: no chain. A running thread's x29 may be mid-update; the bounds hold anyway.
+static void guest_chain(const RtThread *t, const Cpu *c, const char *tag) {
+    if (t->fiber || !t->stack_top) return;
+    char line[512];
+    int n = 0, frames = 0;
+    uint64_t fp = c->x[29], lo = c->sp, hi = t->stack_top;
+    if (hi < lo || hi - lo > (64ull << 20)) return;
+    while (frames < 14 && fp >= lo && fp + 16 <= hi && !(fp & 7) && n < (int)sizeof line - 40) {
+        uint64_t next = LD64(fp), ret = LD64(fp + 8);
+        if (!ret) break;
+        n += snprintf(line + n, sizeof line - (size_t)n, "%s", frames ? " < " : "");
+        n += short_name(ret, line + n, (int)sizeof line - n);
+        frames++;
+        if (next <= fp) break;
+        fp = next;
+    }
+    if (frames) rt_log("%s:    called from %s", tag, line);
+}
+
+void kern_threads_report(const char *tag) {
     static const char *const kind[] = {"run", "lock", "condvar", "address", "sync"};
-    rt_log("hang: no present for %.1f s; guest threads (core: virtual core held, -1 none):",
-           (double)stalled_ns / 1e9);
     char n1[96], n2[96], q[512] = "";
     int ql = 0;
     for (RtThread *w = g_core_wait; w && ql < (int)sizeof q - 24; w = w->cnext)
         ql += snprintf(q + ql, sizeof q - ql, " %#x/%d", w->handle, w->prio);
-    rt_log("hang: core owners %#x %#x %#x; waiting for a core (handle/prio):%s",
+    rt_log("%s: guest threads (core: virtual core held, -1 none)", tag);
+    rt_log("%s: core owners %#x %#x %#x; waiting for a core (handle/prio):%s; %llu owners moved to a free core", tag,
            g_core_owner[0] ? g_core_owner[0]->handle : 0, g_core_owner[1] ? g_core_owner[1]->handle : 0,
-           g_core_owner[2] ? g_core_owner[2]->handle : 0, ql ? q : " none");
+           g_core_owner[2] ? g_core_owner[2]->handle : 0, ql ? q : " none", (unsigned long long)g_core_moved);
     for (RtThread *t = g_all; t; t = t->all) {
         if (t->exited) continue;
         const Cpu *c = t->cur ? t->cur : t->cpu;
@@ -2307,38 +2367,41 @@ static void hang_report(uint64_t stalled_ns) {
         char word[32] = "";
         if ((k == W_LOCK || k == W_ADDRESS) && t->waddr)
             snprintf(word, sizeof word, " =%#x", __atomic_load_n((const uint32_t *)(uintptr_t)t->waddr, __ATOMIC_RELAXED));
-        rt_log("hang:  thread %#x prio %d%s%s core %d host %d %s addr %#llx%s key %#llx obj %#llx spin %llu at %#llx",
-               t->handle, t->prio, t->is_main ? " main" : "", t == g_render ? " render" : "", t->cur_core,
-               t->host_depth, kind[k], (unsigned long long)t->waddr, word, (unsigned long long)t->wkey,
+        rt_log("%s:  thread %#x prio %d%s%s core %d mask %#llx host %d %s addr %#llx%s key %#llx obj %#llx spin %llu at %#llx",
+               tag, t->handle, t->prio, t->is_main ? " main" : "", t == g_render ? " render" : "", t->cur_core,
+               (unsigned long long)t->mask, t->host_depth, kind[k], (unsigned long long)t->waddr, word, (unsigned long long)t->wkey,
                (unsigned long long)t->wobj, (unsigned long long)t->sp_n, (unsigned long long)t->sp_site);
-        if (t->y_ho) rt_log("hang:    yield handoffs to worse waiters %llu", (unsigned long long)t->y_ho);
-        if (c)
-            rt_log("hang:    pc %#llx %s lr %#llx %s sp %#llx%s", (unsigned long long)c->pc,
+        if (t->y_ho) rt_log("%s:    yield handoffs to worse waiters %llu", tag, (unsigned long long)t->y_ho);
+        if (c) {
+            rt_log("%s:    pc %#llx %s lr %#llx %s sp %#llx%s", tag, (unsigned long long)c->pc,
                    rt_guest_name(c->pc, n1, sizeof n1), (unsigned long long)c->x[30],
                    rt_guest_name(c->x[30], n2, sizeof n2), (unsigned long long)c->sp, t->fiber ? " (fiber)" : "");
-    }
-}
-
-static void watch_main(void *arg) {
-    (void)arg;
-    const char *v = cfg_get("AOC_HANG_SECS");
-    double secs = v && *v ? atof(v) : 10.0;
-    uint64_t limit = (uint64_t)(secs * 1e9), reported = 0;
-    for (;;) {
-        plat_sleep_ms(1000);
-        uint64_t last = g_present_ns, now = kern_now_ns();
-        if (last && now > last + limit && reported != last) {
-            reported = last;
-            hang_report(now - last);
+            guest_chain(t, c, tag);
         }
     }
 }
 
+// The main thread's state in a word and the number of virtual cores held (diag.c, once a second, without G).
+int kern_diag_brief(char *main_state, size_t cap) {
+    // run: game code on a core; host: a host call or SVC on a core; nocore: in the queue for a core; away: off the
+    // cores in a host wait (SleepThread, a blocking host call); the rest: the kernel wait it is in
+    static const char *const kind[] = {"away", "lock", "condvar", "address", "sync"};
+    int held = 0;
+    for (int i = 0; i < NCORE; i++) held += g_core_owner[i] != NULL;
+    snprintf(main_state, cap, "?");
+    for (RtThread *t = g_all; t; t = t->all)
+        if (t->is_main) {
+            int k = t->wkind >= 0 && t->wkind <= W_SYNC ? t->wkind : 0, queued = 0, guard = 0;
+            for (const RtThread *w = g_core_wait; w && guard < 256 && !queued; w = w->cnext, guard++) queued = w == t;
+            snprintf(main_state, cap, "%s", t->cur_core >= 0 ? (t->host_depth ? "host" : "run") : queued ? "nocore" : kind[k]);
+            break;
+        }
+    return held;
+}
+
+uint64_t kern_last_present_ns(void) { return g_present_ns; }
+
 void kern_watch_present(void) {
     g_present_ns = kern_now_ns();
-    if (g_watch_started) return;
-    g_watch_started = 1;
-    const char *v = cfg_get("AOC_HANG_SECS");
-    if (v && *v && atof(v) <= 0) return;
-    plat_thread_spawn(watch_main, NULL, "aoc hang watchdog", 0);
+    diag_start();
 }

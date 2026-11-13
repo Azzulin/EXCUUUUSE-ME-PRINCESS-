@@ -582,6 +582,7 @@ REGISTROS (consumo, temperatura, fps de cada sessão)
   ./aoc-logs.sh ao-vivo                    acompanha a sessão em andamento (de outro terminal ou por SSH)
   ./aoc-logs.sh sistema                    TDP, watts, temperaturas e clocks agora
   ./aoc-logs.sh detalhado on|off           mais detalhes de desempenho nas próximas sessões
+  ./aoc-logs.sh diag                       lê os relatórios de travada e tela preta da última sessão
   ./aoc-logs.sh pacote                     junta tudo em logs/pacote-<data>.tar.gz para mandar
 
 CONTROLES DO PORT
@@ -654,6 +655,7 @@ def assemble_dist(args, exe: Path, sysroot: Path, host: Path, xl: Path) -> Path:
     # Registros no Deck: aoc-logs.sh (lista, resumo, acompanhamento, pacote) e o resumidor que ele usa.
     (dist / "ferramentas").mkdir(exist_ok=True)
     shutil.copy2(ROOT / "tools" / "deck" / "logsum.py", dist / "ferramentas" / "logsum.py")
+    shutil.copy2(ROOT / "tools" / "diag_view.py", dist / "ferramentas" / "diag_view.py")   # aoc-logs.sh diag
     shutil.copy2(ROOT / "tools" / "deck" / "aoc-logs.sh", dist / "aoc-logs.sh")
     (dist / "aoc-logs.sh").chmod(0o755)
     if not (dist / "aoc.ini").exists():   # só na primeira vez: depois o arquivo é do jogador (o menu grava nele)

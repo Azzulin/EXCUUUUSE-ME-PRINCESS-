@@ -1024,3 +1024,125 @@ pacote é atualizado.
   extraída por cima) o launcher mostra a forja com um aviso.
 - `tools/build_launcher.py --out`; launcher Linux compilado e visto pelo WSLg.
 - Publicado como release `v0.1.1` (zip do Windows 65,6 MB, tar.gz do Linux 6,2 MB, com os `.sha256`).
+
+### Sessão 12, parte 4: tela preta ao entrar numa cinemática (travada de núcleo virtual)
+
+- Relato do dono: depois de ~12 min de jogo no Windows (release 0.1.1), ao chegar numa cinemática a tela ficou
+  preta e não voltou. O `logs/aoc.log` tinha o relatório do vigia: `hang: no present for 10.9 s` no frame 22144.
+- Leitura do relatório: núcleos virtuais `0x1042 0 0` (núcleos 1 e 2 livres) e a thread principal (`0x1001`,
+  prioridade 44, máscara 1) esperando o núcleo 0. A `0x1042` (worker, também prioridade 44) estava rodando código do
+  jogo sem chamada de host. Desmontado: laço em `main+0xfdff0c..0xfe0008`, que limpa e retoma o bit 16 de um lock
+  até outra thread zerar `[x19+0x88]`; só dorme (50 µs, `main+0x1b51bf0`) quando acha o bit ocupado, então sem
+  disputa não passa por SVC nenhuma. Não é um spin wait da tabela (o laço grava). Com prioridade igual não há pedido
+  de preempção, e a principal nunca mais rodou. No Switch a worker ficaria num núcleo próprio.
+- Correção em `runtime/kernel.c` (`core_rebalance`, chamada por `core_take` e `core_put`): com um núcleo livre e
+  alguém esperando um núcleo ocupado, o dono que pode rodar no núcleo livre muda para lá e o núcleo antigo vai para
+  quem esperava — a migração que o escalonador do Horizon faz para um núcleo ocioso. O relatório do vigia passa a
+  mostrar a máscara de cada thread e quantas migrações houve.
+- Testado: build do host no MSYS2, rota da primeira batalha por 100 s (`hang.sh`, `AOC_TRACE=perf,sched`) sem
+  travar, 28,3 fps de média no primeiro minuto. **A cinemática do relato não foi reproduzida** (depende do save do
+  dono); `dist/aoc-windows/aoc.exe` recebeu o executável novo para ele repetir. Binário do Deck ainda não refeito.
+
+## Sessão 13 — 2026-11-13 (notebook): gravador de estado para travadas e tela preta; efeitos que sumiam
+
+Pedido do dono: (1) ferramentas e registros para descobrir o que acontece quando o jogo chega numa cinemática no meio
+da missão e fica com a tela preta sem voltar; (2) conferir, por precaução, os efeitos visuais de impacto nos inimigos.
+
+### Gravador de estado (`runtime/diag.c`, sempre ligado)
+
+- Uma thread do host tira **uma amostra por segundo** (anel de 120): presents, brilho da imagem apresentada (cópia
+  320×180 do frame, uma por segundo, pelo mesmo caminho das miniaturas do flight recorder), draws por frame, pico do
+  áudio, KiB lidos do RomFS, draws pulados, listas lidas como zero, vídeos ativos, estado da thread principal
+  (`run`, `host`, `nocore`, `away`, `lock`, `condvar`, `address`, `sync`) e núcleos virtuais ocupados.
+- **Relatório no `aoc.log`** (linhas `diag:`) em três casos: sem present por `AOC_HANG_SECS` (10 s; o antigo vigia,
+  que passou para cá; a linha `hang: no present` continua), **imagem preta por `AOC_BLACK_SECS` (15 s) com o jogo
+  apresentando** (o caso que o vigia antigo não via) e **F8**. O relatório traz os últimos 45 s da linha do tempo, os
+  decodificadores de vídeo, os totais de conteúdo perdido, todas as threads (`kern_threads_report`, agora com a
+  **cadeia de chamadas do guest** de cada uma, lida dos registros de frame entre `sp` e o topo da pilha) e grava as
+  últimas 10 cópias da imagem em `logs/diag/<data>-<motivo>/`. Se a travada continua, a tabela de threads sai de
+  novo a 3× o limite, para separar thread parada de thread trabalhando.
+- **`tools/diag_view.py [aoc.log] [--threads]`**: lê o log e dá o veredito em português (travada de núcleo virtual
+  com núcleo livre, o que a principal espera e quem é o dono do lock, preto com poucos draws × preto com a cena
+  sendo desenhada, comparação das duas tabelas). Lê também o bloco `hang:` dos logs antigos: no log do relato de
+  ontem aponta a `0x1042` em `main+0xfdfe9c` no núcleo 0 com os núcleos 1 e 2 livres.
+- Custo: por present, uma leitura de relógio; por segundo, um blit 320×180 e a leitura dele. `AOC_DIAG=0` desliga as
+  cópias.
+- Testado: relatório forçado com `AOC_BLACK_SECS=3` (as telas pretas de carga, 5–6 s, disparam; daí o padrão de 15 s);
+  13 min de batalha com o gravador e a thread do `vk_rec` ligados, sem perda de dispositivo nem travada.
+- **A cinemática do relato continua sem reprodução** (são ~12 min de jogo manual). A cinemática dos canhões, aos
+  ~4 min da rota longa, passa com o `core_rebalance` da sessão 12. O dono repete com o `dist/aoc-windows/aoc.exe`
+  novo; se travar ou ficar preto, o relatório sai sozinho (ou F8) e `python tools/diag_view.py` explica.
+
+### Efeitos visuais: dois defeitos que tiravam draws
+
+1. **`pipeline-keys.bin` era jogado fora em todo boot.** `vk_pipeline.c` gravava o arquivo com a assinatura
+   `TOTKPKEY` e lia esperando `ACPCACHE` (sobra da junção Astral Chain + TotK): "has another format or version; it
+   is rewritten" em todo log desde sempre. Sem as chaves não havia pré-montagem, e todo draw cujo pipeline ainda não
+   existia era **pulado** até a montagem terminar — em toda sessão, na primeira vez de cada efeito (um impacto dura
+   poucos frames). Agora uma assinatura só (`AOCPKEYS`; a antiga é aceita, os registros são os mesmos).
+2. **Views de buffer texture nunca eram liberadas** (`vk_exec_draw.c` `texel_view`): tabela de 4096 cheia depois de
+   ~10 min de jogo (log do dono: frame ~18 300) e, daí em diante, toda lista nova (luzes, decalques, listas de
+   efeitos) lia zeros. Agora uma view sem uso há 10 s é destruída quando a tabela passa de 3/4.
+
+### Medido (notebook, rota `C:\aoc-win\route-long.txt`, 330 s, cache de shaders quente)
+
+| | antes | depois |
+|---|---|---|
+| draws pulados por pipeline em montagem | 865 (805 no minuto da entrada da batalha) | 11 e 18 (duas corridas) |
+| pipelines pré-montados no boot | 0 | 188 e 191, em 48–57 ms |
+| espera do boot pelo pré-aquecimento | 0,1 s | 4,4 s na 1ª vez, 0,46 s na 2ª |
+| fps | — | 30,0 (1 % low 25–28) |
+
+- Reciclagem das views: com o limiar baixado para 128 num build de teste, 243 views destruídas e recriadas em 330 s
+  de batalha, 0 leituras de zero, sem perda de dispositivo. Na rota automática a tabela só chega a ~520 em 12 min (o
+  dono, jogando, chegou a 4096 em 10 min), então o caso real fica para a jogatina dele: a linha
+  `vk: texel buffer views: N idle ... destroyed` aparece quando acontecer.
+- Capturas densas (0,1 s) da batalha: rastro da espada, efeito azul do ataque carregado e a morte dos monstros
+  (corpo preto + fumaça roxa, na cinemática dos canhões) desenham. **Faísca de impacto em inimigo não foi vista**: a
+  rota aleatória não chegou a acertar um inimigo de perto. Fica para o dono olhar jogando.
+- Armadilha: com a **sessão do Windows bloqueada** (LogonUI ativo) o jogo fica em ~21 fps com uma engasgada de
+  ~350 ms por segundo, em qualquer configuração. Medidas de fps só com a tela desbloqueada.
+
+Arquivos: `runtime/diag.c` (novo), `kernel.c`, `perf.c`, `flight.c/.h`, `vk_backend.c`, `vk_exec_draw.c`,
+`vk_exec.h`, `vk_pipeline.c`, `ov_movie.c`, `romfs.c`, `audio_mixer.c`, `cfg.c`, `host.h`; `tools/diag_view.py`.
+
+### Sessão 13, parte 2: modo monitor e sessão guiada pelo dono
+
+- Pedido: monitorar em vez de rejogar. No `runtime/diag.c`: **golpes** (início de vibração do controle, `AOC_HIT_SHOTS=<n>`:
+  8 presents em tamanho cheio em `logs/diag/hits/h*.png`), **ataques** (botão Y, `AOC_ATTACK_SHOTS=<n>`: presents 3 a 14
+  depois do aperto, um a cada 20 s, `a*.png`), **marca com F8** (imagem cheia em `logs/diag/marks/` + relatório),
+  **cena escura** (luma média < 25 com mais de 150 draws por frame por `AOC_DARK_SECS`, 15 s), relatório também **ao
+  sair do jogo**, coluna `hits` na linha do tempo e gravação dos comandos em `logs/sessions/input-*.txt`.
+- **Despejo de frame em jogo** (`vk_dump.c`, `AOC_DUMP=arm`): até `AOC_DUMP_MAX` (6) despejos por sessão, pedidos por F8
+  (`AOC_MARK_DUMP=1`), cena escura/preta, `AOC_HIT_DUMP=<k>` ou `AOC_ATTACK_DUMP=<k>`; cada um em
+  `<AOC_DUMP_DIR>/<nn>-<motivo>-f<frame>/`. Precisa de `AOC_VK_RECORDER=0`.
+- `tools/windows/monitor.bat` (copiado para `dist/aoc-windows/`) liga tudo isso; `tools/diag_view.py` lista golpes,
+  marcas e despejos.
+- **Sessão guiada (dono jogando, 2026-11-13 09:13–09:25, 20 750 frames):** 32 vibrações e 17 ataques capturados.
+  As **faíscas de impacto aparecem** nas capturas (h20, h25, h28: estrelas laranja nos bokoblins; flurry rush com
+  partículas azuis) e a **cinemática do meio da missão passou** (h31/h32 são a cinemática, a17 já é jogo depois dela):
+  o dono confirmou que os problemas relatados não aconteceram desta vez. A reciclagem das views aconteceu de verdade
+  (`2871 idle ... destroyed`), 0 leituras de zero. Não dá para separar qual correção resolveu o quê (pipeline-keys,
+  views, `core_rebalance`).
+- **Quedas de frame relatadas pelo dono:** média 28,5–29,7 fps por minuto, 1 % low ~12 fps. 40 dos 65 piores frames
+  listados estão colados numa captura do monitor (cada PNG de 8 MB é gravado na thread que apresenta, ~80 ms); o
+  minuto sem capturas teve 1 % low de 26,5. Fora das capturas: tradução de shader de conteúdo novo (frames 13205,
+  18878, 19684: 40–110 ms; no último minuto 956 draws pulados por pipeline e 290 por shader ao entrar em área nova),
+  duas esperas de fence de 320–355 ms (frames 6836, 6880) e um replay de 290 ms com upload de textura (9032).
+  Para medir limpo: jogar pelo launcher (sem capturas) e ler o relatório de saída.
+- Defeitos do monitor vistos: os despejos por golpe/ataque foram gastos nos menus (o relógio do jogo já corre lá) —
+  tirados do `monitor.bat`; a imagem cheia ignora o recorte do present (com `output_res` 1280x720 a figura ocupa o
+  canto de 1920×1080).
+
+### Sessão 13, parte 3: empacotamento (versão 0.1.2)
+
+- `VERSION` 0.1.2: o launcher compara a versão com `build/forge-state.json` e mostra a forja de novo, então quem
+  atualizar recompila o runtime com o gravador de estado e as correções (o pacote é o repositório no HEAD).
+- `tools/make_build.py` (passo `windist`) copia `tools/windows/monitor.bat` para `dist/aoc-windows/`;
+  `tools/build.py dist` leva `tools/diag_view.py` para `ferramentas/` do Deck e `aoc-logs.sh diag [K]` o usa;
+  `aoc-logs.sh pacote` inclui as imagens dos dois últimos relatórios.
+- **`tools/make_report.py` corrigido:** juntava os 6 arquivos mais novos de `logs/`, que depois de uma sessão no modo
+  monitor seriam capturas de 8 MB, sem o `aoc.log`. Agora: os 6 textos mais novos (`.log`, `.txt`, `.gz`) fora de
+  `diag/hits`, `diag/marks` e `diag/dump`, mais as imagens 320×180 dos dois últimos relatórios. Testado no notebook:
+  zip de 1 MB com o `aoc.log`, o log da sessão guiada e as 10 imagens do relatório de cena escura.
+- Guias (`GUIA.md`, `GUIDE.md`, seção 7): relatório automático, F8 e `monitor.bat`.

@@ -244,7 +244,32 @@ static void series_shot(const tex_t *t, uint64_t n) {
 // A --seconds run ends at the first present after the world clock (game time since the save's first frame,
 // frame_step_world_us) passed S seconds, so a run covers the same game time at any frame rate; any other frame is
 // counted by the back end only.
+// diag.c asks for full-size pictures of some presents (F8, the frames after a hit): saved here, on the presenting
+// guest thread, as AOC_SHOTS does.
+static void diag_shot(const tex_t *t, uint64_t n) {
+    char path[PLAT_PATH_MAX * 3 + 160];
+    if (!diag_shot_wanted(n, path, sizeof path)) return;
+    int fmt = t->d.format;
+    int bgra = fmt == NVN_FORMAT_BGRA8 || fmt == NVN_FORMAT_BGRA8_SRGB;
+    if (!bgra && fmt != NVN_FORMAT_RGBA8 && fmt != NVN_FORMAT_RGBA8_SRGB) return;
+    uint32_t w = t->d.width, h = t->d.height;
+    uint8_t *px = malloc(4ull * w * h);
+    if (!px) return;
+    view_t view;
+    memset(&view, 0, sizeof view);
+    NVNcopyRegion r = {.width = (int)w, .height = (int)h, .depth = 1};
+    if (gfx_replay_async()) gfx_backend()->finish();   // the presented frame may still be queued for the replay
+    gfx_backend()->read_texels(t, &view, &r, px, 4ull * w, 4ull * w * h);
+    for (uint64_t i = 0; i < 4ull * w * h; i += 4) {
+        if (bgra) { uint8_t x = px[i]; px[i] = px[i + 2]; px[i + 2] = x; }
+        px[i + 3] = 255;
+    }
+    rt_write_png(path, px, w, h);
+    free(px);
+}
+
 void rt_frame_presented(const tex_t *t, uint64_t n) {
+    diag_shot(t, n);
     const RtConfig *cfg = rt_config();
     series_shot(t, n);
     int64_t w = cfg->seconds ? frame_step_world_us() : -1;

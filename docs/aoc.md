@@ -437,3 +437,21 @@ primeira com o censo de páginas sujas ligado (o trace de perf o ligava sozinho)
   e ainda submete o handle gravado antes.
 - O laço principal espera a GPU concluir a submissão do quadro anterior numa fila de fences própria
   (`main+0x157a390`: `nvnSyncWait` com timeout 0 e sono entre consultas).
+
+## Draws pulados e views de buffer na batalha (2026-11-13, notebook)
+
+Rota `route-long.txt`, 330 s, cache de shaders quente, RTX 3050. Contadores do gravador de estado (`diag: image:`).
+
+| | `pipeline-keys.bin` rejeitado (até 0.1.1) | aceito |
+|---|---|---|
+| draws pulados enquanto o pipeline monta | 865 (13, 3, **805**, 6, 38 por minuto) | 11 e 18 |
+| pipelines de gráficos pré-montados no boot | 0 | 188 e 191 (48–57 ms em 12 threads) |
+| espera do boot pelo pré-aquecimento | 0,12 s | 4,4 s na primeira vez, 0,46 s depois |
+
+- Views de buffer texture (`texel_view`): ~520 distintas em 12 min da rota automática; ~6 novas por segundo numa
+  jogatina real (4096 aos ~10 min no log do dono, frame ~18 300). Formatos vistos: NVN 0xb (R32UI) com 42, 146,
+  1 284, 1 806 e 11 588 elementos.
+- Telas pretas legítimas: 5–6 s nas cargas (boot → título, título → jogo), com 21–30 presents por segundo e
+  0–1 draw por frame.
+- Cinemática dos canhões da primeira missão (~240 s da rota longa): em tempo real (nenhum decodificador de vídeo),
+  monstros mortos em preto com fumaça roxa.

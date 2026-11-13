@@ -224,6 +224,27 @@ static int write_png(const char *path, const uint8_t *rgba, PngBufs *pb) {
     return fclose(f) == 0;
 }
 
+static void crc_init(void) {
+    if (crc_table[1]) return;
+    for (uint32_t i = 0; i < 256; i++) {
+        uint32_t c = i;
+        for (int k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320u ^ (c >> 1) : c >> 1;
+        crc_table[i] = c;
+    }
+}
+
+int flight_write_png(const char *path, const uint8_t *rgba) {
+    static PlatMutex mu = PLAT_MUTEX_INIT;   // crc_table's first fill
+    plat_mutex_lock(&mu);
+    crc_init();
+    plat_mutex_unlock(&mu);
+    size_t raw_n = (size_t)(1 + 3 * FLIGHT_THUMB_W) * FLIGHT_THUMB_H;
+    PngBufs pb = {malloc(raw_n), malloc(raw_n * 9 / 8 + 64), malloc(sizeof(int32_t) << HBITS)};
+    int ok = pb.raw && pb.z && pb.head && rgba && write_png(path, rgba, &pb);
+    free(pb.raw), free(pb.z), free(pb.head);
+    return ok;
+}
+
 // ---------------------------------------------------------------- dump thread
 static void dump_main(void *arg) {
     DumpJob *j = arg;
@@ -238,12 +259,7 @@ static void dump_main(void *arg) {
     uint8_t *have = calloc((size_t)j->n, 1);
     int n_thumbs = 0;
     if (thumbs_on && have) {
-        if (!crc_table[1])
-            for (uint32_t i = 0; i < 256; i++) {
-                uint32_t c = i;
-                for (int k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320u ^ (c >> 1) : c >> 1;
-                crc_table[i] = c;
-            }
+        crc_init();
         size_t raw_n = (size_t)(1 + 3 * FLIGHT_THUMB_W) * FLIGHT_THUMB_H;
         PngBufs pb = {malloc(raw_n), malloc(raw_n * 9 / 8 + 64), malloc(sizeof(int32_t) << HBITS)};
         uint8_t *px = malloc((size_t)FLIGHT_THUMB_W * FLIGHT_THUMB_H * 4);

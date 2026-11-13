@@ -11,7 +11,10 @@
 #   ./aoc-logs.sh sistema            estado da máquina agora: TDP, watts, temperaturas, ventoinha, clocks, bateria
 #   ./aoc-logs.sh detalhado on|off   liga/desliga o traço de desempenho (AOC_TRACE=perf) nas próximas sessões: GPU por
 #                                    frame, sombra dos pools, write-watch; custa pouco, mas o log cresce
-#   ./aoc-logs.sh pacote             logs/pacote-<data>.tar.gz com as sessões, o aoc.ini e o estado da máquina
+#   ./aoc-logs.sh diag [K]           relatórios do gravador de estado (travada, tela preta ou escura) da K-ésima
+#                                    sessão, lidos por ferramentas/diag_view.py (tools/diag_view.py no repositório)
+#   ./aoc-logs.sh pacote             logs/pacote-<data>.tar.gz com as sessões, o aoc.ini, o estado da máquina e as
+#                                    imagens dos dois últimos relatórios (logs/diag/)
 #
 # As sessões: logs/aoc.log é a última; o aoc.sh guarda cada sessão anterior comprimida em logs/sessoes/ ao abrir o jogo
 # (as 60 mais recentes). O resumo vem de ferramentas/logsum.py (tools/deck/logsum.py no repositório).
@@ -108,6 +111,16 @@ detalhado)
         ;;
     esac
     ;;
+diag)
+    command -v python3 >/dev/null || { echo "python3 não encontrado"; exit 1; }
+    [ -f "$here/ferramentas/diag_view.py" ] || { echo "falta $here/ferramentas/diag_view.py"; exit 1; }
+    f=$(sessions | sed -n "${2:-1}p")
+    [ -n "$f" ] || { echo "sem sessão ${2:-1}"; exit 1; }
+    case "$f" in
+    *.gz) t=$(mktemp); gzip -dc "$f" > "$t"; python3 "$here/ferramentas/diag_view.py" "$t" --threads; rm -f "$t" ;;
+    *) python3 "$here/ferramentas/diag_view.py" "$f" --threads ;;
+    esac
+    ;;
 pacote)
     ts=$(date +%Y%m%d-%H%M%S)
     tmp=$(mktemp -d)
@@ -115,6 +128,10 @@ pacote)
     cp "$INI" "$tmp/" 2>/dev/null
     mkdir -p "$tmp/logs"
     sessions | head -n 10 | while read -r f; do cp "$f" "$tmp/logs/"; done
+    # the picture copies of the two newest recorder reports (320x180, small); not hits/, marks/ or dump/ (large)
+    ls -1d "$L"/diag/2*-* 2>/dev/null | sort -r | head -n 2 | while read -r d; do
+        mkdir -p "$tmp/logs/diag" && cp -r "$d" "$tmp/logs/diag/"
+    done
     out="$L/pacote-$ts.tar.gz"
     tar -czf "$out" -C "$tmp" .
     rm -rf "$tmp"

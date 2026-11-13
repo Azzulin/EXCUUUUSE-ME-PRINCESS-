@@ -152,6 +152,8 @@ typedef struct {
                                                                // transitions
 } VkExecFrame;
 extern VkExecFrame vk_exec_frame;
+void vk_dump_trigger(const char *why);                          // AOC_DUMP=arm: dump the next frame (any thread)
+uint64_t vk_exec_zero_views(void);                             // buffer-texture bindings that fell back to the zero view
 void vk_exec_frame_written(const tex_t *t);                    // vk_texture_gpu_written: t rendered or copied into
 uint64_t vk_exec_recording_fence(void);                        // fence of the submission this thread records, else 0
 void vk_exec_frame_log(const tex_t *presented, uint64_t frame);

@@ -20,3 +20,5 @@ void vk_thumbs_frame(uint64_t frame);    // the present thread names the frame o
 // Copies frame's thumbnail as RGBA when the ring still holds it complete; 0 when it was never written, is still in
 // flight or was overwritten. Takes the present lock for one slot copy (about 20 us); any thread.
 int vk_thumbs_read(uint64_t frame, uint8_t *rgba);
+// Writes a FLIGHT_THUMB_W x FLIGHT_THUMB_H RGBA picture as a PNG; 1 when written. Any thread (diag.c).
+int flight_write_png(const char *path, const uint8_t *rgba);

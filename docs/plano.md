@@ -73,7 +73,7 @@ os primeiros shaders/programas NVN.
       `tex_flush_upload`, c1 dinâmico, texel buffers para listas de luz/decal, entradas inteiras de Half2/Short2.
 - [ ] Extração KTGL (G2S, `_DOK`, GLSLC do `main`) + tradução AOT de todos os shaders + `spirv-val`.
 - [ ] Vídeos VP9 (intro, cutscenes pré-renderizadas): decodificação ✔ (`ov_movie.c`, ~1,3 ms/frame); falta imagem (Vulkan) e o **som dos vídeos** (silêncio durante o vídeo de abertura).
-- [ ] Pipelines: lista de chaves gravada em jogo, pré-montagem com graphics pipeline library.
+- [x] Pipelines: lista de chaves gravada em jogo, pré-montagem com graphics pipeline library (funciona desde a sessão 13: o arquivo de chaves era rejeitado em todo boot; falta medir no Deck).
 - [x] Memória compartilhada dos compute shaders com o tamanho do NVN (controle +0x754): sem isso a primeira batalha
       perdia o dispositivo (sessão 3).
 - [x] Build nativo do Windows para testar em GPU de PC (`tools/build.py` no MSYS2 UCRT64).

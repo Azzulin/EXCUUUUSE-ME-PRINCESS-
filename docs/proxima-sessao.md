@@ -4,7 +4,23 @@ Atualizado em 2026-11-12 (fim da sessão 8: rastros descartados, cache de shader
 em `docs/historico.md` (sessão 7), `docs/handover.md` §6 e `docs/aoc.md` ("Resolução de saída menor: vistas 2D e
 minimapa", "Deck: consumo e temperatura na primeira batalha").
 
-## Estado (2026-11-12, fim da sessão 12)
+## Estado (2026-11-13, fim da sessão 13)
+
+- **Gravador de estado** (`runtime/diag.c`, sessão 13): relatório `diag:` no `aoc.log` em travada (sem present),
+  **tela preta com o jogo apresentando** ou F8, com linha do tempo de 45 s, threads com cadeia de chamadas e cópias
+  da imagem em `logs/diag/`. Ler com `python tools/diag_view.py`. No notebook, já em `dist/aoc-windows/aoc.exe`.
+- **Corrigidos na sessão 13, medidos no notebook, sem commit:** `pipeline-keys.bin` rejeitado em todo boot (draws
+  pulados 865 → 11–18 na rota de 330 s) e views de buffer texture nunca liberadas (zeros depois de ~10 min de jogo).
+- **Modo monitor** (sessão 13, parte 2): `dist/aoc-windows/monitor.bat` captura golpes, ataques, F8, cena escura e
+  despejos de frame em jogo. Na sessão guiada de 2026-11-13 as faíscas de impacto apareceram e a cinemática passou;
+  o dono notou quedas de frame (em parte do próprio monitor; fora dele, tradução de shader em conteúdo novo).
+  Próximo: medir as quedas numa sessão sem capturas e atacar a tradução antecipada de shaders.
+- **Falta o dono:** jogar até a cinemática do relato; se ficar preto ou travar, mandar o `logs/aoc.log` e a pasta
+  `logs/diag/` (ou rodar `python tools/diag_view.py`). Olhar as faíscas de impacto nos inimigos.
+- **Falta o agente:** commit da sessão 12 parte 4 + sessão 13; `dist` do Deck com tudo; medir no Deck o custo da
+  cópia 320×180 por segundo e a espera do pré-aquecimento no boot (notebook: 0,46 s com 191 pipelines).
+
+## Estado anterior (2026-11-12, fim da sessão 12)
 
 - **Launcher e pacote para jogadores** (sessão 12, releases `v0.1.0` e `v0.1.1`): zip do Windows e tar.gz do Linux
   (`tools/make_release.py`); o launcher prepara sozinho o ambiente (distro WSL privada `AoC-Recomp`, MSYS2, pacotes
@@ -12,6 +28,11 @@ minimapa", "Deck: consumo e temperatura na primeira batalha").
   `pkexec` num desktop Linux, Ubuntu/Debian/Fedora. Guias: `GUIA.md` / `GUIDE.md`.
 - **Vazamento de memória corrigido** e medido no Deck (10 min de batalha: memória plana, 30 fps, 5,1 W de média).
 - **Ainda bloqueia uma jogatina longa:** saves nunca verificados em jogo real.
+- **Pendente (sessão 12, parte 4): tela preta ao entrar numa cinemática.** Causa lida no `aoc.log` (worker de
+  prioridade igual presa no núcleo virtual 0, principal sem núcleo) e correção escrita em `runtime/kernel.c`
+  (`core_rebalance`), **sem commit** e sem confirmação: o dono precisa jogar de novo até a cinemática com o
+  `dist/aoc-windows/aoc.exe` novo. Depois: conferir no log a máscara da worker e o contador de migrações se travar
+  de novo, rodar os testes, fazer o commit e refazer o binário do Deck. Relato em `docs/historico.md`.
 - No Deck: o binário atual (vazamento corrigido + 1280×720 corrigido, fora do perfil). Travadas de shader em
   conteúdo novo e o repouso do Deck seguem sem teste.
 
@@ -57,6 +78,10 @@ Ambiente (Windows nativo, MSYS2 UCRT64):
 - Áudio: AOC_TRACE=audio dá nível a cada 5 s + censo de vozes e mixes. Hoje: 1 janela muda em 37 (só o boot).
 - Dump de frame: AOC_DUMP=4400 AOC_DUMP_DIR=C:/aoc-win/dumpX AOC_DUMP_UBO=24 AOC_DUMP_SKIP_RUNS=1 AOC_VK_RECORDER=0
   (AOC_DUMP_UBO lista uniformes, atributos, índices e os vértices de cada draw). GLSL: spirv-cross --vulkan-semantics.
+- Travada ou tela preta: o runtime escreve sozinho um relatório "diag:" no aoc.log (sem present por 10 s, imagem
+  preta por 15 s com o jogo apresentando, ou F8) e copia as últimas imagens para logs/diag/. Ler com
+  python tools/diag_view.py <aoc.log> --threads. Corrida longa de batalha: bash /c/aoc-win/long1.sh [VAR=valor ...]
+  (SECS, TMO, LOG, ROUTE no ambiente). Não medir fps com a sessão do Windows bloqueada (~21 fps falsos).
 - Código do jogo: python C:\aoc-win\a64.py main <offset> [n] (desmonta; também u32, str, find);
   /c/msys64/ucrt64/bin/python3 C:\aoc-win\plt.py main '<regex de import>' (stubs e chamadores);
   python C:\aoc-win\dref.py main <endereço de dado>; python C:\aoc-win\immscan.py 1280x720 ... (constantes).

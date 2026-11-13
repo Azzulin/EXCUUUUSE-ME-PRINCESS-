@@ -176,7 +176,8 @@ static void rec_flush_all(void) {
 
 static void rec_apply(uint64_t b, const int32_t sl[2], const int32_t sr[2]) {
     if (!rec_state) {
-        const char *path = cfg_get("AOC_INPUT_RECORD");   // no default: not recording when unset
+        const char *path = cfg_get("AOC_INPUT_RECORD");   // unset: a logged game run records under logs/sessions (diag.c)
+        if (!path || !*path) path = diag_record_path();
         rec = path && *path ? fopen(path, "w") : NULL;
         rec_state = rec ? 1 : -1;
         if (path && *path && !rec) rt_log("input: cannot open AOC_INPUT_RECORD %s", path);
@@ -552,6 +553,7 @@ static void poll_merged(uint64_t *buttons, int32_t *lx, int32_t *ly, int32_t *rx
     }
     script_apply(&b, sl, sr);
     rec_apply(b, sl, sr);
+    diag_attack_button((b >> B_Y & 1) != 0);
     // L3+R3: a tap steps the performance overlay (F10); held AOC_QUICK_HOLD_MS (default 1500) opens the quick menu,
     // or closes it when it is open. Read before the menu gate, which blanks the pad while a menu is open.
     static InputQuickGate quick;

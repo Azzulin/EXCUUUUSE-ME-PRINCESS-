@@ -127,6 +127,11 @@ Para remover tudo: apague a pasta `AoC-Recomp`; no Windows rode `wsl --unregiste
   `AoC-Recomp` (e no Windows `%LOCALAPPDATA%\AoC-Recomp`) nas exceções ajuda.
 - **Travadinhas na primeira vez que joga**: os shaders são traduzidos enquanto você joga pela primeira vez e ficam
   guardados para as próximas sessões.
+- **O jogo travou, a tela ficou preta ou escura, ou um efeito sumiu**: o jogo grava sozinho um relatório no registro
+  quando para de mostrar imagem por 10 s ou fica preto/escuro por 15 s; aperte **F8** no momento de qualquer outro
+  defeito para marcá-lo. Para investigar golpes e efeitos, abra o jogo pelo `monitor.bat` da pasta do jogo (no
+  Windows) em vez do **JOGAR**: ele guarda imagens de cada golpe e um retrato completo do frame na marca ou na cena
+  escura (fica um pouco mais lento e ocupa espaço em `logs\diag`). Depois aperte **Relatório…** e mande o zip.
 
 ---
 

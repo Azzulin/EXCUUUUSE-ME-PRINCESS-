@@ -1847,6 +1847,12 @@ static struct {
 // with another magic, version or record size is ignored and rewritten. Bump KEYS_VERSION when VkPipeState or the
 // record changes meaning without changing size.
 #define KEYS_VERSION 3                 // 3: shaders named by input id (gfx_shader.c)
+// The file's magic. Until 0.1.1 the writer put KEYS_MAGIC_OLD and the reader asked for a third one, so every boot
+// threw the file away ("has another format or version"), nothing was prewarmed and each session skipped every draw
+// until its pipeline was built again (effects missing the first time they showed). Files with the old magic hold good
+// records of this version and are read.
+static const char KEYS_MAGIC[8] = {'A', 'O', 'C', 'P', 'K', 'E', 'Y', 'S'};
+static const char KEYS_MAGIC_OLD[8] = {'T', 'O', 'T', 'K', 'P', 'K', 'E', 'Y'};
 typedef struct { char magic[8]; uint32_t version, rec_size; } KeysHeader;
 typedef struct {
     uint8_t vs[32], fs[32];            // gfx_shader_input_id of each stage; fs all zero with has_fs 0
@@ -1938,7 +1944,8 @@ static void keys_flush(void) {
         FILE *f = fopen(K.path, K.header_ok ? "ab" : "wb");
         int ok = f != NULL;
         if (ok && !K.header_ok) {
-            KeysHeader h = {{'T', 'O', 'T', 'K', 'P', 'K', 'E', 'Y'}, KEYS_VERSION, sizeof(KeyRec)};
+            KeysHeader h = {.version = KEYS_VERSION, .rec_size = sizeof(KeyRec)};
+            memcpy(h.magic, KEYS_MAGIC, 8);
             ok = fwrite(&h, sizeof h, 1, f) == 1;
         }
         if (ok) ok = fwrite(r, sizeof *r, n, f) == n;
@@ -1965,7 +1972,7 @@ static void keys_open(void) {
     fseek(f, 0, SEEK_END);
     long len = ftell(f);
     fseek(f, 0, SEEK_SET);
-    if (len >= (long)sizeof h && fread(&h, sizeof h, 1, f) == 1 && !memcmp(h.magic, "ACPCACHE", 8) &&
+    if (len >= (long)sizeof h && fread(&h, sizeof h, 1, f) == 1 && (!memcmp(h.magic, KEYS_MAGIC, 8) || !memcmp(h.magic, KEYS_MAGIC_OLD, 8)) &&
         h.version == KEYS_VERSION && h.rec_size == sizeof(KeyRec)) {
         K.header_ok = 1;
         size_t n = ((size_t)len - sizeof h) / sizeof(KeyRec);

@@ -424,6 +424,28 @@ int movie_stats(uint64_t obj, MovieStats *out) {
     return 1;
 }
 
+// diag.c: the live host decoders in a line (buf NULL: only the count). Any thread.
+int movie_diag(char *buf, size_t cap) {
+    int n = 0, k = 0;
+    if (buf && cap) buf[0] = 0;
+    plat_mutex_lock_shared(&g_lock);
+    for (int i = 0; i < MAX_MOVIES; i++) {
+        Movie *m = g_movies[i];
+        if (!m) continue;
+        n++;
+        if (!buf || k >= (int)cap - 160) continue;
+        plat_mutex_lock_shared(&m->mu);
+        k += snprintf(buf + k, cap - (size_t)k, "%s%#llx %dx%d %s%s: %llu frames decoded, %llu handed to the game, %llu dropped, "
+                      "%d sent not decoded, %d decoded not due, %d ready, %llu errors", k ? "; " : "",
+                      (unsigned long long)m->guest, m->w, m->h, m->started ? "started" : m->configured ? "stopped" : "not configured",
+                      m->eos_in ? ", end of stream sent" : "", (unsigned long long)m->st.frames, (unsigned long long)m->st.handed,
+                      (unsigned long long)m->st.dropped, m->npending, m->ndecoded, m->nready, (unsigned long long)m->st.errors);
+        plat_mutex_unlock_shared(&m->mu);
+    }
+    plat_mutex_unlock_shared(&g_lock);
+    return n;
+}
+
 int movie_quiet(uint64_t obj) {
     Movie *m = find(obj);
     if (!m) return 1;

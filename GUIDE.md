@@ -127,6 +127,11 @@ delete `C:\msys64` if the launcher installed it; on Linux delete `~/aoc-build` a
   folder (and on Windows `%LOCALAPPDATA%\AoC-Recomp`) to its exclusions helps.
 - **The game shows stutters the first time**: shaders are translated while you play the first time; they are cached
   for the next sessions.
+- **The game froze, the screen went black or dark, or an effect is missing**: the game writes a report to its log by
+  itself when it shows no picture for 10 s or stays black/dark for 15 s; press **F8** when you see any other glitch to
+  mark it. To look into hits and effects, start the game with `monitor.bat` in the game folder (Windows) instead of
+  **PLAY**: it saves pictures of every hit and a full frame capture at a mark or a dark scene (a bit slower, and it
+  takes space in `logs\diag`). Then press **Report…** and send the zip.
 
 ---
 

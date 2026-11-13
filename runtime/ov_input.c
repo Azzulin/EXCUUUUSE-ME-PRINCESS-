@@ -392,6 +392,10 @@ static void play(int side, const VibrationValue *v) {
                (double)c.amp_low, (double)c.freq_low, (double)c.amp_high, (double)c.freq_high);
     uint64_t now = kern_now_ns();
     plat_mutex_lock(&vib_lock);
+    {   // diag.c: the start of a vibration (both sides were at rest) marks a hit given or taken
+        int was = vib_last[0].amp_low > 0.01f || vib_last[0].amp_high > 0.01f || vib_last[1].amp_low > 0.01f || vib_last[1].amp_high > 0.01f;
+        if (!was && (c.amp_low > 0.01f || c.amp_high > 0.01f)) diag_rumble(c.amp_low > c.amp_high ? c.amp_low : c.amp_high);
+    }
     vib_last[side] = c;
     vib_at[side] = now;
     rumble_update(now);

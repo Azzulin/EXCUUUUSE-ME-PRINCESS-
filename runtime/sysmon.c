@@ -130,6 +130,10 @@ static void acc(Acc *a, double v) {
 }
 static double avg(const Acc *a) { return a->n ? a->sum / a->n : 0; }
 
+static SysSecond last_sec;   // the latest second (sysmon_second), written by the sampler; a torn read is harmless
+
+void sysmon_second(SysSecond *out) { *out = last_sec; }
+
 static void sampler(void *arg) {
     (void)arg;
     discover();
@@ -154,6 +158,27 @@ static void sampler(void *arg) {
         if (read_num(P.gpu_busy, &v)) acc(&busy, v);
         if (read_num(P.gpu_freq, &v)) acc(&gmhz, v / 1e6);
         if ((v = cpu_mhz()) > 0) acc(&mhz, v);
+        {   // this second alone, for the performance log (diag.c)
+            SysSecond s = {.valid = 1};
+            double x, y, z;
+            if (read_num(P.apu_power, &x)) s.apu_w = (float)(x / 1e6);
+            if (read_num(P.bat_voltage, &y) && read_num(P.bat_current, &z)) s.bat_w = (float)(y * z / 1e12);
+            if (read_num(P.cpu_temp, &x)) s.cpu_c = (float)(x / 1000.0);
+            if (read_num(P.gpu_temp, &x)) s.gpu_c = (float)(x / 1000.0);
+            if (read_num(P.gpu_busy, &x)) s.gpu_busy = (float)x;
+            if (read_num(P.gpu_freq, &x)) s.gpu_mhz = (float)(x / 1e6);
+            if (read_num(P.fan, &x)) s.fan = (float)x;
+            s.cpu_mhz = (float)cpu_mhz();
+            char capt[16] = "";
+            if (read_text(P.bat_capacity, capt, sizeof capt)) s.bat_pct = (float)atof(capt);
+            static double pc0;
+            struct timespec t2;
+            clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &t2);
+            double pc1 = (double)t2.tv_sec + t2.tv_nsec / 1e9;
+            if (pc0 > 0) s.game_cores = (float)(pc1 - pc0);
+            pc0 = pc1;
+            last_sec = s;
+        }
         if (tick % PERIOD_S) continue;
         uint64_t t1 = plat_now_ns(), frames1 = __atomic_load_n(&gfx_counters.frames, __ATOMIC_RELAXED);
         double secs = (double)(t1 - t0) / 1e9, busy1 = 0, total1 = 0;
@@ -193,4 +218,5 @@ void sysmon_start(void) {
 
 #else
 void sysmon_start(void) {}
+void sysmon_second(SysSecond *out) { memset(out, 0, sizeof *out); }
 #endif

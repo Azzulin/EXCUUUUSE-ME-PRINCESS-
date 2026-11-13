@@ -124,6 +124,34 @@ static struct {
 } ft;
 static uint64_t summary_t0;   // start of the current period (0: not started)
 
+// The same frames, summed until diag.c takes them once a second (perf_second_take; the performance log). Render thread
+// writes, diag thread reads, under sec_lock: two short critical sections a frame at 30 fps.
+static PlatMutex sec_lock = PLAT_MUTEX_INIT;
+static PerfSecond sec;
+
+void perf_second_take(PerfSecond *out) {
+    plat_mutex_lock(&sec_lock);
+    *out = sec;
+    memset(&sec, 0, sizeof sec);
+    plat_mutex_unlock(&sec_lock);
+}
+
+static void sec_frame(uint64_t d, uint64_t rep) {
+    plat_mutex_lock(&sec_lock);
+    sec.frames++;
+    sec.sum_ns += d;
+    if (d > 34000000ull) sec.over34++;
+    if (d > 50000000ull) sec.over50++;
+    for (int k = 0; k < PERF_N; k++) sec.wait_ns[k] += frame_ns[k];
+    sec.replay_ns += rep;
+    if (d > sec.worst_ns) {
+        sec.worst_ns = d;
+        memcpy(sec.worst_wait, frame_ns, sizeof frame_ns);
+        sec.worst_replay = rep;
+    }
+    plat_mutex_unlock(&sec_lock);
+}
+
 static void ft_report(uint64_t now, const char *tag) {
     if (ft.frames && ft.sum) {
         uint64_t cut = (ft.frames + 99) / 100, acc = 0, low = 0;   // the slowest 1% of frames
@@ -165,6 +193,7 @@ static uint64_t ft_frame(uint64_t frame, uint64_t now, uint64_t d) {
         sysmon_start();   // the machine's power, temperatures and load, logged from here on (sysmon.c)
         return (uint64_t)rep;
     }
+    sec_frame(d, (uint64_t)rep);
     ft.frames++;
     ft.sum += d;
     uint64_t b = d / 250000ull;

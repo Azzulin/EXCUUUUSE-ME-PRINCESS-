@@ -235,12 +235,23 @@ void diag_audio(const float *lr, int frames);              // the mixed output, 
 void diag_read(uint64_t bytes);                            // RomFS bytes read
 const char *diag_record_path(void);                        // input.c: this run's default input recording, or NULL
 void diag_attack_button(int y);                            // input.c: the regular attack button's state, every poll
-void diag_exit(void);                                      // prof_write: a last report as the game exits
+void diag_exit(void);
+void diag_mark_user(void);                                 // ui/menu.cpp: "Mark this moment" in the quick menu                                      // prof_write: a last report as the game exits
 void diag_rumble(float amp);                               // ov_input.c: a vibration starts
 int diag_shot_wanted(uint64_t present, char *path, size_t cap);   // boot.c, guest present: 1 with the PNG path to write
 int diag_thumb_wanted(uint64_t frame);                     // present thread: 1 when this present's picture is to be copied
 int movie_diag(char *buf, size_t cap);                     // ov_movie.c: live host decoders described; returns how many
-uint64_t perf_total(int kind);                             // PERF_CNT_* since the start, counted always
+uint64_t perf_total(int kind);
+// The frames presented since the previous call (perf.c, frame-time summary): intervals, render-thread waits per PERF_*
+// kind, replay time, and the slowest frame with its own waits. diag.c, once a second.
+typedef struct {
+    uint64_t frames, sum_ns, over34, over50, wait_ns[PERF_N], replay_ns, worst_ns, worst_wait[PERF_N], worst_replay;
+} PerfSecond;
+void perf_second_take(PerfSecond *out);
+// The machine over the last second (sysmon.c; Linux only, 0 when absent): APU and battery watts, CPU and GPU
+// temperatures, GPU load, average clocks, battery percent, and the game's own CPU use in cores.
+typedef struct { float apu_w, bat_w, cpu_c, gpu_c, gpu_busy, cpu_mhz, gpu_mhz, bat_pct, game_cores, fan; int valid; } SysSecond;
+void sysmon_second(SysSecond *out);                             // PERF_CNT_* since the start, counted always
 void kern_sched_report(uint64_t frame);                    // AOC_TRACE=sched: per-thread time split, on present
 uint32_t kern_handle_new(int kind, void *obj);             // kind: KERN_SESSION or KERN_TMEM (ipc.c)
 void *kern_handle_get(uint32_t h, int kind);

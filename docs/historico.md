@@ -1155,3 +1155,23 @@ Arquivos: `runtime/diag.c` (novo), `kernel.c`, `perf.c`, `flight.c/.h`, `vk_back
   `aoc-logs.sh` e `ferramentas/diag_view.py`. Conferido no Deck: o binário traz o gravador de estado e a assinatura
   nova do `pipeline-keys.bin`; boot com `AOC_GPU=null` por 25 s sem erro, gravador ligado e relatório de saída.
   Com `AOC_GPU=null` a linha do tempo mostra frame 0 (o backend nulo não passa por `perf_present`); não afeta o jogo.
+
+### Sessão 13, parte 5: registro de desempenho para o dono jogar (versão 0.1.3)
+
+- Pedido do dono: em vez de medir por SSH ou por rotas automáticas (que não vão aonde importa), uma ferramenta que
+  registra enquanto ele joga, para ele mandar os registros. Regra guardada na memória do agente.
+- `runtime/diag.c`: **registro de desempenho** sempre ligado, uma linha CSV por segundo em
+  `logs/desempenho/<início>.csv` (as 40 sessões mais novas; `AOC_PERF_LOG=0` desliga): fps, frame mais lento do
+  segundo e o que o segurou (tradução de shader, pipeline, upload de textura, replay, espera da GPU, ritmo), médias
+  por frame, draws, draws pulados, shaders traduzidos, pipelines, uploads, brilho, leituras, estado da thread
+  principal e, no Linux, watts da APU e da bateria, bateria %, temperaturas, ventoinha, carga e clock da GPU, clock
+  da CPU e núcleos usados pelo jogo (`sysmon.c` `sysmon_second`). Cabeçalho com as configurações ativas.
+  `perf.c` `perf_second_take`: janela de um segundo do resumo de frames.
+- **"Marcar este momento"** no menu rápido (L3+R3): marca a linha do segundo e escreve um relatório; F8 no PC.
+- **`tools/perf_view.py`**: resumo em português (fps, tempo abaixo de 28/25 fps, engasgadas agrupadas com a causa,
+  o que segura os segundos lentos e de que lado — GPU, espera da GPU ou CPU —, consumo e os 10 s antes de cada marca).
+  No Deck: `./aoc-logs.sh desempenho [K]`; `./aoc-logs.sh pacote` leva os 5 registros mais novos; o Relatório… do
+  launcher leva os `.csv`.
+- Conferido no Deck (boot sem GPU, só para ver a ferramenta): arquivo criado, colunas da máquina preenchidas (APU
+  3,3 W ocioso, 94 % de bateria, 54 °C, ventoinha 1 479 rpm) e a linha de configurações. Os arquivos de teste foram
+  apagados.

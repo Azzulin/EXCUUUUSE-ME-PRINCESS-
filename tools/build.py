@@ -582,11 +582,13 @@ REGISTROS (consumo, temperatura, fps de cada sessão)
   ./aoc-logs.sh ao-vivo                    acompanha a sessão em andamento (de outro terminal ou por SSH)
   ./aoc-logs.sh sistema                    TDP, watts, temperaturas e clocks agora
   ./aoc-logs.sh detalhado on|off           mais detalhes de desempenho nas próximas sessões
+  ./aoc-logs.sh desempenho                 onde a última sessão perdeu fps: engasgadas, causas, consumo, marcas
   ./aoc-logs.sh diag                       lê os relatórios de travada e tela preta da última sessão
   ./aoc-logs.sh pacote                     junta tudo em logs/pacote-<data>.tar.gz para mandar
 
 CONTROLES DO PORT
-  Segurar L3+R3 (~1,5 s)  menu rápido: taxa de quadros, resolução interna, overlay de desempenho
+  Segurar L3+R3 (~1,5 s)  menu rápido: taxa de quadros, resolução interna, overlay de desempenho e
+                         "Marcar este momento" (aponta uma engasgada no registro de desempenho)
   Tocar L3+R3            liga/desliga o overlay de FPS
   Menos + Mais juntos    menu completo
   B                      fecha os menus
@@ -656,6 +658,7 @@ def assemble_dist(args, exe: Path, sysroot: Path, host: Path, xl: Path) -> Path:
     (dist / "ferramentas").mkdir(exist_ok=True)
     shutil.copy2(ROOT / "tools" / "deck" / "logsum.py", dist / "ferramentas" / "logsum.py")
     shutil.copy2(ROOT / "tools" / "diag_view.py", dist / "ferramentas" / "diag_view.py")   # aoc-logs.sh diag
+    shutil.copy2(ROOT / "tools" / "perf_view.py", dist / "ferramentas" / "perf_view.py")   # aoc-logs.sh desempenho
     shutil.copy2(ROOT / "tools" / "deck" / "aoc-logs.sh", dist / "aoc-logs.sh")
     (dist / "aoc-logs.sh").chmod(0o755)
     if not (dist / "aoc.ini").exists():   # só na primeira vez: depois o arquivo é do jogador (o menu grava nele)

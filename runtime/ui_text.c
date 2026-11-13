@@ -36,6 +36,7 @@ static const char *const text_en[UI_TEXT_COUNT] = {
     [UI_MENU_QUICK_RES_HANDHELD] = "Handheld (lighter)",
     [UI_MENU_QUICK_RES_DOCKED] = "TV (sharper)",
     [UI_MENU_QUICK_FULL] = "Full menu",
+    [UI_MENU_QUICK_MARK] = "Mark this moment",
     SWKBD("Text entry", "Enter a name", "Horse", "OK", "Cancel", "Controller: A = OK, B = Cancel"),
 
     [UI_MENU_TITLE] = "Settings",
@@ -463,6 +464,7 @@ static const char *const text_ru[UI_TEXT_COUNT] = {
     [UI_MENU_QUICK_RES_HANDHELD] = "Портативный (легче)",
     [UI_MENU_QUICK_RES_DOCKED] = "ТВ (чётче)",
     [UI_MENU_QUICK_FULL] = "Полное меню",
+    [UI_MENU_QUICK_MARK] = "Отметить момент",
     SWKBD("Ввод текста", "Введите имя", "Лошадь", "ОК", "Отмена", "Контроллер: A — ОК, B — отмена"),
 
     [UI_MENU_TITLE] = "Настройки",
@@ -897,6 +899,7 @@ static const char *const text_pt_br[UI_TEXT_COUNT] = {
     [UI_MENU_QUICK_RES_HANDHELD] = "Portátil (mais leve)",
     [UI_MENU_QUICK_RES_DOCKED] = "TV (mais nítida)",
     [UI_MENU_QUICK_FULL] = "Menu completo",
+    [UI_MENU_QUICK_MARK] = "Marcar este momento",
     SWKBD("Inserir texto", "Insira um nome", "Cavalo", "OK", "Cancelar", "Controle: A = OK, B = Cancelar"),
 
     [UI_MENU_TITLE] = "Configurações",
@@ -1362,6 +1365,7 @@ static const char *const text_zh_hans[UI_TEXT_COUNT] = {
     [UI_MENU_QUICK_RES_HANDHELD] = "掌机（更轻）",
     [UI_MENU_QUICK_RES_DOCKED] = "电视（更清晰）",
     [UI_MENU_QUICK_FULL] = "完整菜单",
+    [UI_MENU_QUICK_MARK] = "标记此刻",
     SWKBD("文字输入", "请输入名字", "马儿", "确定", "取消", "手柄：A 确定，B 取消"),
 
     [UI_MENU_TITLE] = "设置",

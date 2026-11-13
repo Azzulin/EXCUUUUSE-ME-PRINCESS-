@@ -11,6 +11,9 @@
 #   ./aoc-logs.sh sistema            estado da máquina agora: TDP, watts, temperaturas, ventoinha, clocks, bateria
 #   ./aoc-logs.sh detalhado on|off   liga/desliga o traço de desempenho (AOC_TRACE=perf) nas próximas sessões: GPU por
 #                                    frame, sombra dos pools, write-watch; custa pouco, mas o log cresce
+#   ./aoc-logs.sh desempenho [K]     o registro de desempenho da K-ésima sessão mais nova (logs/desempenho/, uma linha
+#                                    por segundo): fps, engasgadas e a causa de cada uma, consumo, o que houve em volta
+#                                    de cada "Marcar este momento" do menu rápido (ferramentas/perf_view.py)
 #   ./aoc-logs.sh diag [K]           relatórios do gravador de estado (travada, tela preta ou escura) da K-ésima
 #                                    sessão, lidos por ferramentas/diag_view.py (tools/diag_view.py no repositório)
 #   ./aoc-logs.sh pacote             logs/pacote-<data>.tar.gz com as sessões, o aoc.ini, o estado da máquina e as
@@ -111,6 +114,12 @@ detalhado)
         ;;
     esac
     ;;
+desempenho)
+    command -v python3 >/dev/null || { echo "python3 não encontrado"; exit 1; }
+    f=$(ls -1 "$L"/desempenho/*.csv 2>/dev/null | sort -r | sed -n "${2:-1}p")
+    [ -n "$f" ] || { echo "sem registro de desempenho ${2:-1} em $L/desempenho"; exit 1; }
+    python3 "$here/ferramentas/perf_view.py" "$f" "${@:3}"
+    ;;
 diag)
     command -v python3 >/dev/null || { echo "python3 não encontrado"; exit 1; }
     [ -f "$here/ferramentas/diag_view.py" ] || { echo "falta $here/ferramentas/diag_view.py"; exit 1; }
@@ -128,6 +137,10 @@ pacote)
     cp "$INI" "$tmp/" 2>/dev/null
     mkdir -p "$tmp/logs"
     sessions | head -n 10 | while read -r f; do cp "$f" "$tmp/logs/"; done
+    # the performance logs of the five newest sessions (one CSV row a second, small)
+    ls -1 "$L"/desempenho/*.csv 2>/dev/null | sort -r | head -n 5 | while read -r f; do
+        mkdir -p "$tmp/logs/desempenho" && cp "$f" "$tmp/logs/desempenho/"
+    done
     # the picture copies of the two newest recorder reports (320x180, small); not hits/, marks/ or dump/ (large)
     ls -1d "$L"/diag/2*-* 2>/dev/null | sort -r | head -n 2 | while read -r d; do
         mkdir -p "$tmp/logs/diag" && cp -r "$d" "$tmp/logs/diag/"

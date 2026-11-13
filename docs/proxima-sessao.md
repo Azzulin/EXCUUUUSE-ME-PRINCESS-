@@ -19,6 +19,13 @@ minimapa", "Deck: consumo e temperatura na primeira batalha").
   `logs/diag/` (ou rodar `python tools/diag_view.py`). Olhar as faíscas de impacto nos inimigos.
 - **Release v0.1.2 publicada** (2026-11-13) e **Deck atualizado** com o binário 0.1.2 (gravador de estado, correções
   de pipelines e views, `core_rebalance`); boot sem GPU de 25 s no Deck passou. Falta jogar no Deck.
+- **Registro de desempenho (0.1.3, no Deck):** o dono joga e manda `./aoc-logs.sh pacote` (ou o Relatório… no PC);
+  ler com `python tools/perf_view.py <csv> --linhas`. Marcas = "Marcar este momento" no menu rápido.
+- **Candidatos a otimização no Deck, a ordenar pelos registros do dono:** (1) engasgadas em conteúdo novo — o
+  `pipeline-keys.bin` agora funciona e cresce com o jogo do dono; o próximo passo é a tradução antecipada de todos os
+  shaders do RomFS; (2) re-uploads de textura (no notebook ~110 por 60 frames, 150 MiB, ~30 ms por janela); (3) a
+  thread principal esperando núcleo virtual nos 4 núcleos do Deck; (4) `nvnSyncWait`; (5) saída 1280×720 contra
+  1920×1080 (comparar duas sessões pelo cabeçalho de configurações).
 - **Falta o agente:** medir no Deck o custo da
   cópia 320×180 por segundo e a espera do pré-aquecimento no boot (notebook: 0,46 s com 191 pipelines).
 

@@ -23,6 +23,12 @@
 // whatever the vibration does. AOC_ATTACK_DUMP=<k> dumps the frame 6 presents after the k-th of them.
 // Frame dumps (vk_dump.c, AOC_DUMP=arm): AOC_HIT_DUMP=<k> dumps the frame after the k-th watched hit; AOC_MARK_DUMP=1
 // dumps on F8; a dark or black report dumps too.
+// Performance log: one CSV row a second for the whole session in <log dir>/desempenho/<start time>.csv (the newest
+// 40 kept; AOC_PERF_LOG=0 off): frames and the slowest one with what held it (shader translation, pipeline build,
+// texture upload, replay, GPU fence, pacing), draws, skipped draws, translations, pipelines and uploads, picture
+// brightness, file reads, the main thread's state, and on Linux the APU and battery watts, temperatures, GPU load,
+// clocks and the game's CPU cores (sysmon.c). Written so the owner can play a whole session and hand it over;
+// tools/perf_view.py reads it. A mark (F8, or "Mark this moment" in the quick menu, L3+R3) fills the mark column.
 // Input: a game run that writes a log also records the input to <log dir>/sessions/input-<time>.txt (an
 // AOC_INPUT_SCRIPT), unless AOC_INPUT_RECORD or AOC_INPUT_SCRIPT is set.
 // Cost while nothing happens: per present one time read; per second one 320x180 blit and its read-back, and this
@@ -34,6 +40,7 @@
 
 #include "cfg.h"
 #include "flight.h"
+#include "gfx.h"
 #include "host.h"
 #include "input.h"
 #include "movie.h"
@@ -116,6 +123,7 @@ static volatile int32_t g_rumbles;           // vibration starts since the last 
 static volatile int32_t g_burst, g_burst_id, g_burst_skip, g_burst_kind, g_burst_dump, g_mark_shot, g_mark_id;
 static volatile uint64_t g_hit_ns;
 static int hit_shots = -1, hit_dump, n_hits;
+static int perf_mark;   // the mark id the next performance log row carries (diag thread)
 static int atk_shots = -1, atk_dump, n_atks, atk_was;
 static uint64_t atk_ns;
 
@@ -198,11 +206,112 @@ int diag_shot_wanted(uint64_t present, char *path, size_t cap) {
 // A full-size picture of the next present under diag/marks/, and a frame dump when asked (AOC_DUMP=arm).
 static void mark(const char *why, int dump) {
     int id = __atomic_add_fetch(&g_mark_id, 1, __ATOMIC_RELAXED);
+    perf_mark = id;   // diag thread only: the next performance log row carries it
     __atomic_store_n(&g_mark_shot, 1, __ATOMIC_RELEASE);
     if (dump) vk_dump_trigger(why);
     rt_log("diag: mark %d (%s) at frame %llu, %.1f s of game time: picture logs/diag/marks/m%02d-*.png%s", id, why,
            (unsigned long long)__atomic_load_n(&g_frame, __ATOMIC_RELAXED), (double)frame_step_world_us() / 1e6, id,
            dump ? ", frame dump asked" : "");
+}
+
+// ---- performance log (CSV)
+static FILE *perf_f;
+static int perf_state, perf_rows;   // perf_state: 0 not opened, 1 writing, -1 off
+static volatile int32_t g_user_mark;            // diag_mark_user: the quick menu asked for a mark
+
+void diag_mark_user(void) { __atomic_store_n(&g_user_mark, 1, __ATOMIC_RELEASE); }
+
+static int name_cmp(const void *a, const void *b) { return strcmp(*(char *const *)a, *(char *const *)b); }
+
+typedef struct { char *names[256]; int n; } CsvList;
+static int csv_add(const char *name, void *ctx) {
+    CsvList *l = ctx;
+    if (l->n < 256) l->names[l->n++] = strdup(name);
+    return l->n < 256;
+}
+
+// Opens <log dir>/desempenho/<time>.csv and drops all but the newest 40 files there.
+static void perf_open(void) {
+    perf_state = -1;
+    const char *e = cfg_get("AOC_PERF_LOG");
+    if (e && !strcmp(e, "0")) return;
+    char dir[PLAT_PATH_MAX * 3 + 64], path[PLAT_PATH_MAX * 3 + 128];
+    log_dir(dir, PLAT_PATH_MAX * 3);
+    size_t n = strlen(dir);
+    snprintf(dir + n, sizeof dir - n, "/desempenho");
+    plat_file_mkdir_p(dir);
+    CsvList cl = {0};
+    plat_file_list(dir, ".csv", csv_add, &cl);
+    char **names = cl.names;
+    int nn = cl.n;
+    qsort(names, (size_t)nn, sizeof *names, name_cmp);
+    for (int i = 0; i < nn; i++) {
+        if (i < nn - 39) {
+            snprintf(path, sizeof path, "%s/%s", dir, names[i]);
+            plat_file_delete(path);
+        }
+        free(names[i]);
+    }
+    struct tm st;
+    plat_local_time(&st);
+    snprintf(path, sizeof path, "%s/%04d%02d%02d-%02d%02d%02d.csv", dir, st.tm_year + 1900, st.tm_mon + 1, st.tm_mday,
+             st.tm_hour, st.tm_min, st.tm_sec);
+    if (!(perf_f = fopen(path, "w"))) {
+        rt_log("diag: cannot write the performance log %s", path);
+        return;
+    }
+    fprintf(perf_f, "# AoC Recomp %s performance log, one row a second (tools/perf_view.py)\n", rt_port_version);
+    // the settings in effect, so sessions played with different ones can be told apart (tools/perf_view.py shows them)
+    static const char *const keys[] = {"AOC_DEVICE_PROFILE", "AOC_OUTPUT_RES", "AOC_RENDER_SCALE", "AOC_OPERATION_MODE",
+                                       "AOC_FPS_LIMIT", "AOC_REPLAY_ASYNC", "AOC_SHADOW_RES", "AOC_VK_PRESENT"};
+    fprintf(perf_f, "# settings:");
+    for (size_t i = 0; i < sizeof keys / sizeof *keys; i++) {
+        const char *v = cfg_value(keys[i]);
+        fprintf(perf_f, " %s=%s", keys[i] + 4, v && *v ? v : "-");
+    }
+    fprintf(perf_f, "\n");
+    fprintf(perf_f, "t_s,game_s,frame,fps,worst_ms,over34,over50,worst_xlate,worst_pipe,worst_tex,worst_replay,worst_fence,"
+                    "worst_pace,avg_ms,xlate_ms,pipe_ms,tex_ms,replay_ms,fence_ms,pace_ms,draws,skip_pipe,skip_shader,"
+                    "xlated,pipes,tex_up,tex_reup,luma,lit,audio,read_kib,movies,main,cores,hits,apu_w,bat_w,bat_pct,"
+                    "cpu_c,gpu_c,fan,gpu_busy,cpu_mhz,gpu_mhz,game_cores,mark\n");
+    perf_state = 1;
+    rt_log("diag: performance log %s (one row a second)", path);
+}
+
+static void perf_row(const Sample *s) {
+    static uint64_t p_xl, p_pipes, p_up, p_reup;
+    if (!perf_state) perf_open();
+    PerfSecond ps;
+    perf_second_take(&ps);
+    uint64_t keys, xl;
+    gfx_shader_counts(&keys, &xl);
+    uint64_t pipes = perf_total(PERF_CNT_PIPE_BUILT), up = perf_total(PERF_CNT_TEX_UP), reup = perf_total(PERF_CNT_TEX_REUP);
+    if (perf_state != 1) {
+        p_xl = xl, p_pipes = pipes, p_up = up, p_reup = reup;
+        return;
+    }
+    SysSecond sy;
+    sysmon_second(&sy);
+    double f = ps.frames ? (double)ps.frames : 1.0, ms = 1e-6;
+#define W(k) (ps.worst_wait[k] * ms)
+#define A(k) (ps.wait_ns[k] * ms / f)
+    int64_t g = frame_step_world_us();
+    fprintf(perf_f, "%.0f,%.1f,%llu,%llu,%.1f,%llu,%llu,%.1f,%.1f,%.1f,%.1f,%.1f,%.1f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,"
+                    "%u,%u,%u,%llu,%llu,%llu,%llu,%d,%d,%.2f,%u,%d,%s,%d,%d,%.1f,%.1f,%.0f,%.0f,%.0f,%.0f,%.0f,%.0f,%.0f,%.2f,%d\n",
+            (double)s->t, g >= 0 ? (double)g / 1e6 : -1.0, (unsigned long long)s->frame, (unsigned long long)ps.frames,
+            ps.worst_ns * ms, (unsigned long long)ps.over34, (unsigned long long)ps.over50, W(PERF_XLATE), W(PERF_PIPE),
+            W(PERF_TEX), ps.worst_replay * ms, W(PERF_FENCE) + W(PERF_DRAIN), W(PERF_PACE), ps.sum_ns * ms / f,
+            A(PERF_XLATE), A(PERF_PIPE), A(PERF_TEX), ps.replay_ns * ms / f, A(PERF_FENCE) + A(PERF_DRAIN), A(PERF_PACE),
+            s->presents ? s->draws / s->presents : 0, s->skip_pipe, s->skip_shader, (unsigned long long)(xl - p_xl),
+            (unsigned long long)(pipes - p_pipes), (unsigned long long)(up - p_up), (unsigned long long)(reup - p_reup),
+            s->luma, s->lit, (double)s->audio, s->read_kib, s->movies, s->main_st, s->cores, s->rumbles,
+            (double)sy.apu_w, (double)sy.bat_w, (double)sy.bat_pct, (double)sy.cpu_c, (double)sy.gpu_c, (double)sy.fan,
+            (double)sy.gpu_busy, (double)sy.cpu_mhz, (double)sy.gpu_mhz, (double)sy.game_cores, perf_mark);
+#undef W
+#undef A
+    perf_mark = 0;
+    p_xl = xl, p_pipes = pipes, p_up = up, p_reup = reup;
+    if (++perf_rows % 10 == 0) fflush(perf_f);   // a crash or a forced quit loses at most 10 s
 }
 
 void diag_frame(uint64_t frame) { __atomic_store_n(&g_frame, frame, __ATOMIC_RELAXED); }
@@ -320,6 +429,7 @@ static void report(const char *why, const char *slug, const char *thread_tag) {
 
 static void diag_main(void *arg) {
     (void)arg;
+    sysmon_start();   // the performance log's machine columns; idempotent (perf.c starts it at the first frame too)
     const char *v = cfg_get("AOC_HANG_SECS");
     double hang_s = v && *v ? atof(v) : 10.0;
     v = cfg_get("AOC_BLACK_SECS");
@@ -343,6 +453,10 @@ static void diag_main(void *arg) {
         if (key && !key_was) {
             mark("f8", mark_dump);
             report("F8 pressed", "f8", "diag");
+        }
+        if (__atomic_exchange_n(&g_user_mark, 0, __ATOMIC_ACQUIRE)) {
+            mark("menu", mark_dump);
+            report("marked from the quick menu", "marca", "diag");
         }
         key_was = key;
         if (now < next) continue;
@@ -370,6 +484,7 @@ static void diag_main(void *arg) {
         s->luma = s->lit = -1;
         take_thumbs(s->t, &s->luma, &s->lit);
         n_samples++;
+        perf_row(s);
 
         if (++minute >= 60) {
             minute = 0;
@@ -437,6 +552,7 @@ static void diag_main(void *arg) {
 void diag_exit(void) {
     static int32_t done;
     if (!n_samples || plat_xchg32(&done, 1)) return;
+    if (perf_f) fflush(perf_f);
     report("the game is exiting", "exit", "diag");
 }
 

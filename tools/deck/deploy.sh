@@ -14,7 +14,7 @@ cd "$D"
 # the owner plays on the Deck: nothing is sent while the game or the TotK port is open
 busy=$($SSH -o ConnectTimeout=10 $DECK "pgrep -a totk; pgrep -ax aoc" 2>&1) || true
 if [ -n "$busy" ]; then echo "Deck ocupado ou fora do ar, nada enviado:"; echo "$busy"; exit 2; fi
-files="aoc aoc_xlate aoc_xlate.id aoc.sh instalar-atalho.sh LEIA-ME.txt romfs-index.bin lib/libSDL3.so.0 aoc-logs.sh ferramentas/logsum.py ferramentas/diag_view.py"
+files="aoc aoc_xlate aoc_xlate.id aoc.sh instalar-atalho.sh LEIA-ME.txt romfs-index.bin lib/libSDL3.so.0 aoc-logs.sh ferramentas/logsum.py ferramentas/diag_view.py ferramentas/perf_view.py"
 $SSH $DECK "mkdir -p $G/ferramentas"
 # only what differs (size + sha256)
 remote=$($SSH $DECK "cd $G && sha256sum $files 2>/dev/null" || true)

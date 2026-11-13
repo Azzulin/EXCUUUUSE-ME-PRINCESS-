@@ -132,6 +132,9 @@ Para remover tudo: apague a pasta `AoC-Recomp`; no Windows rode `wsl --unregiste
   defeito para marcá-lo. Para investigar golpes e efeitos, abra o jogo pelo `monitor.bat` da pasta do jogo (no
   Windows) em vez do **JOGAR**: ele guarda imagens de cada golpe e um retrato completo do frame na marca ou na cena
   escura (fica um pouco mais lento e ocupa espaço em `logs\diag`). Depois aperte **Relatório…** e mande o zip.
+- **Quedas de fps ou engasgadas**: toda sessão grava uma linha de desempenho por segundo em `logs/desempenho/`. No
+  momento em que engasgar, segure **L3+R3** e escolha **Marcar este momento** (no PC também vale F8). No Steam Deck,
+  `./aoc-logs.sh desempenho` resume a sessão e `./aoc-logs.sh pacote` junta tudo para mandar; no PC, **Relatório…**.
 
 ---
 

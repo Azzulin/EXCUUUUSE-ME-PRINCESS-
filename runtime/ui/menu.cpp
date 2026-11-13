@@ -58,6 +58,7 @@ extern const char rt_port_version[];
 void cheats_frame(uint64_t frame);   // cheats.c
 bool tab_cheats(float scale);        // ui/cheats_tab.cpp; true: restart into the rebuild
 void ov_operation_mode_changed(void);   // ov_system.c: AOC_OPERATION_MODE changed while the game runs
+void diag_mark_user(void);              // diag.c: a mark in the performance log and a report
 }
 
 // Roboto Medium (Apache-2.0, ui/fonts/LICENSE-Roboto.txt) with Latin and Cyrillic glyphs.
@@ -1146,9 +1147,18 @@ static void layout_quick(uint32_t w, uint32_t h, float scale) {
     opt_end();
 
     ImGui::Spacing();
+    // "Mark this moment": the state recorder notes it in the performance log and writes a report (runtime/diag.c),
+    // for the owner to point at a stutter or a glitch while playing on the Deck, which has no F8.
     const char *cont = menu_text(UI_MENU_CONTINUE), *full = menu_text(UI_MENU_QUICK_FULL);
-    float bw = fmaxf(ImGui::CalcTextSize(cont).x, ImGui::CalcTextSize(full).x) + st.FramePadding.x * 4;
-    ImGui::SetCursorPosX(ImGui::GetWindowWidth() - st.WindowPadding.x - bw * 2 - st.ItemSpacing.x);
+    const char *markt = menu_text(UI_MENU_QUICK_MARK);
+    float bw = fmaxf(fmaxf(ImGui::CalcTextSize(cont).x, ImGui::CalcTextSize(full).x), ImGui::CalcTextSize(markt).x) +
+               st.FramePadding.x * 4;
+    ImGui::SetCursorPosX(ImGui::GetWindowWidth() - st.WindowPadding.x - bw * 3 - st.ItemSpacing.x * 2);
+    if (ImGui::Button(markt, ImVec2(bw, 0))) {
+        diag_mark_user();
+        set_open(0);
+    }
+    ImGui::SameLine();
     if (ImGui::Button(full, ImVec2(bw, 0))) {
         g_quick.store(0);
         g_focus_page = g_tab;

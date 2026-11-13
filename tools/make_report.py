@@ -88,7 +88,7 @@ def main() -> int:
                 # The logs and the recorded inputs, newest 6; logs/diag holds full-size captures and frame dumps (8 to
                 # 60 MB each) that would push the logs out: only the small picture copies of its two newest reports.
                 big = ("diag/hits/", "diag/marks/", "diag/dump/")
-                text = [p for p in logs_dir.rglob("*") if p.is_file() and p.suffix in (".log", ".txt", ".gz")
+                text = [p for p in logs_dir.rglob("*") if p.is_file() and p.suffix in (".log", ".txt", ".gz", ".csv")
                         and not p.relative_to(logs_dir).as_posix().startswith(big)]
                 files = sorted(text, key=lambda p: p.stat().st_mtime)[-6:]
                 reports = sorted((p for p in (logs_dir / "diag").glob("2*-*") if p.is_dir()), reverse=True)[:2] \

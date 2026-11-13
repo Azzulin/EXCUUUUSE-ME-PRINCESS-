@@ -132,6 +132,9 @@ delete `C:\msys64` if the launcher installed it; on Linux delete `~/aoc-build` a
   mark it. To look into hits and effects, start the game with `monitor.bat` in the game folder (Windows) instead of
   **PLAY**: it saves pictures of every hit and a full frame capture at a mark or a dark scene (a bit slower, and it
   takes space in `logs\diag`). Then press **Report…** and send the zip.
+- **Frame drops or stutters**: every session writes one performance row a second to `logs/desempenho/`. When it
+  stutters, hold **L3+R3** and choose **Mark this moment** (F8 works too on PC). On the Steam Deck,
+  `./aoc-logs.sh desempenho` sums the session up and `./aoc-logs.sh pacote` bundles everything to send; on PC, **Report…**.
 
 ---
 

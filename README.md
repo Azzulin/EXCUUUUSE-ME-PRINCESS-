@@ -27,6 +27,12 @@ Passo a passo: **[GUIA.md](GUIA.md)** (português) · **[GUIDE.md](GUIDE.md)** (
 - **Em aberto:** saves ainda não verificados numa jogatina real, travadas de shader em conteúdo novo, o conteúdo
   dos DLCs jogado de ponta a ponta (eles já são montados e lidos), 60 fps opcional. Fases e portões em [docs/plano.md](docs/plano.md).
 
+## Testou? Conte o que viu
+
+Problemas e relatos em <https://github.com/Azzulin/EXCUUUUSE-ME-PRINCESS-/issues>. No launcher, **Reportar problema…** cria o `aoc-report.zip` (registros e dados do
+PC, nada do jogo) e abre o formulário; no Steam Deck sem o launcher, `./aoc-logs.sh pacote`. Passo a passo em
+[GUIA.md](GUIA.md#8-reportar-um-problema) / [GUIDE.md](GUIDE.md#8-reporting-a-problem).
+
 ## Como funciona (resumo)
 
 O código ARM64 do jogo é traduzido para C antes da execução e compilado com Clang; um runtime próprio faz o papel do

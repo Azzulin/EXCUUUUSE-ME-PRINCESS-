@@ -43,7 +43,7 @@ ser compartilhado.
 |---|---|
 | **GRÁFICOS** | modo e tamanho da janela, apresentação (VSync), resolução do jogo (1920 × 1080 ou a mais leve 1280 × 720), resolução interna (TV ou portátil), escala 3D, formato da imagem, filtragem de texturas, sombras, indicador de desempenho |
 | **CONTROLE E SOM** | layout dos botões (Nintendo ou Xbox), vibração, zona morta dos analógicos, inverter a câmera, volume, mudo em segundo plano, idioma do menu do jogo |
-| Barra de baixo | **Relatório…** (um zip com os registros e os dados do PC, para pedir ajuda), **Pasta do jogo**, **Forjar de novo** (depois de uma atualização, ou para fazer também a versão do Steam Deck), **Salvar**, **Fechar** e **JOGAR** |
+| Barra de baixo | **Reportar problema…** (um zip com os registros e os dados do PC, para pedir ajuda), **Pasta do jogo**, **Forjar de novo** (depois de uma atualização, ou para fazer também a versão do Steam Deck), **Salvar**, **Fechar** e **JOGAR** |
 
 Pare o mouse sobre uma opção para ver uma explicação curta. **JOGAR** salva antes. O resto (remapear botões, cores,
 HDR) fica no menu do próprio jogo: **F1**, ou Menos + Mais no controle.
@@ -123,7 +123,7 @@ Para remover tudo: apague a pasta `AoC-Recomp`; no Windows rode `wsl --unregiste
 - **"Pouco espaço livre"**: a mensagem diz quanto é preciso; libere espaço e forje de novo.
 - **Um passo falhou**: o motivo aparece em vermelho embaixo do passo, e o registro completo logo abaixo. Clique em
   **FORJAR** de novo: os passos prontos são pulados. **Só conferir** testa o dump sem compilar. Para pedir ajuda,
-  aperte **Relatório…** e anexe o `aoc-report.zip` (registros e dados do PC, nada do jogo).
+  aperte **Reportar problema…** e anexe o `aoc-report.zip` (registros e dados do PC, nada do jogo).
 - **A compilação está muito lenta**: um antivírus examinando cada arquivo atrasa muito o compilador; colocar a pasta
   `AoC-Recomp` (e no Windows `%LOCALAPPDATA%\AoC-Recomp`) nas exceções ajuda.
 - **Travadinhas na primeira vez que joga**: os shaders são traduzidos enquanto você joga pela primeira vez e ficam
@@ -132,12 +132,26 @@ Para remover tudo: apague a pasta `AoC-Recomp`; no Windows rode `wsl --unregiste
   quando para de mostrar imagem por 10 s ou fica preto/escuro por 15 s; aperte **F8** no momento de qualquer outro
   defeito para marcá-lo. Para investigar golpes e efeitos, abra o jogo pelo `monitor.bat` da pasta do jogo (no
   Windows) em vez do **JOGAR**: ele guarda imagens de cada golpe e um retrato completo do frame na marca ou na cena
-  escura (fica um pouco mais lento e ocupa espaço em `logs\diag`). Depois aperte **Relatório…** e mande o zip.
+  escura (fica um pouco mais lento e ocupa espaço em `logs\diag`). Depois aperte **Reportar problema…** e mande o zip.
 - **Quedas de fps ou engasgadas**: toda sessão grava uma linha de desempenho por segundo em `logs/desempenho/`. No
   momento em que engasgar, segure **L3+R3** e escolha **Marcar este momento** (no PC também vale F8). No Steam Deck,
-  `./aoc-logs.sh desempenho` resume a sessão e `./aoc-logs.sh pacote` junta tudo para mandar; no PC, **Relatório…**.
+  `./aoc-logs.sh desempenho` resume a sessão e `./aoc-logs.sh pacote` junta tudo para mandar; no PC, **Reportar problema…**.
 
 ---
+
+## 8. Reportar um problema
+
+Quanto mais gente testar e contar o que viu, mais rápido o port melhora. Para reportar:
+
+1. No launcher, aperte **Reportar problema…**. Ele cria o `aoc-report.zip` (registros e dados do PC; nada do jogo, e
+   o seu nome de usuário é trocado por `user` nos textos), abre a pasta onde o zip ficou e abre no navegador o
+   formulário de problemas do projeto: <https://github.com/Azzulin/EXCUUUUSE-ME-PRINCESS-/issues>.
+2. Preencha o formulário (precisa de uma conta do GitHub) e arraste o `aoc-report.zip` para o campo do relatório.
+3. No Steam Deck sem o launcher: na pasta do jogo, `./aoc-logs.sh pacote` cria `logs/pacote-<data>.tar.gz`; anexe
+   esse arquivo no mesmo formulário.
+
+Antes de abrir um problema novo, veja se alguém já relatou o mesmo na lista. **Nunca anexe arquivos do jogo,
+`prod.keys` ou saves.**
 
 ## Aviso legal
 

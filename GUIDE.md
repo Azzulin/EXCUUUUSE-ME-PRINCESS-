@@ -43,7 +43,7 @@ nothing you make should be shared.
 |---|---|
 | **GRAPHICS** | window mode and size, presentation (VSync), game resolution (1920 × 1080 or the lighter 1280 × 720), internal resolution (TV or handheld), 3D render scale, picture shape, texture filtering, shadows, performance overlay |
 | **CONTROLS AND SOUND** | button layout (Nintendo or Xbox), vibration, stick dead zone, invert camera, volume, mute in the background, in-game menu language |
-| Bottom bar | **Report…** (a zip with the logs and your PC's details, for asking for help), **Game folder**, **Forge again** (after an update, or to add the Steam Deck version), **Save**, **Close**, and **PLAY** |
+| Bottom bar | **Report a problem…** (a zip with the logs and your PC's details, for asking for help), **Game folder**, **Forge again** (after an update, or to add the Steam Deck version), **Save**, **Close**, and **PLAY** |
 
 Hover over a setting for a short explanation. **PLAY** saves first. Everything else (remapping buttons, colours, HDR)
 is in the game's own menu: **F1**, or Minus + Plus on a controller.
@@ -122,7 +122,7 @@ delete `C:\msys64` if the launcher installed it; on Linux delete `~/aoc-build` a
   and `prod.keys` must sit in the same folder.
 - **"Not enough free space"**: the message says how much is needed; free some space and forge again.
 - **A step failed**: the reason is under the step, in red, and the full log is below. Click **FORGE** again:
-  finished steps are skipped. **Only check** tests your dump without building. To ask for help, press **Report…**
+  finished steps are skipped. **Only check** tests your dump without building. To ask for help, press **Report a problem…**
   and attach `aoc-report.zip` (it holds the logs and your PC's details, nothing of the game).
 - **The build is very slow**: an antivirus scanning every file slows the compiler a lot; adding the `AoC-Recomp`
   folder (and on Windows `%LOCALAPPDATA%\AoC-Recomp`) to its exclusions helps.
@@ -132,12 +132,25 @@ delete `C:\msys64` if the launcher installed it; on Linux delete `~/aoc-build` a
   itself when it shows no picture for 10 s or stays black/dark for 15 s; press **F8** when you see any other glitch to
   mark it. To look into hits and effects, start the game with `monitor.bat` in the game folder (Windows) instead of
   **PLAY**: it saves pictures of every hit and a full frame capture at a mark or a dark scene (a bit slower, and it
-  takes space in `logs\diag`). Then press **Report…** and send the zip.
+  takes space in `logs\diag`). Then press **Report a problem…** and send the zip.
 - **Frame drops or stutters**: every session writes one performance row a second to `logs/desempenho/`. When it
   stutters, hold **L3+R3** and choose **Mark this moment** (F8 works too on PC). On the Steam Deck,
-  `./aoc-logs.sh desempenho` sums the session up and `./aoc-logs.sh pacote` bundles everything to send; on PC, **Report…**.
+  `./aoc-logs.sh desempenho` sums the session up and `./aoc-logs.sh pacote` bundles everything to send; on PC, **Report a problem…**.
 
 ---
+
+## 8. Reporting a problem
+
+The more people test and say what they saw, the faster the port gets better. To report:
+
+1. In the launcher, press **Report a problem…**. It makes `aoc-report.zip` (logs and your PC's details; nothing of
+   the game, and your user name is replaced by `user` in the texts), opens the folder the zip is in and opens the
+   project's problem form in your browser: <https://github.com/Azzulin/EXCUUUUSE-ME-PRINCESS-/issues>.
+2. Fill in the form (it needs a GitHub account) and drag `aoc-report.zip` into the report field.
+3. On a Steam Deck without the launcher: in the game folder, `./aoc-logs.sh pacote` makes
+   `logs/pacote-<date>.tar.gz`; attach that file to the same form.
+
+Before opening a new problem, check the list for one like yours. **Never attach game files, `prod.keys` or saves.**
 
 ## Legal
 

@@ -586,6 +586,11 @@ REGISTROS (consumo, temperatura, fps de cada sessão)
   ./aoc-logs.sh diag                       lê os relatórios de travada e tela preta da última sessão
   ./aoc-logs.sh pacote                     junta tudo em logs/pacote-<data>.tar.gz para mandar
 
+REPORTAR UM PROBLEMA
+  Rode ./aoc-logs.sh pacote e anexe o arquivo criado num relato em
+  https://github.com/Azzulin/EXCUUUUSE-ME-PRINCESS-/issues
+  (nunca anexe arquivos do jogo, chaves ou saves)
+
 CONTROLES DO PORT
   Segurar L3+R3 (~1,5 s)  menu rápido: taxa de quadros, resolução interna, overlay de desempenho e
                          "Marcar este momento" (aponta uma engasgada no registro de desempenho)

@@ -1,0 +1,60 @@
+name: Problema / Bug report
+description: Algo não funcionou na forja ou no jogo / Something failed in the forge or in the game
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Português:** descreva o problema e anexe o `aoc-report.zip` (botão **Reportar problema…** do launcher; no Steam Deck sem launcher, `./aoc-logs.sh pacote`). O zip traz registros e dados do PC, nada do jogo.
+        **English:** describe the problem and attach `aoc-report.zip` (the launcher's **Report a problem…** button; on a Steam Deck without the launcher, `./aoc-logs.sh pacote`). The zip holds logs and PC details, nothing of the game.
+
+        Nunca anexe arquivos do jogo, `prod.keys` ou saves. / Never attach game files, `prod.keys` or saves.
+  - type: input
+    id: version
+    attributes:
+      label: Versão do AoC Recomp / AoC Recomp version
+      description: Aparece no launcher e na primeira linha de `system.txt` / Shown in the launcher and in the first line of `system.txt`
+      placeholder: "0.1.5"
+    validations:
+      required: true
+  - type: dropdown
+    id: where
+    attributes:
+      label: Onde / Where
+      options:
+        - Windows
+        - Steam Deck
+        - Linux (outro / other)
+    validations:
+      required: true
+  - type: dropdown
+    id: stage
+    attributes:
+      label: Em que parte / Which part
+      options:
+        - Forja (launcher, preparar o jogo) / Forge (launcher, building the game)
+        - Abrir o jogo / Starting the game
+        - Jogando (imagem, som, travada, desempenho) / Playing (picture, sound, freeze, performance)
+        - DLC
+        - Outro / Other
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: O que aconteceu / What happened
+      description: O que você fez, o que esperava e o que viu. Para problemas em jogo, diga a fase e o momento. / What you did, what you expected and what you saw. For in-game problems, name the stage and the moment.
+    validations:
+      required: true
+  - type: textarea
+    id: report
+    attributes:
+      label: aoc-report.zip
+      description: Arraste o zip para cá (e capturas de tela, se ajudarem). / Drag the zip here (and screenshots, if they help).
+  - type: checkboxes
+    id: own
+    attributes:
+      label: Confirmação / Confirmation
+      options:
+        - label: Uso a minha própria cópia do jogo e não anexei arquivos do jogo, chaves ou saves. / I use my own copy of the game and attached no game files, keys or saves.
+          required: true

@@ -20,8 +20,10 @@ launcher do jogo; nada copiado de lá, que é GPL):
 - **Jogo:** com `dist/aoc-windows` (Windows) ou `dist/aoc-deck` (Linux) pronto, os painéis **GRÁFICOS** e
   **CONTROLE E SOM** editam o `aoc.ini` dessa pasta como o `cfg_save` do runtime (a linha da chave mantém a grafia,
   uma chave nova entra na seção dela, o resto do arquivo fica igual). Só opções medidas no AoC; o resto fica no menu do
-  jogo (F1). **JOGAR** salva e abre o jogo sem janela de console; **Relatório…** roda `tools/make_report.py`
-  (`aoc-report.zip` com `system.txt`, os registros da forja em `build/logs/` e os do jogo, nada do jogo).
+  jogo (F1). **JOGAR** salva e abre o jogo sem janela de console; **Reportar problema…** roda `tools/make_report.py`
+  (`aoc-report.zip` com `system.txt`, os registros da forja em `build/logs/` e os do jogo, nada do jogo, com o nome
+  de usuário do PC trocado por `user`), abre a pasta do zip e o formulário de issues do repositório
+  (`.github/ISSUE_TEMPLATE/problema.yml`).
 
 No repositório, `launcher.bat` compila o launcher na primeira vez (`python3 tools/build_launcher.py` no MSYS2 UCRT64;
 `--linux` no WSL, contra o sniper; `--out` escolhe outra pasta) e o abre.

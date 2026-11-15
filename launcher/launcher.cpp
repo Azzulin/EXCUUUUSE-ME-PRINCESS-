@@ -142,10 +142,10 @@ static const char *STR[T_COUNT][2] = {
      "In the game, F1 (or Minus + Plus on a controller) opens the full menu: remap buttons, colours, HDR."},
     {"JOGAR", "PLAY"},
     {"JOGANDO", "PLAYING"},
-    {"Relatório...", "Report..."},
+    {"Reportar problema...", "Report a problem..."},
     {"Gerando o relatório...", "Making the report..."},
-    {"aoc-report.zip criado na pasta do AoC Recomp (registros e dados do PC, nada do jogo).",
-     "aoc-report.zip made in the AoC Recomp folder (logs and PC details, nothing of the game)."},
+    {"aoc-report.zip criado (registros e dados do PC, nada do jogo). Arraste-o para a página que abriu no navegador.",
+     "aoc-report.zip made (logs and PC details, nothing of the game). Drag it into the page that opened in your browser."},
     {"O relatório não foi criado.", "The report could not be made."},
     {"Pasta do jogo", "Game folder"},
     {"Registros", "Logs"},
@@ -673,6 +673,7 @@ static void open_path(const fs::path &p) {
     if ((INT_PTR)ShellExecuteW(nullptr, L"open", p.wstring().c_str(), nullptr, nullptr, SW_SHOW) <= 32)
         ShellExecuteW(nullptr, L"open", L"notepad.exe", quote(p.wstring()).c_str(), nullptr, SW_SHOW);
 }
+static void open_url(const char *url) { ShellExecuteW(nullptr, L"open", widen(url).c_str(), nullptr, nullptr, SW_SHOW); }
 // The game without a console window: its log goes to logs/aoc.log anyway.
 static bool play() {
     fs::path d = game_dir();
@@ -802,6 +803,7 @@ static pid_t spawn_detached(const std::vector<std::string> &cmd, const fs::path 
     return pid;
 }
 static void open_path(const fs::path &p) { spawn_detached({"xdg-open", p.string()}, {}); }
+static void open_url(const char *url) { spawn_detached({"xdg-open", url}, {}); }
 static bool play() {
     g_game_pid = spawn_detached({(game_dir() / "aoc.sh").string()}, game_dir());
     return g_game_pid > 0;
@@ -1173,6 +1175,10 @@ static void draw_header(ImGuiIO &io, float pad) {
     ImGui::Dummy(ImVec2(0, 18 * s));
 }
 
+// Where problems are reported: the repository's issue form (.github/ISSUE_TEMPLATE/problema.yml). "Report a problem"
+// makes aoc-report.zip (tools/make_report.py), opens its folder and this page, where the zip is attached.
+static const char ISSUES_URL[] = "https://github.com/Azzulin/EXCUUUUSE-ME-PRINCESS-/issues/new?template=problema.yml";
+
 // The bottom bar's small buttons, all of one height.
 static bool bar_button(Str s, const char *id) {
     return ImGui::Button(lab(s, id).c_str(), ImVec2(0, 44 * g_scale));
@@ -1184,7 +1190,11 @@ static void report_status() {
     if (st == shown) return;
     shown = st;
     if (st == 1) set_status(tr(T_REPORTING), C_MUTED);
-    else if (st == 2) set_status(tr(T_REPORT_DONE), C_OK), open_path(g_root);
+    else if (st == 2) {   // the folder with the zip, and the form it is attached to
+        set_status(tr(T_REPORT_DONE), C_OK);
+        open_path(g_root);
+        open_url(ISSUES_URL);
+    }
     else if (st == 3) set_status(tr(T_REPORT_FAIL), C_RED);
 }
 

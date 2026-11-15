@@ -1,16 +1,20 @@
 """Makes aoc-report.zip for asking for help: the logs and this PC's details, nothing of the game.
 
-The launcher's "Report..." button runs it (Windows: the launcher's Python; Linux: python3). Only the standard library.
+The launcher's "Report a problem..." button runs it (Windows: the launcher's Python; Linux: python3). Only the standard library.
 
   python tools/make_report.py   ->   <repository>/aoc-report.zip
 
 Inside: system.txt (system, processor, memory, graphics cards and driver, free disk, launcher version), the last forge
 logs (build/logs/), and each game folder's logs/ (texts, and the picture copies of the newest state-recorder reports)
 and aoc.ini (dist/aoc-windows, dist/aoc-deck). No game files, no
-keys, no saves. The logs carry paths of this PC (the user name may be in them); the README says so.
+keys, no saves. The zip is attached to a public issue (the launcher opens the form), so this PC's user name is taken
+out of every text in it: the logs carry paths, and a home folder's name is often a person's name (scrub).
 """
+import getpass
+import gzip
 import os
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -65,8 +69,39 @@ def system_txt() -> str:
     return "\n".join(lines) + "\n"
 
 
+GENERIC_USERS = {"deck", "root", "user", "users", "home", "admin", "administrator", "public", "default"}
+
+
+def user_names() -> list:
+    """The names to take out: the account's and the home folder's (they can differ), not the generic ones."""
+    names = {Path.home().name}
+    try:
+        names.add(getpass.getuser())
+    except Exception:   # no user database entry (a container): the home folder's name is still tried
+        pass
+    return sorted((n for n in names if len(n) >= 3 and n.lower() not in GENERIC_USERS), key=len, reverse=True)
+
+
+USERS = user_names()
+
+
+def scrub(data: bytes) -> bytes:
+    """data with this PC's user name replaced by "user" wherever it stands as a whole word (a path component)."""
+    for name in USERS:
+        pat = re.compile(rb"(?<![A-Za-z0-9_.-])" + re.escape(name.encode()) + rb"(?![A-Za-z0-9_.-])", re.IGNORECASE)
+        data = pat.sub(b"user", data)
+    return data
+
+
 def add_file(z: zipfile.ZipFile, path: Path, arc: str) -> None:
     data = path.read_bytes()
+    if path.suffix == ".gz":   # an older session's log (the Deck's aoc.sh compresses them)
+        try:
+            data = gzip.compress(scrub(gzip.decompress(data)))
+        except (OSError, EOFError):
+            return   # not a gzip after all: left out rather than sent unread
+    elif path.suffix != ".png":
+        data = scrub(data)
     if len(data) > MAX_FILE:
         data = b"[... beginning cut, the file had %d bytes ...]\n" % len(data) + data[-MAX_FILE:]
     z.writestr(arc, data)
@@ -74,7 +109,7 @@ def add_file(z: zipfile.ZipFile, path: Path, arc: str) -> None:
 
 def main() -> int:
     with zipfile.ZipFile(OUT, "w", zipfile.ZIP_DEFLATED) as z:
-        z.writestr("system.txt", system_txt())
+        z.writestr("system.txt", scrub(system_txt().encode("utf-8", "replace")))
         logs = ROOT / "build" / "logs"
         if logs.is_dir():
             for f in sorted(logs.glob("*.log"))[-5:]:

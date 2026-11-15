@@ -171,6 +171,8 @@ def main() -> int:
     sh([sys.executable, ROOT / "tools/build_launcher.py", "--out", stage / "launcher-win"])   # not the one in use
 
     tree = git_tree()
+    if not any(n == "recomplauncher.json" for n, _, _ in tree):   # RecompLauncher's file, next to the launcher
+        tree.append(("recomplauncher.json", 0o644, (ROOT / "recomplauncher.json").read_bytes()))
     print(f"repositório no HEAD: {len(tree)} arquivos, {sum(len(d) for _, _, d in tree) / 1e6:.1f} MB")
     lic = (ROOT / "toolchain/hactool-1.4.0/hactool-1.4.0/LICENSE").read_bytes()
 

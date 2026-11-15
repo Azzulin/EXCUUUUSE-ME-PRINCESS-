@@ -1,0 +1,35 @@
+{
+    "$schema": "https://recomplauncher.com/schema/recomplauncher.json",
+    "format": 1,
+    "name": "AoC Recomp",
+    "game": {
+        "kind": "folder",
+        "label": "Your folder with the Switch base game NSP, the 1.3.0 update NSP, any DLC NSPs and your prod.keys."
+    },
+    "prepare": {
+        "program": [
+            "python/python.exe"
+        ],
+        "args": [
+            "-u",
+            "{install}/tools/make_build.py",
+            "--prepare",
+            "--game-dir",
+            "{game}",
+            "--lang",
+            "en"
+        ],
+        "label": "Building the game from your copy (1 to 2 hours the first time)",
+        "timeout": 14400
+    },
+    "start": {
+        "program": [
+            "dist/aoc-windows/aoc.exe",
+            "dist/aoc-deck/aoc.sh"
+        ]
+    },
+    "requires": [
+        "start",
+        "files.folder"
+    ]
+}

@@ -1204,3 +1204,6 @@ Arquivos: `runtime/diag.c` (novo), `kernel.c`, `perf.c`, `flight.c/.h`, `vk_back
 - Não verificado: a ordem dos 6 canais do Vorbis (o stb_vorbis entrega na ordem do Vorbis; falta ouvir).
 - **No Windows** (`C:\aoc-win\host.sh`, exe copiado para `dist/aoc-windows`, 50 s com o save do dono): os dois
   logos, Vorbis no host, `display version 1.3.0` e a tela de título na captura.
+- **Release `v0.1.4` publicada** (commit `7da20e6`): `AoC-Recomp-0.1.4-Windows.zip` (68,9 MB, sha256 `8dad3c08…`) e
+  `AoC-Recomp-0.1.4-Linux.tar.gz` (6,6 MB, sha256 `da9e9a86…`). A 0.1.3 não teve pacote; as notas da 0.1.4 citam o
+  registro de desempenho dela.

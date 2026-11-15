@@ -1175,3 +1175,32 @@ Arquivos: `runtime/diag.c` (novo), `kernel.c`, `perf.c`, `flight.c/.h`, `vk_back
 - Conferido no Deck (boot sem GPU, só para ver a ferramenta): arquivo criado, colunas da máquina preenchidas (APU
   3,3 W ocioso, 94 % de bateria, 54 °C, ventoinha 1 479 rpm) e a linha de configurações. Os arquivos de teste foram
   apagados.
+
+### Sessão 14 (2026-11-15): tela preta depois do logo, com save (versão 0.1.4)
+
+- Relato do dono: no Deck o jogo passa do logo da empresa e fica preto. O `logs/aoc.log` do Deck (gravador de estado)
+  mostrava o segundo logo, `movie_logo/Movie070.webm`, com 9 frames decodificados e a thread principal parada.
+  Esse vídeo só toca num boot que **já encontra um save** (por isso nenhuma rota anterior passou por ele) e é o
+  **único dos 97 vídeos com faixa de som** (Vorbis 5.1, 48 kHz; censo dos cabeçalhos: 94 só VP9, 3 com áudio).
+  Reproduzido no notebook com `AOC_GPU=null` e uma cópia do `profile/` do Deck.
+- Três defeitos, um atrás do outro:
+  1. **`runtime/audren.c` (`audren_update`)**: o cliente manda uma entrada por slot de voz; só as entradas em uso
+     nomeiam uma voz. As entradas zeradas (id 0) eram aplicadas e **zeravam a voz 0 a cada atualização**. O som do
+     vídeo sai pela voz 0 do motor do KTGL: nunca tocava nem devolvia os wave buffers, a fila do stream enchia e o
+     player (`main+0x1b50c50`, que mostra as imagens pelo relógio do som) parava. Agora entradas fora de uso são
+     ignoradas e uma voz que nenhuma entrada nomeia mais é parada.
+  2. **`nn::oe::GetDisplayVersion`** (`runtime/ov_system.c`): a tela de título a chama; o SDK pedia ao applet
+     manager, que o host não serve, e lia um ponteiro nulo. Agora devolve a versão do build (`1.3.0`).
+  3. **Decodificador de som da biblioteca** (tipo 5, Vorbis → PCM16): rodando o do `subsdk0` (MediaCodec do
+     Android), 3 boots em 10 terminavam nele (o `Stop` sem resposta no fim do logo, ou falha no demuxer). Agora é
+     objeto do host como o de vídeo: `runtime/movie_vorbis.c` (stb_vorbis, com a correção de 5.1 do MacNativeGames)
+     e o caminho de som em `runtime/ov_movie.c` (cabeçalhos `csd-0`/`csd-1` no `Configure`, formato
+     `channel-count`/`sample-rate`, saída pronta ao decodificar, 16 slots).
+- Medido no notebook (`AOC_GPU=null`, save do Deck, 10 boots de 26 s): 10 de 10 passam pelos dois logos (236 pacotes
+  de som, 150 frames); antes da parte 3, 7 de 10. Um dos 10 parou de escrever no log aos ~15 s, já depois dos
+  logos (não investigado; não se repetiu no Deck).
+- **No Deck** (`tools/deck/deploy.sh`, depois `aoc-run.sh 50 ""`): os dois logos, som do logo, `display version
+  1.3.0`, 30 fps e a tela de título na cópia 320×180 do relatório de saída (menu Continue/New Game visível).
+- Não verificado: a ordem dos 6 canais do Vorbis (o stb_vorbis entrega na ordem do Vorbis; falta ouvir).
+- **No Windows** (`C:\aoc-win\host.sh`, exe copiado para `dist/aoc-windows`, 50 s com o save do dono): os dois
+  logos, Vorbis no host, `display version 1.3.0` e a tela de título na captura.

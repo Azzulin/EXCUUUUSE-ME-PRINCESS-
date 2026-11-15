@@ -124,6 +124,19 @@ static void ov_desired_language(Cpu *c) {
 
 static void ov_oe_initialize(Cpu *c) { (void)c; rt_log("oe: application environment: a local host process"); }
 
+// void GetDisplayVersion(DisplayVersion *out): char[16], the version string of the application's control data. The
+// SDK asks the applet manager (IApplicationFunctions), which the host does not serve, and the proxy it gets is null.
+// The game reads it for the title screen, which a boot only reaches once a save exists. The executable is built for
+// one game build (rt_game_version, checked against the build IDs), whose control data says "<major>.<minor>.<patch>".
+static void ov_display_version(Cpu *c) {
+    uint64_t out = arg_x(c, 0);
+    char v[16] = {0};
+    snprintf(v, sizeof v, "%d.%d.%d", rt_game_version / 100, rt_game_version / 10 % 10, rt_game_version % 10);
+    if (out) memcpy((void *)(uintptr_t)out, v, sizeof v);
+    static int logged;
+    if (!logged++) rt_log("oe: display version %s", v);
+}
+
 // void SetPerformanceConfiguration(PerformanceMode mode, int config)
 static void ov_performance_config(Cpu *c) {
     int64_t mode = (int32_t)arg_x(c, 0);
@@ -1069,6 +1082,7 @@ static void ov_font_get(Cpu *c) {
 // ==== registration
 HOST_OVERRIDE("_ZN2nn2oe10InitializeEv", ov_oe_initialize);
 HOST_OVERRIDE("_ZN2nn2oe18GetDesiredLanguageEv", ov_desired_language);
+HOST_OVERRIDE("_ZN2nn2oe17GetDisplayVersionEPNS0_14DisplayVersionE", ov_display_version);
 HOST_OVERRIDE("_ZN2nn2oe27SetPerformanceConfigurationENS0_15PerformanceModeEi", ov_performance_config);
 HOST_OVERRIDE("_ZN2nn2oe15SetCpuBoostModeENS0_12CpuBoostModeE", ov_cpu_boost);
 HOST_OVERRIDE("_ZN2nn2oe16GetOperationModeEv", ov_operation_mode);

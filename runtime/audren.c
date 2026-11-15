@@ -235,6 +235,12 @@ static void request_update(AudioRenderer *r, const uint8_t *input, uint64_t in_s
         need(chans[i].id < (uint32_t)vc * 6, "channel resource id");
         r->channels[chans[i].id] = chans[i];
     }
+    // The client sends one entry per voice slot. Only the entries in use name a voice (their id); the others are
+    // zeroed, id 0 included, so they are not applied: applied, each of them reset voice 0 on every update and whatever
+    // played on it stayed silent and never gave its wave buffers back (the sound of movie_logo/Movie070.webm, whose
+    // player then waited for its audio clock on a black screen). A voice no entry names any more was released by the
+    // client and stops here.
+    r->updates++;
     for (int i = 0; i < vc; i++) {
         AudrenVoiceIn v;
         AudrenVoiceInV2 v2;
@@ -252,10 +258,19 @@ static void request_update(AudioRenderer *r, const uint8_t *input, uint64_t in_s
             }
         } else
             memcpy(&v, voices + i * voice_stride, sizeof v);
+        if (!v.in_use) continue;
         update_voice(r, &v);
         ServerVoice *server = &r->voices[v.id];
+        server->updated = r->updates;
         server->use_float_biquads = (uint8_t)float_voices;
         if (float_voices) memcpy(server->float_biquads, v2.biquads, sizeof v2.biquads);
+    }
+    for (int i = 0; i < vc; i++) {
+        ServerVoice *server = &r->voices[i];
+        if (!server->in.in_use || server->updated == r->updates) continue;
+        voice_reset(server);
+        memset(&server->in, 0, sizeof server->in);
+        server->use_float_biquads = 0;
     }
     for (int i = 0; i < ec; i++) r->effects[i] = effects[i];
     audio_mixer_update_effects(r);

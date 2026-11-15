@@ -23,6 +23,15 @@
 // periods late is dropped if the next one is due too, so the picture keeps time with the movie's sound.
 // AOC_MOVIE_PACE=0 hands every decoded frame over at the next present; AOC_MOVIE_HOST=0 leaves every decoder to the
 // library (which aborts at the first movie).
+// Sound: one movie of this game has a sound track (movie_logo/Movie070.webm, the second logo of a boot that finds a
+// save: Vorbis, stereo, 48 kHz), for which the game makes a second decoder, type 5 (Vorbis), output format 1 (interleaved
+// PCM16), buffer mode. It is a host object too, decoded with stb_vorbis (movie_vorbis.c). The library's own (Android
+// MediaCodec over a software OMX component, with looper threads of its own) decodes, but about 3 boots in 10 ended in
+// it: its Stop never got its reply and the main thread waited for ever at the end of the logo, or the demuxer faulted.
+// The protocol is the video one with these differences: Configure brings the identification and setup headers as
+// "csd-0" and "csd-1"; the output format is "channel-count" and "sample-rate"; an output is the PCM of one packet (the
+// first packet of a stream only primes the overlap and gives none) and is ready as soon as it is decoded: the game's
+// player paces sound by its own queue and shows the pictures by the sound's clock.
 #include <emmintrin.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -36,7 +45,8 @@
 #include "movie.h"
 #include "platform/platform.h"
 
-enum { IN_BUFS = 4, IN_CAP = 2 << 20, OUT_BUFS = 8, MAX_MOVIES = 16, VPX_THREADS = 4 };
+enum { IN_BUFS = 4, IN_CAP = 2 << 20, OUT_BUFS = 8, AUDIO_OUT_BUFS = 16, MAX_OUT = 16, MAX_MOVIES = 16,
+       VPX_THREADS = 4 };
 enum { ST_OK = 0, ST_ERROR = 0x1000, ST_NULL = 0x100b, ST_NO_OUTPUT = 0x100e, ST_NO_INPUT = 0x1011,
        ST_UNSUPPORTED = 0x2001, ST_NOT_CONFIGURED = 0x2002 };
 
@@ -56,19 +66,22 @@ typedef struct { int index; unsigned flags; int64_t time; } Ready;
 typedef struct { int index, offset, size; int64_t time; unsigned flags; } Pending;
 typedef struct {
     uint64_t guest;                          // the movie::Decoder object
+    int type, nout;                          // MOVIE_TYPE_VP9 or MOVIE_TYPE_VORBIS; output slots in use (of MAX_OUT)
     int format, configured, started, w, h, eos_in, format_sent, last_error;
     uint64_t events;                         // guest DecoderEvents *: EventType * per MOVIE_EV_*
     vpx_codec_ctx_t vpx;
     int vpx_live;
+    MovieVorbis *vorbis;                     // sound: the open stream, its channels and rate
+    int channels, rate;
     uint8_t *in[IN_BUFS];                    // kernel region: the game writes the compressed frames here
     int in_free[IN_BUFS], nin_free;
     Pending pending[IN_BUFS];                // sent, not decoded yet (the worker takes them in order)
     int npending;
-    uint8_t *out[OUT_BUFS];                  // NV12 frames
-    int out_bytes[OUT_BUFS], out_held[OUT_BUFS];
-    Ready decoded[OUT_BUFS];                 // decoded, not due yet
+    uint8_t *out[MAX_OUT];                   // NV12 frames, or the PCM16 of one packet each
+    int out_bytes[MAX_OUT], out_held[MAX_OUT];
+    Ready decoded[MAX_OUT];                  // decoded, not due yet (pictures only)
     int ndecoded;
-    Ready ready[OUT_BUFS];                   // handed over: AcquireOutputBufferIndex returns these
+    Ready ready[MAX_OUT];                    // handed over: AcquireOutputBufferIndex returns these
     int nready;
     unsigned owed;                           // events to signal on the next guest thread (bit per MOVIE_EV_*)
     uint64_t t0;                             // host time of the first frame handed over (pacing)
@@ -129,6 +142,9 @@ static void guest_init(void) {
         G.md_set_int32 = need("_ZN5movie9MediaData8SetInt32EPKci");
         G.md_set_rect = need("_ZN5movie9MediaData7SetRectEPKciiii");
         G.md_set_string = need("_ZN5movie9MediaData9SetStringEPKcS2_");
+        G.md_find_buffer = need("_ZNK5movie9MediaData10FindBufferEPKcPPNS_6BufferE");
+        G.buf_data = need("_ZNK5movie6Buffer4DataEv");
+        G.buf_size = need("_ZNK5movie6Buffer4SizeEv");
         G.vptr = need("_ZTVN5movie7DecoderE") + 0x10;
         for (int i = 0; i < MOVIE_ENTRIES; i++) G.orig[i] = need(movie_symbols[i]);
         plat_xchg32(&g_ready, 1);
@@ -182,7 +198,15 @@ static void fire(Cpu *c, const Signals *s) {
     for (int i = 0; i < s->n; i++) rt_call(c, G.signal_event, 1, s->ev[i]);
 }
 
-static int frame_bytes(const Movie *m) { return m->w * m->h + (m->w / 2) * (m->h / 2) * 2; }
+static int is_sound(const Movie *m) { return m->type == MOVIE_TYPE_VORBIS; }
+static int codec_live(const Movie *m) { return m->vpx_live || m->vorbis; }
+static const char *unit(const Movie *m) { return is_sound(m) ? "packets" : "frames"; }
+// Bytes of one output: an NV12 frame, or the most PCM16 one Vorbis packet gives (what the library reports too: 4096
+// for the game's stereo track).
+static int frame_bytes(const Movie *m) {
+    if (is_sound(m)) return m->vorbis ? movie_vorbis_max_frames(m->vorbis) * m->channels * 2 : 0;
+    return m->w * m->h + (m->w / 2) * (m->h / 2) * 2;
+}
 
 // I420 (libvpx) -> packed NV12: Y rows, then rows of interleaved U, V.
 static void to_nv12(const vpx_image_t *img, uint8_t *dst, int w, int h) {
@@ -208,23 +232,29 @@ static void to_nv12(const vpx_image_t *img, uint8_t *dst, int w, int h) {
 }
 
 static int free_out(const Movie *m) {
-    for (int i = 0; i < OUT_BUFS; i++)
+    for (int i = 0; i < m->nout; i++)
         if (!m->out_held[i]) return i;
     return -1;
 }
 static int free_outs(const Movie *m) {
     int n = 0;
-    for (int i = 0; i < OUT_BUFS; i++) n += !m->out_held[i];
+    for (int i = 0; i < m->nout; i++) n += !m->out_held[i];
     return n;
 }
 static int can_take(const Movie *m, const Pending *p) {
     int want = (p->size > 0) + ((p->flags & MOVIE_FLAG_EOS) && !m->eos_in);
     return free_outs(m) >= want;
 }
+// A decoded output: a picture waits for its time (release_due), sound is ready at once.
 static void push_decoded(Movie *m, int slot, unsigned flags, int64_t time, int bytes) {
     m->out_held[slot] = 1;
     m->out_bytes[slot] = bytes;
-    m->decoded[m->ndecoded++] = (Ready){slot, flags, time};
+    if (is_sound(m)) {
+        m->ready[m->nready++] = (Ready){slot, flags, time};
+        m->st.handed++;
+        m->owed |= 1u << MOVIE_EV_OUTPUT;
+    } else
+        m->decoded[m->ndecoded++] = (Ready){slot, flags, time};
 }
 
 static int vpx_open(Movie *m) {
@@ -240,7 +270,7 @@ static void worker(void *arg) {
     Movie *m = arg;
     plat_mutex_lock(&m->mu);
     for (;;) {
-        while (!m->quit && !(m->started && m->vpx_live && m->npending && can_take(m, &m->pending[0])))
+        while (!m->quit && !(m->started && codec_live(m) && m->npending && can_take(m, &m->pending[0])))
             plat_cond_wait(&m->work, &m->mu);
         if (m->quit) break;
         Pending p = m->pending[0];
@@ -251,13 +281,18 @@ static void worker(void *arg) {
             m->out_held[slot] = 1;   // reserved: in no queue, so the game cannot release it
         }
         uint64_t gen = m->gen, dt = 0;
-        int got = 0, w = m->w, h = m->h;
+        int got = 0, w = m->w, h = m->h, sound = is_sound(m), pcm = 0, room = frame_bytes(m);
         uint8_t *dst = slot >= 0 ? m->out[slot] : NULL;
         vpx_codec_err_t e = VPX_CODEC_OK;
         const char *bad = NULL;
         m->busy = 1;
         plat_mutex_unlock(&m->mu);
-        if (p.size > 0) {
+        if (p.size > 0 && sound) {
+            uint64_t t0 = kern_now_ns();
+            pcm = movie_vorbis_decode(m->vorbis, m->in[p.index] + p.offset, p.size, (int16_t *)(void *)dst,
+                                      room / (m->channels * 2));
+            dt = kern_now_ns() - t0;
+        } else if (p.size > 0) {
             uint64_t t0 = kern_now_ns();
             e = vpx_codec_decode(&m->vpx, m->in[p.index] + p.offset, (unsigned)p.size, NULL, 0);
             if (e == VPX_CODEC_OK) {
@@ -277,7 +312,22 @@ static void worker(void *arg) {
         if (m->gen != gen) continue;   // flushed, stopped or reset meanwhile: the queues were reset after this
         m->in_free[m->nin_free++] = p.index;
         m->owed |= 1u << MOVIE_EV_INPUT;
-        if (p.size > 0) {
+        if (p.size > 0 && sound) {
+            m->st.decode_ns += dt;
+            if (dt > m->st.max_ns) m->st.max_ns = dt;
+            if (pcm <= 0) {   // the packet that primes the overlap gives no samples; a bad packet gives none either
+                m->out_held[slot] = 0;
+                if (pcm < 0 && ++m->st.errors <= 4)
+                    rt_log("movie: Vorbis packet of %d bytes at %lld us not decoded", p.size, (long long)p.time);
+            } else {
+                if (!m->format_sent) {
+                    m->format_sent = 1;
+                    m->owed |= 1u << MOVIE_EV_FORMAT;
+                }
+                push_decoded(m, slot, 0, p.time, pcm * m->channels * 2);
+                m->st.frames++;
+            }
+        } else if (p.size > 0) {
             m->st.decode_ns += dt;
             if (dt > m->st.max_ns) m->st.max_ns = dt;
             if (bad) rt_fatal("movie: VP9 frame layout differs from the configured %dx%d I420", w, h);
@@ -309,8 +359,8 @@ static void worker(void *arg) {
         if (p.flags & MOVIE_FLAG_EOS && !m->eos_in) {
             m->eos_in = 1;
             push_decoded(m, free_out(m), MOVIE_FLAG_EOS, p.time, 0);
-            rt_log("movie: end of stream after %llu frames (decode %.2f ms per frame, max %.2f, %llu errors)",
-                   (unsigned long long)m->st.frames, m->st.frames ? m->st.decode_ns / 1e6 / (double)m->st.frames : 0.0,
+            rt_log("movie: end of stream after %llu %s (decode %.2f ms each, max %.2f, %llu errors)",
+                   (unsigned long long)m->st.frames, unit(m), m->st.frames ? m->st.decode_ns / 1e6 / (double)m->st.frames : 0.0,
                    m->st.max_ns / 1e6, (unsigned long long)m->st.errors);
         }
     }
@@ -347,11 +397,13 @@ static void release_codec(Movie *m) {   // m->mu held, worker quiesced
         vpx_codec_destroy(&m->vpx);
         m->vpx_live = 0;
     }
+    movie_vorbis_close(m->vorbis);
+    m->vorbis = NULL;
     for (int i = 0; i < IN_BUFS; i++) {
         if (m->in[i]) mem_kernel_free(m->in[i], IN_CAP);
         m->in[i] = NULL;
     }
-    for (int i = 0; i < OUT_BUFS; i++) {
+    for (int i = 0; i < MAX_OUT; i++) {
         free(m->out[i]);
         m->out[i] = NULL;
     }
@@ -450,7 +502,7 @@ int movie_quiet(uint64_t obj) {
     Movie *m = find(obj);
     if (!m) return 1;
     plat_mutex_lock_shared(&m->mu);
-    int q = !m->busy && !(m->started && m->vpx_live && m->npending && can_take(m, &m->pending[0]));
+    int q = !m->busy && !(m->started && codec_live(m) && m->npending && can_take(m, &m->pending[0]));
     plat_mutex_unlock_shared(&m->mu);
     return q;
 }
@@ -461,15 +513,18 @@ static void ov_ctor(Cpu *c) {
     uint64_t obj = arg_x(c, 0);
     int type = (int)arg_x(c, 1), format = (int)arg_x(c, 2), mode = (int)arg_x(c, 3);
     guest_init();
-    if (type != MOVIE_TYPE_VP9 || mode != MOVIE_MODE_BUFFER || host_off()) {
+    int sound = type == MOVIE_TYPE_VORBIS && format == MOVIE_FORMAT_PCM16;
+    if ((type != MOVIE_TYPE_VP9 && !sound) || mode != MOVIE_MODE_BUFFER || host_off()) {
         rt_log("movie: decoder type %d mode %d format %d left to the library%s", type, mode, format,
-               host_off() ? " (AOC_MOVIE_HOST=0)" : " (only VP9 in buffer mode runs on the host)");
+               host_off() ? " (AOC_MOVIE_HOST=0)" : " (the host runs VP9 and Vorbis to PCM16, in buffer mode)");
         pass(c, MOVIE_CTOR);
         return;
     }
     Movie *m = calloc(1, sizeof *m);
     if (!m) rt_fatal("movie: decoder allocation");
     m->guest = obj;
+    m->type = type;
+    m->nout = sound ? AUDIO_OUT_BUFS : OUT_BUFS;
     m->format = format;
     plat_mutex_init(&m->mu);
     plat_cond_init(&m->work);
@@ -486,8 +541,11 @@ static void ov_ctor(Cpu *c) {
     plat_mutex_unlock(&g_lock);
     ST64(obj, G.vptr);
     ST64(obj + 8, U(m));
-    rt_log("movie: VP9 decoder %#llx on the host (libvpx %s), output format %d", (unsigned long long)obj,
-           vpx_codec_version_str(), format);
+    if (sound)
+        rt_log("movie: Vorbis decoder %#llx on the host (stb_vorbis), output format %d", (unsigned long long)obj, format);
+    else
+        rt_log("movie: VP9 decoder %#llx on the host (libvpx %s), output format %d", (unsigned long long)obj,
+               vpx_codec_version_str(), format);
 }
 
 static void destroy(Cpu *c, uint64_t obj) {
@@ -510,8 +568,8 @@ static void destroy(Cpu *c, uint64_t obj) {
     int away = kern_core_away();
     plat_thread_join(m->thread);
     kern_core_back(&away);
-    rt_log("movie: decoder %#llx destroyed after %llu frames (%llu dropped to keep time)", (unsigned long long)obj,
-           (unsigned long long)m->st.frames, (unsigned long long)m->st.dropped);
+    rt_log("movie: decoder %#llx destroyed after %llu %s (%llu dropped to keep time)", (unsigned long long)obj,
+           (unsigned long long)m->st.frames, unit(m), (unsigned long long)m->st.dropped);
     release_codec(m);
     free(m);
     ST64(obj, G.vptr);   // what the library's destructor leaves (no DecoderImpl)
@@ -530,12 +588,64 @@ static void ov_d0(Cpu *c) {
     pass(c, MOVIE_D0);
 }
 
+// A copy of the codec header MediaData holds under key ("csd-0", "csd-1": a movie::Buffer), NULL if there is none.
+static uint8_t *codec_header(Cpu *c, uint64_t md, const char *key, int *size) {
+    uint64_t buf = 0;
+    *size = 0;
+    if (!(uint8_t)rt_call(c, G.md_find_buffer, 3, md, U(key), U(&buf)) || !buf) return NULL;
+    const uint8_t *p = (const uint8_t *)(uintptr_t)rt_call(c, G.buf_data, 1, buf);
+    int64_t n = (int32_t)rt_call(c, G.buf_size, 1, buf);
+    if (!p || n <= 0 || n > 1 << 20) return NULL;
+    uint8_t *copy = malloc((size_t)n);
+    if (!copy) rt_fatal("movie: codec header allocation");
+    memcpy(copy, p, (size_t)n);
+    *size = (int)n;
+    return copy;
+}
+
+// Configure of a sound decoder: opens the Vorbis stream from its two headers.
+static void configure_sound(Cpu *c, Movie *m, uint64_t md) {
+    int id_n = 0, setup_n = 0, channels = 0, rate = 0, error = 0;
+    uint8_t *id = codec_header(c, md, "csd-0", &id_n), *setup = codec_header(c, md, "csd-1", &setup_n);
+    md_find_int32(c, md, "channel-count", &channels);
+    md_find_int32(c, md, "sample-rate", &rate);
+    MovieVorbis *v = movie_vorbis_open(id, id_n, setup, setup_n, &error);
+    free(id);
+    free(setup);
+    if (!v || movie_vorbis_channels(v) < 1 || movie_vorbis_channels(v) > 8 || movie_vorbis_max_frames(v) < 1) {
+        rt_log("movie: configure: Vorbis headers of %d and %d bytes (csd-0, csd-1; the format says %d channels, %d Hz) "
+               "not accepted (stb_vorbis error %d)", id_n, setup_n, channels, rate, error);
+        movie_vorbis_close(v);
+        ret_x(c, ST_UNSUPPORTED);
+        return;
+    }
+    plat_mutex_lock(&m->mu);
+    int away = quiesce(m);
+    release_codec(m);
+    m->vorbis = v;
+    m->channels = movie_vorbis_channels(v);
+    m->rate = movie_vorbis_rate(v);
+    for (int i = 0; i < IN_BUFS; i++) m->in[i] = mem_kernel_alloc(IN_CAP, 0x1000);
+    for (int i = 0; i < m->nout; i++)
+        if (!(m->out[i] = malloc((size_t)frame_bytes(m)))) rt_fatal("movie: output buffers");
+    reset_queues(m);
+    m->format_sent = 0;
+    m->configured = 1;
+    m->last_error = 0;
+    int bytes = frame_bytes(m);
+    unlock_back(m, away);
+    rt_log("movie: configured Vorbis, %d channels, %d Hz (the format says %d and %d), %d input buffers, %d outputs of %d "
+           "bytes", movie_vorbis_channels(v), movie_vorbis_rate(v), channels, rate, IN_BUFS, m->nout, bytes);
+    ret_x(c, ST_OK);
+}
+
 // Status Configure(MediaData *format)
 static void ov_configure(Cpu *c) {
     uint64_t obj = arg_x(c, 0), md = arg_x(c, 1);
     Movie *m = find(obj);
     if (!m) { pass(c, MOVIE_CONFIGURE); return; }
     if (!md) { ret_x(c, ST_NULL); return; }
+    if (is_sound(m)) { configure_sound(c, m, md); return; }
     if (m->format != MOVIE_FORMAT_NV12) {
         rt_log("movie: output format %d not implemented on the host (NV12 = 4 only)", m->format);
         ret_x(c, ST_UNSUPPORTED);
@@ -559,7 +669,7 @@ static void ov_configure(Cpu *c) {
     m->h = h;
     if (!vpx_open(m)) rt_fatal("movie: libvpx VP9 decoder initialisation");
     for (int i = 0; i < IN_BUFS; i++) m->in[i] = mem_kernel_alloc(IN_CAP, 0x1000);
-    for (int i = 0; i < OUT_BUFS; i++)
+    for (int i = 0; i < m->nout; i++)
         if (!(m->out[i] = malloc((size_t)frame_bytes(m)))) rt_fatal("movie: output buffers");
     reset_queues(m);
     m->format_sent = 0;
@@ -579,6 +689,13 @@ static void ov_register_events(Cpu *c) {
     m->events = arg_x(c, 1);
     plat_mutex_unlock(&m->mu);
     ret_x(c, ST_OK);
+}
+
+// The output format of a sound decoder, as MediaCodec gives it for decoded audio.
+static void set_sound_format(Cpu *c, int channels, int rate, uint64_t md) {
+    rt_call(c, G.md_set_string, 3, md, U("mime"), U("audio/raw"));
+    md_set_int32(c, md, "channel-count", channels);
+    md_set_int32(c, md, "sample-rate", rate);
 }
 
 static void set_format(Cpu *c, int w, int h, uint64_t md) {
@@ -605,10 +722,11 @@ static void ov_get_output_format(Cpu *c) {
     if (!m) { pass(c, MOVIE_GET_OUTPUT_FORMAT); return; }
     if (!md) { ret_x(c, ST_NULL); return; }
     plat_mutex_lock_shared(&m->mu);
-    int ok = m->configured, w = m->w, h = m->h;
+    int ok = m->configured, w = m->w, h = m->h, channels = m->channels, rate = m->rate;
     plat_mutex_unlock_shared(&m->mu);
     if (!ok) { ret_x(c, ST_ERROR); return; }
-    set_format(c, w, h, md);
+    if (is_sound(m)) set_sound_format(c, channels, rate, md);
+    else set_format(c, w, h, md);
     ret_x(c, ST_OK);
 }
 
@@ -635,8 +753,8 @@ static void ov_stop(Cpu *c) {
     if (!m) { pass(c, MOVIE_STOP); return; }
     plat_mutex_lock(&m->mu);
     int away = quiesce(m);
-    rt_log("movie: stop after %llu frames (%llu dropped to keep time; decode %.2f ms per frame, max %.2f)",
-           (unsigned long long)m->st.frames, (unsigned long long)m->st.dropped,
+    rt_log("movie: stop after %llu %s (%llu dropped to keep time; decode %.2f ms each, max %.2f)",
+           (unsigned long long)m->st.frames, unit(m), (unsigned long long)m->st.dropped,
            m->st.frames ? m->st.decode_ns / 1e6 / (double)m->st.frames : 0.0, m->st.max_ns / 1e6);
     release_codec(m);
     unlock_back(m, away);
@@ -660,7 +778,10 @@ static void ov_flush(Cpu *c) {
     if (!m) { pass(c, MOVIE_FLUSH); return; }
     plat_mutex_lock(&m->mu);
     int away = quiesce(m);
-    if (m->configured) {
+    if (m->configured && is_sound(m)) {
+        movie_vorbis_flush(m->vorbis);
+        reset_queues(m);
+    } else if (m->configured) {
         vpx_codec_destroy(&m->vpx);
         m->vpx_live = 0;
         if (!vpx_open(m)) rt_fatal("movie: libvpx VP9 decoder re-initialisation");
@@ -772,7 +893,7 @@ static int get_output(Cpu *c, Movie *m, int index, uint64_t buf) {
     uint64_t cap = rt_call(c, G.buf_capacity, 1, buf);
     int st = ST_ERROR, bytes = 0;
     plat_mutex_lock_shared(&m->mu);
-    if (index >= 0 && index < OUT_BUFS && m->out_held[index]) {
+    if (index >= 0 && index < m->nout && m->out_held[index]) {
         bytes = m->out_bytes[index];
         if (!bytes) st = ST_OK;
         else if (dst && cap >= (uint64_t)bytes) {
@@ -818,7 +939,7 @@ static void ov_release_output(Cpu *c) {
     Signals s = {0};
     plat_mutex_lock(&m->mu);
     int st = ST_ERROR;
-    if (index >= 0 && index < OUT_BUFS && m->out_held[index]) {
+    if (index >= 0 && index < m->nout && m->out_held[index]) {
         int queued = 0;
         for (int i = 0; i < m->nready; i++) queued |= m->ready[i].index == index;
         for (int i = 0; i < m->ndecoded; i++) queued |= m->decoded[i].index == index;
@@ -845,10 +966,12 @@ static void ov_get_last_error(Cpu *c) {
 
 static int output_format(Cpu *c, Movie *m, int index, uint64_t md) {
     plat_mutex_lock_shared(&m->mu);
-    int ok = index >= 0 && index < OUT_BUFS && m->out_held[index], w = m->w, h = m->h;
+    int ok = index >= 0 && index < m->nout && m->out_held[index], w = m->w, h = m->h, channels = m->channels,
+        rate = m->rate;
     plat_mutex_unlock_shared(&m->mu);
     if (!ok) return ST_ERROR;
-    set_format(c, w, h, md);
+    if (is_sound(m)) set_sound_format(c, channels, rate, md);
+    else set_format(c, w, h, md);
     return ST_OK;
 }
 

@@ -1,7 +1,7 @@
 # Handover — estado do projeto para o próximo agente
 
 Leia isto primeiro, depois `AGENTS.md` (regras) e `docs/plano.md` (fases). O plano de ação imediato e um prompt pronto
-para uma sessão nova estão em `docs/proxima-sessao.md`. Atualizado em 2026-11-12 (sessão 8, no
+para uma sessão nova estão em `docs/proxima-sessao.md`. Atualizado em 2026-11-15 (sessão 14, no
 notebook, build nativo do Windows na RTX 3050). Tudo aqui foi medido no dump do próprio dono do projeto; nada é
 estimativa salvo onde está dito.
 
@@ -117,6 +117,13 @@ partir de 100 s, `AOC_TRACE=perf`, vigia de travada).
 ## 6. Próximos passos (em ordem)
 
 **Sessão 5 (2026-11-09) — ler primeiro; o plano passo a passo está em `docs/proxima-sessao.md`.**
+
+- **Sessão 14 (2026-11-15): tela preta depois do logo com save — CORRIGIDA, conferida no Deck (versão 0.1.4).**
+  O segundo logo (`movie_logo/Movie070.webm`, só num boot com save) é o único vídeo com som. Corrigidos: a voz 0 do
+  renderer de áudio era zerada a cada atualização (`audren.c`), `nn::oe::GetDisplayVersion` lia ponteiro nulo
+  (`ov_system.c`) e o decodificador Vorbis agora é do host (`movie_vorbis.c` + `ov_movie.c`, stb_vorbis). Para
+  reproduzir boots com save no notebook: copiar o `profile/` do Deck e usar `AOC_PROFILE_DIR`. Falta o dono jogar,
+  ouvir o som do logo (ordem dos canais 5.1) e commit/release.
 
 - **Sessão 13 (2026-11-13): gravador de estado e dois defeitos de imagem.** `runtime/diag.c` (sempre ligado) tira
   uma amostra por segundo e escreve um relatório `diag:` no `aoc.log` quando não há present por `AOC_HANG_SECS`

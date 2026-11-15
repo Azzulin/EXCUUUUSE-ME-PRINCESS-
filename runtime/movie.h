@@ -22,12 +22,14 @@ extern const char *const movie_symbols[MOVIE_ENTRIES];
 typedef struct {
     uint64_t signal_event, buf_set_range, buf_set_data, buf_base, buf_capacity;
     uint64_t md_find_int32, md_find_string, md_set_int32, md_set_rect, md_set_string;
+    uint64_t md_find_buffer, buf_data, buf_size;   // audio only (codec headers); 0 in the probe, which plays VP9
     uint64_t vptr;
     uint64_t orig[MOVIE_ENTRIES];
 } MovieGuest;
 
 enum { MOVIE_EV_INPUT, MOVIE_EV_OUTPUT, MOVIE_EV_FORMAT, MOVIE_EV_ERROR };   // DecoderEvents: EventType * per event
-enum { MOVIE_TYPE_VP9 = 3, MOVIE_MODE_BUFFER = 1, MOVIE_FORMAT_NV12 = 4, MOVIE_FLAG_EOS = 4 };
+enum { MOVIE_TYPE_VP9 = 3, MOVIE_TYPE_VORBIS = 5, MOVIE_MODE_BUFFER = 1, MOVIE_FORMAT_PCM16 = 1, MOVIE_FORMAT_NV12 = 4,
+       MOVIE_FLAG_EOS = 4 };
 
 typedef struct { uint64_t frames, decode_ns, max_ns, errors, dropped, handed; } MovieStats;
 
@@ -36,3 +38,13 @@ void movie_set_clock(uint64_t (*clock)(void));             // probe: a fake cloc
 void movie_set_pace(int on);                               // probe: 0 hands every decoded frame over at the next tick
 int movie_stats(uint64_t obj, MovieStats *out);            // counters of the decoder at guest object obj; 0 if none
 int movie_quiet(uint64_t obj);                             // 1 when its worker is idle and cannot take more input now
+
+// movie_vorbis.c: one Vorbis stream, raw packets in, interleaved PCM16 out.
+typedef struct MovieVorbis MovieVorbis;
+MovieVorbis *movie_vorbis_open(const uint8_t *id, int id_n, const uint8_t *setup, int setup_n, int *error);
+void movie_vorbis_close(MovieVorbis *v);
+void movie_vorbis_flush(MovieVorbis *v);
+int movie_vorbis_channels(const MovieVorbis *v);
+int movie_vorbis_rate(const MovieVorbis *v);
+int movie_vorbis_max_frames(const MovieVorbis *v);       // most sample frames one packet gives
+int movie_vorbis_decode(MovieVorbis *v, const uint8_t *pkt, int n, int16_t *dst, int cap);

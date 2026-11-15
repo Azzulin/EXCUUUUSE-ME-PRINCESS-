@@ -209,6 +209,7 @@ Compilação (clang 18, flags do Astral Chain: `-O1 -march=x86-64-v3`), sem nenh
 | Save | `save:` montado no perfil do host; primeiro commit grava 1 arquivo de 1,0 MiB (`svdt`) |
 | Áudio | `audren` REV8, 48 kHz × 240, 132 mix buffers, 138 vozes, 16 efeitos, 19 submixes, 85/1 800 splitters (bate com o nxnative). Sem entrada o jogo fica nas telas do primeiro boot, em silêncio; com A em 6, 8, 10, 12, 14 e 16 s o PCM sai **não-silencioso** (rms 0,12, pico 0,71). Nenhum decodificador `hwopus` foi aberto até aqui |
 | Vídeo de abertura | `movie/Movie001.webm` aos ~28 s (com os A): VP9 1280×720, 4 buffers de entrada de 2 MiB, 8 frames de saída; decodificado pelo libvpx do host a **1,3–1,55 ms por frame** (máx. 13,8 ms), 2 400 frames sem erro. **Som do vídeo em silêncio** (a investigar) |
+| Vídeos com som | Censo dos cabeçalhos dos 97 `.webm`: 94 só `V_VP9`; `movie_logo/Movie070.webm` (segundo logo, só num boot que encontra save) traz `A_VORBIS` 6 canais 48 kHz, 236 pacotes, 150 frames; outros 2 têm uma faixa de áudio de codec não identificado no censo. O jogo cria `movie::Decoder` tipo 5, formato 1 (PCM16), modo 1; a biblioteca informa saídas de 4096 bytes; o player (`main+0x1b50c50`) entrega blocos de 12 288 bytes ao stream do KTGL (`main+0x1a6ee30`, fila de 3 blocos), que toca pela voz 0 do audren (PCM16, 6 canais) |
 
 Pontos que o boot do AoC expôs no runtime herdado (corrigidos):
 

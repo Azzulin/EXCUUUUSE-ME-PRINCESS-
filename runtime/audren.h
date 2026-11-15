@@ -143,6 +143,7 @@ typedef struct {
     int32_t loops_done;
     uint64_t played;
     uint32_t consumed, drops;
+    uint64_t updated;              // AudioRenderer.updates of the last update whose entries named this voice
     struct { int16_t history[2]; int32_t buffer; uint64_t at; } adpcm;   // DSP-ADPCM decode cursor (buffer slot, next sample) and history
     float biquad_state[2][6][2];   // filter, channel: transposed direct-form II delays
 } ServerVoice;
@@ -156,6 +157,7 @@ typedef struct AudioRenderer {
     uint32_t state, revision, time_limit, event;   // state 0 started, 1 stopped; event: writable handle
     int logged;
     uint64_t behavior_flags, elapsed_frames;
+    uint64_t updates;              // RequestUpdate calls so far
     uint64_t stop_released, empty_played, flushed, logged_released;
     ServerVoice *voices;
     AudrenPoolIn *pools;

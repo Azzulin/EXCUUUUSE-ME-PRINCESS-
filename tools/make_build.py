@@ -487,12 +487,16 @@ def main() -> int:
     ap.add_argument("--msys2", default="", help="MSYS2 folder (default: C:/msys64, installed there if missing)")
     ap.add_argument("--lang", choices=("pt", "en"), default="pt")
     ap.add_argument("--check-only", action="store_true", help="only the check step")
+    ap.add_argument("--prepare", action="store_true",
+                    help="setup for a launcher: build for this PC (Windows or Linux), print 'progress <0-1> <text>' lines")
     args = ap.parse_args()
     LANG = args.lang
     args.game_dir = args.game_dir.expanduser()
     args.keys = (args.keys or args.game_dir / "prod.keys").expanduser()
     if args.win_work is None:
         args.win_work = Path("C:/aoc-win") if Path("C:/aoc-win/host").is_dir() else ROOT / "build/win"
+    if args.prepare:   # the build for this PC: Windows folder on Windows, Deck/Linux folder on Linux
+        args.windows, args.deck = WIN, not WIN
     if not (args.deck or args.windows):
         ap.error("--deck, --windows or both")
     plan = [("check", s_check), ("tools", s_tools), ("extract", s_extract), ("romfs", s_romfs), ("dlc", s_dlc)]
@@ -513,8 +517,10 @@ def main() -> int:
     out(f"AoC Recomp {VERSION}, {' '.join(sys.argv[1:])}")
     for sid, _ in plan:
         out(f"@@PLAN {sid} {tr('t_' + sid)}")
-    for sid, fn in plan:
+    for n, (sid, fn) in enumerate(plan):
         title = tr("t_" + sid)
+        if args.prepare:
+            out(f"progress {n / len(plan):.2f} {title}")
         step(sid, "run", title)
         try:
             r = fn(args)
@@ -523,6 +529,8 @@ def main() -> int:
             out(f"ERROR: {e}" if LANG == "en" else f"ERRO: {e}")
             step(sid, "fail", str(e))
             out("@@DONE fail")
+            if args.prepare:
+                print(str(e).replace("\n", " "), file=sys.stderr, flush=True)
             return 1
         except Exception as e:   # anything unexpected still ends the protocol cleanly
             out(tr("unexpected", repr(e)))
@@ -538,6 +546,8 @@ def main() -> int:
         old["deck"] = old.get("deck", False) or args.deck
         old["windows"] = old.get("windows", False) or args.windows
         state.write_text(json.dumps(old, indent=1) + "\n", encoding="utf-8")
+    if args.prepare:
+        out("progress 1.00 " + tr("folder_ok", ROOT / "dist"))
     out("@@DONE ok")
     return 0
 

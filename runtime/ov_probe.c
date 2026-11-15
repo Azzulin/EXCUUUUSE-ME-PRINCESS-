@@ -78,6 +78,7 @@ static Ov ovs[] = {
     {"nndiagStartup", "nndiagStartup"},
     {"aoc.Initialize", "_ZN2nn3aoc10InitializeEv"},
     {"aoc.ListAddOnContent", "_ZN2nn3aoc16ListAddOnContentEPiii"},
+    {"aoc.CountAddOnContent", "_ZN2nn3aoc17CountAddOnContentEv"},
     {"err.InitializeContextWriterApi", "_ZN2nn3err26InitializeContextWriterApiEv"},
     {"pctl.Initialize", "_ZN2nn4pctl10InitializeEv"},
     {"diag.InitializeApplicationAbortObserver", "_ZN2nn4diag34InitializeApplicationAbortObserverEv"},
@@ -403,7 +404,13 @@ static void probe_applet(void) {
     CALL("err.ShowError", 0x2a8);
     CALL("nndiagStartup", 0);
     CALL("aoc.Initialize", 0);
-    CHECK(CALL("aoc.ListAddOnContent", U(out), 0, 8) == 0, "aoc: no add-on content");
+    // the add-on content is the DLC images the player has (dlc.c); the fs probe mounts and reads them
+    int aoc_n = (int)CALL("aoc.CountAddOnContent", 0), aoc_ok = aoc_n == dlc_count() && aoc_n <= 8;
+    int32_t aoc_idx[8] = {0};
+    aoc_ok = aoc_ok && (int)CALL("aoc.ListAddOnContent", U(aoc_idx), 0, 8) == aoc_n &&
+             (int)CALL("aoc.ListAddOnContent", U(aoc_idx), aoc_n, 8) == 0;
+    for (int k = 1; k < aoc_n; k++) aoc_ok = aoc_ok && aoc_idx[k] > aoc_idx[k - 1] && aoc_idx[0] >= 1;
+    CHECK(aoc_ok, "aoc: the add-on content count and list (%d)", aoc_n);
     CALL("err.InitializeContextWriterApi", 0);
     CALL("pctl.Initialize", 0);
     CALL("diag.InitializeApplicationAbortObserver", 0);
@@ -1025,9 +1032,7 @@ int probe_services(void) {
         for (int k = 0; k < NOBS; k++)
             if (!strcmp(observers[k], n)) obs_bound++;
     }
-    for (int k = 0; k < NOV; k++)   // 1.2.1 lists no add-on content
-        CHECK(ovs[k].bound || (!RT_V143 && !strcmp(ovs[k].key, "aoc.ListAddOnContent")), "override %s matches no relocation",
-              ovs[k].name);
+    for (int k = 0; k < NOV; k++) CHECK(ovs[k].bound, "override %s matches no relocation", ovs[k].name);
     for (int k = 0; k < NOBS; k++) CHECK(hostfn_observer(observers[k]), "observer %s is not linked", observers[k]);
     CHECK(obs_bound == NOBS, "%d of %d observers match a JUMP_SLOT", obs_bound, NOBS);
 

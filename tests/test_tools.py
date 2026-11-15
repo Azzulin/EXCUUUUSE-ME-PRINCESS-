@@ -105,5 +105,77 @@ class CheckContentTest(unittest.TestCase):
         self.assertTrue(self.check("tests/_tmp_g.c", f"// {check_content.GENERATED_MARKER}\n".encode()))
 
 
+try:   # nx.py precisa do pacote cryptography, que o CI mínimo não instala
+    import extract_dlc
+except ImportError:
+    extract_dlc = None
+
+
+def fake_ivfc(data: bytes, block_log2: int = 12):
+    """Cabeçalho de seção IVFC e bytes da seção para `data` no nível de dados: (fs, seção)."""
+    import hashlib
+    block = 1 << block_log2
+
+    def hashes(level: bytes) -> bytes:
+        out = b""
+        for pos in range(0, len(level), block):
+            part = level[pos:pos + block]
+            out += hashlib.sha256(part + bytes(block - len(part))).digest()
+        return out
+
+    levels = [data]
+    for _ in range(5):
+        levels.insert(0, hashes(levels[0]))
+    fs = bytearray(0x200)
+    fs[8:12] = b"IVFC"
+    struct.pack_into("<II", fs, 0x10, 0x20, 7)
+    section, off = b"", 0
+    for k, level in enumerate(levels):
+        struct.pack_into("<QQII", fs, 0x18 + 0x18 * k, off, len(level), block_log2, 0)
+        padded = level + bytes(-len(level) % block)
+        section += padded
+        off += len(padded)
+    fs[0xC8:0xE8] = hashes(levels[0])[:32]
+    return bytes(fs), section
+
+
+class FakeSection:
+    def __init__(self, fs: bytes, data: bytes):
+        self.fs, self.data = fs, data
+
+    def read(self, offset: int, size: int) -> bytes:
+        return self.data[offset:offset + size]
+
+
+@unittest.skipUnless(extract_dlc, "sem o pacote cryptography")
+class ExtractDlcTest(unittest.TestCase):
+    DATA = bytes(range(256)) * 97 + b"fim"   # não é múltiplo do bloco: o último bloco é completado com zeros
+
+    def test_copy_checks_the_hash_tree(self):
+        fs, section = fake_ivfc(self.DATA)
+        with tempfile.TemporaryDirectory() as d:
+            size, sha = extract_dlc.copy_verified(FakeSection(fs, section), Path(d) / "dlc.bin")
+            self.assertEqual(size, len(self.DATA))
+            self.assertEqual((Path(d) / "dlc.bin").read_bytes(), self.DATA)
+            import hashlib
+            self.assertEqual(sha, hashlib.sha256(self.DATA).hexdigest())
+
+    def test_changed_data_block_fails(self):
+        fs, section = fake_ivfc(self.DATA)
+        bad = bytearray(section)
+        bad[len(section) - (-len(self.DATA) % 4096) - 100] ^= 1   # um byte do nível de dados (antes do enchimento)
+        with tempfile.TemporaryDirectory() as d:
+            with self.assertRaises(ValueError):
+                extract_dlc.copy_verified(FakeSection(fs, bytes(bad)), Path(d) / "dlc.bin")
+            self.assertFalse((Path(d) / "dlc.bin").exists())
+
+    def test_changed_hash_table_fails(self):
+        fs, section = fake_ivfc(self.DATA)
+        bad = bytearray(section)
+        bad[3] ^= 1   # o nível 0
+        with tempfile.TemporaryDirectory() as d, self.assertRaises(ValueError):
+            extract_dlc.copy_verified(FakeSection(fs, bytes(bad)), Path(d) / "dlc.bin")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -16,6 +16,8 @@ Steps (each prints "@@STEP <id> <run|ok|fail|skip> <text>"; every other line is 
                               password in a window)
   extract   build/v130/exefs from the update (tools/extract.py exefs), once
   romfs     build/v130/romfs.bin, base + update merged (tools/merge_romfs.py with hactool), once
+  dlc       build/v130/dlc-<title id>.bin, the RomFS of each DLC in the dump (tools/extract_dlc.py), once; the game
+            folders get them next to romfs.bin, and a dump without DLCs builds a game without them
   deck      dist/aoc-deck: generate the C, compile and assemble (tools/build.py gen guest dist), in WSL or natively
   wingen    the generated C for Windows: copied from WSL when the Deck step made it, else generated here
   winxlate  aoc_xlate.exe, the shader translator for Windows (prebuilt/xlate/win-x64 from the release package)
@@ -60,6 +62,7 @@ TEXT = {
     "t_tools": ("Preparar as ferramentas", "Set up the build tools"),
     "t_extract": ("Extrair o código do jogo", "Extract the game code"),
     "t_romfs": ("Montar o RomFS 1.3.0", "Build the 1.3.0 RomFS"),
+    "t_dlc": ("Extrair os DLCs", "Extract the DLCs"),
     "t_deck": ("Compilar para Steam Deck / Linux", "Compile for Steam Deck / Linux"),
     "t_wingen": ("Gerar o código para o Windows", "Generate the code for Windows"),
     "t_winxlate": ("Tradutor de shaders do Windows", "Windows shader translator"),
@@ -339,6 +342,26 @@ def s_romfs(args) -> str:
     return "ok"
 
 
+def s_dlc(args) -> str:
+    # finds the DLC NCAs by content, checks their hash trees and skips the images already extracted
+    run([tool_python(), ROOT / "tools/extract_dlc.py", "--game-dir", args.game_dir, "--keys", args.keys])
+    return "ok"
+
+
+def link_dlc(dist_romfs: Path) -> None:
+    """The extracted DLC images into a game folder's romfs/ (hard links on the same disk)."""
+    for src in sorted((ROOT / "build/v130").glob("dlc-*.bin")):
+        dst = dist_romfs / src.name
+        if dst.exists() and dst.stat().st_size == src.stat().st_size and dst.stat().st_mtime >= src.stat().st_mtime:
+            continue
+        dst.unlink(missing_ok=True)
+        try:
+            os.link(src, dst)
+        except OSError:
+            shutil.copy2(src, dst)
+        out(f"  {src.name}")
+
+
 def s_deck(args) -> str:
     extra = " --with-romfs" if args.with_romfs else ""
     if WIN:
@@ -425,6 +448,7 @@ def s_windist(args) -> str:
         except OSError:
             out("romfs.bin: copy (10.9 GiB)")
             shutil.copy2(rom, dst)
+    link_dlc(dist / "romfs")
     # monitor mode (captures of hits, F8 marks, frame dumps on a dark scene; runtime/diag.c), always the current one
     shutil.copy2(ROOT / "tools/windows/monitor.bat", dist / "monitor.bat")
     ini = dist / "aoc.ini"
@@ -471,7 +495,7 @@ def main() -> int:
         args.win_work = Path("C:/aoc-win") if Path("C:/aoc-win/host").is_dir() else ROOT / "build/win"
     if not (args.deck or args.windows):
         ap.error("--deck, --windows or both")
-    plan = [("check", s_check), ("tools", s_tools), ("extract", s_extract), ("romfs", s_romfs)]
+    plan = [("check", s_check), ("tools", s_tools), ("extract", s_extract), ("romfs", s_romfs), ("dlc", s_dlc)]
     if args.deck:
         plan.append(("deck", s_deck))
     if args.windows:

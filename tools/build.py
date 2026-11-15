@@ -599,7 +599,7 @@ PARA NÃO FORÇAR O DECK
 
 ARQUIVOS
   aoc, aoc.sh, lib/            o programa
-  exefs/, romfs/, romfs-index.bin   o jogo
+  exefs/, romfs/, romfs-index.bin   o jogo (romfs/dlc-*.bin são os DLCs; sem eles o jogo roda sem DLC)
   aoc.ini                      suas configurações (não é sobrescrito nas atualizações)
   profile/, logs/, mesa-cache/ saves, registros e cache de shaders (criados ao jogar)
   aoc-logs.sh, ferramentas/    leitura dos registros (logs/sessoes/ guarda as sessões anteriores)
@@ -629,7 +629,7 @@ echo "Agora: Steam > Jogos > Adicionar um jogo que nao e da Steam > marque Hyrul
 
 def assemble_dist(args, exe: Path, sysroot: Path, host: Path, xl: Path) -> Path:
     """dist/aoc-deck/: aoc, aoc.sh, lib/libSDL3.so.0, exefs/, romfs-index.bin e romfs/ (o romfs.bin de 10,9 GiB só é
-    copiado com --with-romfs: no Deck basta copiá-lo uma vez). Saves, aoc.ini, logs/ e mesa-cache/ nunca são tocados."""
+    copiado com --with-romfs: no Deck basta copiá-lo uma vez; as imagens dos DLCs vão sempre). Saves, aoc.ini, logs/ e mesa-cache/ nunca são tocados."""
     dist = Path(args.dist).expanduser().resolve()
     (dist / "lib").mkdir(parents=True, exist_ok=True)
     (dist / "exefs").mkdir(exist_ok=True)
@@ -675,6 +675,20 @@ def assemble_dist(args, exe: Path, sysroot: Path, host: Path, xl: Path) -> Path:
                 shutil.copy2(ROMFS_IMAGE, dst)
     elif not (dist / "romfs" / "romfs.bin").exists():
         print(f"dist: AVISO: copie {ROMFS_IMAGE} para {dist / 'romfs' / 'romfs.bin'} uma vez (ou use --with-romfs)")
+    # DLCs (tools/extract_dlc.py): as imagens que existirem ao lado do romfs.bin vão sempre (1,4 GiB no total); o
+    # runtime (runtime/dlc.c) mostra ao jogo os DLCs que achar em romfs/.
+    dlcs = sorted(ROMFS_IMAGE.parent.glob("dlc-*.bin"))
+    for src in dlcs:
+        dst = dist / "romfs" / src.name
+        if dst.exists() and dst.stat().st_size == src.stat().st_size and dst.stat().st_mtime >= src.stat().st_mtime:
+            continue
+        dst.unlink(missing_ok=True)
+        try:
+            os.link(src, dst)
+        except OSError:
+            shutil.copy2(src, dst)
+    print(f"dist: {len(dlcs)} DLCs em romfs/" if dlcs else
+          "dist: nenhum DLC extraído (python3 tools/extract_dlc.py); o jogo roda sem eles")
     print(f"dist: pasta pronta em {dist}")
     return dist
 

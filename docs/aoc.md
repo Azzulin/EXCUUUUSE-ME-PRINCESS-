@@ -143,6 +143,22 @@ Lidos direto dos NSPs, sem extrair. 176 arquivos RDB nos três DLCs com conteúd
   aumenta o trabalho de tradução de shaders.
 - Texturas dos DLCs também só em BCn (o total de formatos do `rdb-census.json` já inclui os DLCs).
 
+### Como o jogo usa os DLCs (medido com `AOC_TRACE=fs`, sessão 15)
+
+- O `main` importa só quatro funções para DLC: `nn::aoc::CountAddOnContent`, `nn::aoc::ListAddOnContent`,
+  `nn::fs::QueryMountAddOnContentCacheSize` e `nn::fs::MountAddOnContent`.
+- Índice do DLC = title id − `01002B00111A3000` (1 a 4). Cada RomFS tem na raiz um `DLCDATA.dat` de 4 bytes com o
+  próprio índice (`01 00 00 00` … `04 00 00 00`).
+- No boot, ~11 s depois do início (logo após montar o save): o jogo monta cada índice com o nome `aoc`, lê o
+  `DLCDATA.dat` e desmonta. Em seguida monta os três com conteúdo e os deixa montados: índice 2 como `aoc001`,
+  3 como `aoc002`, 4 como `aoc003` (o 1, só licença, não fica montado).
+- Os dados de cada DLC são um sufixo dos RDB da base: `asset/<Nome>.rdb.bin1_0` no `aoc001`, `.bin2_0` no
+  `aoc002`, `.bin3_0` no `aoc003`, mais `asset/data/0x<hash>.file`. Primeiras leituras: `RRPreview.rdb.bin2_0` e
+  `.bin3_0`, depois `ScreenLayout.rdb.bin1_0/2_0/3_0`.
+- Imagens extraídas (`build/v130/dlc-<title id>.bin`): 612 bytes, 87,4 MiB, 217,6 MiB e 1 134,5 MiB (1,41 GiB).
+- Com o save do dono, o primeiro carregamento com os DLCs presentes abre a tela de entrega da *Prototype Ancient
+  Short Sword* (bônus de compra do Expansion Pass).
+
 ## Fase 1 — lifter nos três módulos (`recomp/`, vindo do Astral Chain)
 
 Gerado no ambiente de nuvem da sessão (2 núcleos, 7 GB) a partir do ExeFS 1.3.0:

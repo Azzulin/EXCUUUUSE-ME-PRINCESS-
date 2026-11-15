@@ -21,7 +21,7 @@ que importa no cartão é **velocidade**: leitura sequencial de ~90–100 MB/s (
 | Item | Tamanho estimado | Decisão |
 |---|---|---|
 | RomFS mesclado (base + 1.3.0) | **?** (Fase 0) | ler os RDB como estão (zlib em blocos), em leituras grandes |
-| DLCs | **?** | `.rdb.bin3_0`, mesmo formato |
+| DLCs | 1,41 GiB (quatro imagens) | `.rdb.bin1_0` a `.bin3_0`, mesmo formato; uma imagem RomFS por DLC em `romfs/` |
 | Executável + bibliotecas | ~0,3–0,6 GB | |
 | SPIR-V traduzido (40 726 shaders) | ~0,5–1 GB | AOT na instalação |
 | Cache de pipeline Vulkan | ~0,2–0,5 GB | |
@@ -52,12 +52,13 @@ aoc-deck/
   exefs/                 main, subsdk0, sdk, main.npdm (o runtime mapeia .rodata/.data daqui e confere os SHA-256)
   romfs-index.bin        índice do RomFS (conferido contra o romfs.bin)
   romfs/romfs.bin        RomFS 1.3.0 mesclado (10,9 GiB); `dist --with-romfs` põe um hardlink (não ocupa disco no PC)
+  romfs/dlc-<title id>.bin   RomFS de cada DLC (1,41 GiB os quatro; `tools/extract_dlc.py`). Opcionais: o jogo enxerga
+                         os DLCs cujas imagens estiverem aqui (`runtime/dlc.c`); `deploy.sh` manda os que faltam
   LEIA-ME.txt            instalação por FTP, Steam e controles, em português
   aoc.ini                criado só na primeira vez (menu em pt-BR); depois é do jogador
   profile/               saves e conta local, criado ao lado do executável na primeira execução
   logs/  mesa-cache/     criados pelo aoc.sh
   (depois) shaders/      SPIR-V traduzido dos 40 729 shaders + cache de pipelines
-  (depois) dlc/          RomFS dos DLCs
 ```
 
 - O executável pede no máximo **GLIBC_2.29**; Vulkan, áudio (ALSA/PulseAudio/PipeWire), X11/Wayland e as demais

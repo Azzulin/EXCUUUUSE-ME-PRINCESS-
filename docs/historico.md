@@ -1207,3 +1207,37 @@ Arquivos: `runtime/diag.c` (novo), `kernel.c`, `perf.c`, `flight.c/.h`, `vk_back
 - **Release `v0.1.4` publicada** (commit `7da20e6`): `AoC-Recomp-0.1.4-Windows.zip` (68,9 MB, sha256 `8dad3c08…`) e
   `AoC-Recomp-0.1.4-Linux.tar.gz` (6,6 MB, sha256 `da9e9a86…`). A 0.1.3 não teve pacote; as notas da 0.1.4 citam o
   registro de desempenho dela.
+
+## Sessão 15 — 2026-11-15 (notebook): DLCs
+
+- Pedido do dono: conferir se os DLCs estavam aplicados e implementá-los (e o update, se precisasse).
+- Conferido antes: o runtime respondia "nenhum DLC" (`ov_system.c`), o log do Deck dizia `aoc: no add-on content` e
+  a pasta do Deck só tinha o `romfs.bin` (base + update). O update 1.3.0 já estava aplicado (RomFS mesclado e ExeFS
+  do update); não precisou de nada.
+- **Extração** (`tools/extract_dlc.py`): acha os NCAs PublicData dos DLCs pelo conteúdo dos NSPs, copia o nível de
+  dados do IVFC (uma imagem RomFS simples por DLC, `build/v130/dlc-<title id>.bin`) conferindo a árvore de hashes
+  inteira até o hash mestre, e grava `dlc.json`. Quatro imagens, 1,41 GiB, 8 s no notebook; rodar de novo pula as
+  prontas. Testes sintéticos em `tests/test_tools.py` (árvore certa, bloco de dados alterado, tabela alterada).
+- **Runtime** (`runtime/dlc.c`): as imagens `romfs/dlc-<title id>.bin` ao lado do `romfs.bin` são os DLCs
+  instalados. `nn::aoc::CountAddOnContent`/`ListAddOnContent` devolvem os índices; `QueryMountAddOnContentCacheSize`
+  e `MountAddOnContent` montam (com o cache de metadados que o serviço de arquivos escreveria); abrir, ler,
+  tamanho, tipo de entrada e diretórios passam pelo despacho de `fs_host.c` (handles `0x4_0000_0000 + j`). Imagem
+  malformada para o jogo com mensagem; sem imagens o jogo roda sem DLC. As respostas fixas "nenhum DLC" saíram do
+  `ov_system.c`.
+- **Probes**: `--probe-fs` ganhou `probe_dlc` (monta cada DLC, confere o cache, lista a raiz, lê os arquivos da raiz,
+  recusa escrita e nome repetido) e a checagem velha `QueryMountRomCacheSize == 0` (do Astral Chain) foi corrigida:
+  passa inteiro no Windows, no WSL e no binário do `dist`. `--probe-services` confere a contagem e a lista do
+  `nn::aoc` (as 75 falhas dele são antigas, de overrides que o AoC não importa).
+- **Medido no notebook** (Windows, RTX 3050, cópia do save do dono, `AOC_TRACE=fs`, 100 s com a rota 1): aos 10,9 s
+  o jogo monta cada índice como `aoc`, lê `DLCDATA.dat` e desmonta; monta 2, 3 e 4 como `aoc001`–`aoc003` e lê
+  `RRPreview.rdb.bin2_0/3_0`, `ScreenLayout.rdb.bin1_0/2_0/3_0` e arquivos `asset/data/*.file`. A captura final
+  mostra a entrega da *Prototype Ancient Short Sword* (bônus de compra do Expansion Pass). 2 962 frames, 0 draws
+  pulados, 0 falhas de shader. Detalhes em `docs/aoc.md` ("Como o jogo usa os DLCs").
+- **Empacotamento**: `tools/build.py dist` e o `windist` do `tools/make_build.py` põem as imagens em `romfs/`
+  (hardlink); o `make_build.py` ganhou o passo `dlc` (o launcher o mostra sozinho pelo `@@PLAN`);
+  `tools/deck/deploy.sh` manda as imagens que o Deck não tem (comparadas pelo tamanho).
+- Versão **0.1.5**. `dist/aoc-deck` (sniper) e `dist/aoc-windows` refeitos com as imagens.
+- **No Deck** (`bash tools/deck/deploy.sh --no-build`, depois que o dono o ligou): enviados `aoc`, `LEIA-ME.txt` e
+  as quatro imagens (1,4 GiB, ~8 min a de 1,1 GiB). SHA-256 das imagens no cartão iguais aos do `dlc.json`;
+  `./aoc --probe-fs` no Deck: 4 DLCs, passa.
+- **Não feito:** o conteúdo dos DLCs (fases, personagens, vídeos novos) não foi jogado; sem release da 0.1.5.

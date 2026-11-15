@@ -562,17 +562,9 @@ static void ov_show_error(Cpu *c) {
 
 // ==== SDK-internal initialisation (services.c)
 static void ov_diag_startup(Cpu *c) { (void)c; rt_log("diag: host diagnostics"); }
-static void ov_aoc_initialize(Cpu *c) { (void)c; rt_log("aoc: no add-on content"); }
-// 1.4.3's main lists add-on content (MNG services.c host_aoc_list): there is none.
-// int ListAddOnContent(AddOnContentIndex *out, int offset, int count)
-static void ov_aoc_list(Cpu *c) {
-    int offset = (int)arg_x(c, 1), count = (int)arg_x(c, 2);
-    if (offset < 0 || count < 0) rt_fatal("aoc: ListAddOnContent range %d+%d", offset, count);
-    ret_x(c, 0);
-}
-// int CountAddOnContent(): the same answer as ListAddOnContent. AoC (main) asks for the count first. Mounting the
-// DLC RomFS (nn::fs::MountAddOnContent) is not done yet (docs/plano.md, Fase 6), so no DLC is reported.
-static void ov_aoc_count(Cpu *c) { ret_x(c, 0); }
+// void nn::aoc::Initialize(): SDK-internal; the add-on content is the DLC images next to romfs.bin (dlc.c, which has
+// nn::aoc::CountAddOnContent and ListAddOnContent and nn::fs::MountAddOnContent)
+static void ov_aoc_initialize(Cpu *c) { (void)c; rt_log("aoc: %d add-on contents", dlc_count()); }
 
 // The copyright frame buffer (AoC 1.3.0, SDK 9.6.0): an overlay the system draws only into screenshots and recordings.
 // The SDK hands the buffer to am as transfer memory; the host takes no system captures, so nothing keeps it. Without
@@ -1127,8 +1119,6 @@ HOST_OVERRIDE("_ZN2nn3err9ShowErrorENS_6ResultE", ov_show_error);
 
 HOST_OVERRIDE("nndiagStartup", ov_diag_startup);
 HOST_OVERRIDE("_ZN2nn3aoc10InitializeEv", ov_aoc_initialize);
-HOST_OVERRIDE("_ZN2nn3aoc16ListAddOnContentEPiii", ov_aoc_list);
-HOST_OVERRIDE("_ZN2nn3aoc17CountAddOnContentEv", ov_aoc_count);
 HOST_OVERRIDE("_ZN2nn2oe30InitializeCopyrightFrameBufferEPvm", ov_copyright_init);
 HOST_OVERRIDE("_ZN2nn2oe17SetCopyrightImageEPKvmiiiiNS0_16WindowOriginModeE", ov_copyright_nop);
 HOST_OVERRIDE("_ZN2nn2oe22SetCopyrightVisibilityEb", ov_copyright_nop);

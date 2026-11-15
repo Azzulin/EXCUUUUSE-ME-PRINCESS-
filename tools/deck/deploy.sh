@@ -1,5 +1,6 @@
 #!/bin/bash
-# Builds the Deck folder (dist) and sends the changed small files to the Steam Deck over SSH (never romfs.bin).
+# Builds the Deck folder (dist) and sends the changed small files to the Steam Deck over SSH (never romfs.bin), and
+# the DLC images (romfs/dlc-*.bin, 1.4 GiB in all) the Deck lacks or has with another size.
 # Usage (Git Bash): bash deploy.sh [--no-build]
 set -e
 R="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -34,3 +35,12 @@ if [ -n "$send" ]; then
 else
   echo "nada a enviar"
 fi
+# DLC images: sent once (compared by size; they only change if the dump does)
+for f in romfs/dlc-*.bin; do
+  [ -f "$f" ] || continue
+  sz=$(stat -c %s "$f")
+  rsz=$($SSH $DECK "stat -c %s $G/$f 2>/dev/null" || true)
+  [ "$sz" = "$rsz" ] && continue
+  echo "enviando $f ($((sz / 1048576)) MiB)"
+  scp -q -i "$HOME/.ssh/id_ed25519_deck" -o BatchMode=yes "$f" "$DECK:$G/$f.envio" && $SSH $DECK "mv -f $G/$f.envio $G/$f"     || { echo "falhou: $f"; exit 1; }
+done

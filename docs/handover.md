@@ -1,7 +1,7 @@
 # Handover — estado do projeto para o próximo agente
 
 Leia isto primeiro, depois `AGENTS.md` (regras) e `docs/plano.md` (fases). O plano de ação imediato e um prompt pronto
-para uma sessão nova estão em `docs/proxima-sessao.md`. Atualizado em 2026-11-15 (sessão 14, no
+para uma sessão nova estão em `docs/proxima-sessao.md`. Atualizado em 2026-11-15 (sessão 15, no
 notebook, build nativo do Windows na RTX 3050). Tudo aqui foi medido no dump do próprio dono do projeto; nada é
 estimativa salvo onde está dito.
 
@@ -112,11 +112,25 @@ partir de 100 s, `AOC_TRACE=perf`, vigia de travada).
 | `runtime/` | runtime do Astral Chain + porta Linux do TotK, adaptado ao AoC (ver `runtime/README.md`) |
 | `launcher/` | launcher do Windows (`launcher.cpp`, ImGui + SDL3); compila com `tools/build_launcher.py`, abre por `launcher.bat` |
 | `tests/` | `test_tools.py` (sintético, roda no CI) e os testes diferenciais do Astral Chain (precisam do ExeFS) |
-| `tools/` | `nx.py` (NSP/NCA/ticket/ExeFS/RomFS em Python), `extract.py`, `inspect_dump.py`, `census_*.py`, `build.py` (gen/guest/host/dist), `romfs_index.py`, `spin_waits.py`, `setup_wsl.sh`, `check_content.py`, `fetch_refs.sh`, `windows/*.bat/.ps1` |
+| `tools/` | `nx.py` (NSP/NCA/ticket/ExeFS/RomFS em Python), `extract.py`, `extract_dlc.py`, `inspect_dump.py`, `census_*.py`, `build.py` (gen/guest/host/dist), `romfs_index.py`, `spin_waits.py`, `setup_wsl.sh`, `check_content.py`, `fetch_refs.sh`, `windows/*.bat/.ps1` |
 
 ## 6. Próximos passos (em ordem)
 
 **Sessão 5 (2026-11-09) — ler primeiro; o plano passo a passo está em `docs/proxima-sessao.md`.**
+
+- **Sessão 15 (2026-11-15): DLCs implementados (versão 0.1.5), enviados ao Deck — falta o dono jogar.**
+  `tools/extract_dlc.py` tira dos NSPs a imagem RomFS de cada DLC (`build/v130/dlc-<title id>.bin`, árvore IVFC
+  conferida, 1,41 GiB os quatro) e `runtime/dlc.c` os mostra ao jogo (`nn::aoc::CountAddOnContent`/`ListAddOnContent`)
+  e os monta (`nn::fs::MountAddOnContent`); `fs_host.c` despacha arquivos e diretórios desses mounts. O runtime acha
+  as imagens em `romfs/` ao lado do `romfs.bin`; sem imagem, o jogo roda sem DLC como antes. No notebook (Windows,
+  cópia do save do dono, 100 s): o jogo monta os quatro, lê os RDB dos três com conteúdo e abre a tela de entrega da
+  *Prototype Ancient Short Sword*; 0 draws pulados. `--probe-fs` monta e lê os DLCs (passa no Windows, no WSL e no
+  binário do `dist`). `dist/aoc-deck` e `dist/aoc-windows` já têm o binário 0.1.5 e as imagens.
+  **No Deck** (`deploy.sh --no-build`): `aoc` 0.1.5 e as quatro imagens em `romfs/` (SHA-256 iguais aos do
+  `dlc.json`); `./aoc --probe-fs` lá acha os 4 DLCs e passa.
+  **Pendente:** o dono jogar o conteúdo dos DLCs (fases, personagens e vídeos de *Pulse of the Ancients* e
+  *Guardian of Remembrance*) e mandar os registros; sem release da 0.1.5 ainda.
+  O update 1.3.0 já estava aplicado (RomFS mesclado e ExeFS do update); nada mudou nele.
 
 - **Sessão 14 (2026-11-15): tela preta depois do logo com save — CORRIGIDA, conferida no Deck (versão 0.1.4).**
   O segundo logo (`movie_logo/Movie070.webm`, só num boot com save) é o único vídeo com som. Corrigidos: a voz 0 do
@@ -293,7 +307,7 @@ partir de 100 s, `AOC_TRACE=perf`, vigia de travada).
 6. Correções de NVN do AoC (lista em `docs/plano.md`, Fase 3) quando houver imagem.
 7. Jump table do `subsdk0+0x5da14` (superconjunto seguro) e funções gigantes no gerador (`musttail`), se o tempo de
    build incomodar (hoje ~48 min do zero; incremental leva 1–2 min).
-8. DLC: `nn::aoc` hoje responde "nenhum DLC" (`ov_system.c`); montar os RomFS dos DLCs fica para a Fase 6.
+8. DLC: feito na sessão 15 (`runtime/dlc.c`, `tools/extract_dlc.py`); falta jogar o conteúdo novo no Deck.
 
 ## 7. Armadilhas já encontradas
 
@@ -326,6 +340,10 @@ partir de 100 s, `AOC_TRACE=perf`, vigia de travada).
 - **git nas pastas montadas**: use `git -c safe.directory=$PWD ...` (não mexer no `safe.directory` global).
 - **Token do GitHub**: nunca gravar em arquivo nem em `.git/config`; usar `-c http.extraHeader=...` só no comando e
   filtrar o valor da saída. O dono foi orientado a gerar um token novo, porque o atual apareceu na conversa.
+- **DLCs e o save**: depois de um boot com os DLCs o save passa a registrar o conteúdo deles (itens, fases). Para
+  testar sem mexer no save do dono, copiar o `profile/` e usar `--profile <cópia>`.
+- **Probe de serviços**: `--probe-services` falha em 75 checagens herdadas do Astral Chain (overrides que o AoC não
+  importa); não é regressão. `--probe-fs` passa inteiro.
 - **Chaves**: `prod.keys`/`title.keys` são lidos pelas ferramentas; valores nunca aparecem em saída, log ou commit.
   `tools/extract.py hactool-home` grava cópias só em `build/v130/tmp/` (ignorado) e o merge apaga ao terminar.
 - **WSL e `/mnt/d`**: compilar sobre o disco do Windows é lento; o build usa `~/aoc-build`.

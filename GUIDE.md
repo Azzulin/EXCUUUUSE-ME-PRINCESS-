@@ -79,7 +79,8 @@ The language switch (**PT / EN**) is at the top right; **Guide** opens this page
 The Deck does not compile anything: it gets the ready folder `AoC-Recomp/dist/aoc-deck`.
 
 1. **The first time**, tick **include romfs.bin** before forging (the game data, 10.9 GiB, goes into the folder). For
-   later updates you can leave it unticked: the data does not change.
+   later updates you can leave it unticked: the data does not change. The DLCs found in your game files folder always
+   go in (`romfs/dlc-*.bin`, 1.4 GiB for the four); copy them once along with `romfs.bin`.
 2. Copy the whole `aoc-deck` folder to the Deck — USB stick, SD card, network share, or `scp` — for example to the
    SD card: `/run/media/mmcblk0p1/aoc-deck`.
 3. On the Deck, in **Desktop Mode**, open the folder, open a terminal there (*Konsole*) and run once:

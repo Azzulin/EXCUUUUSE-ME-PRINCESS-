@@ -128,7 +128,11 @@ de shader após a instalação; 1 h de sessão sem crash.
       Impa é o caso conhecido de falha).
 - [ ] 40 fps para o modo 40 Hz do Deck (pesquisa: passo não-inteiro de vsync).
 - [ ] 16:10 de verdade (câmera + HUD) em vez de letterbox.
-- [ ] DLCs: *Pulse of the Ancients* e *Guardian of Remembrance* (montagem, enumeração, conteúdo).
+- [x] DLCs (os quatro pacotes): extração com a árvore IVFC conferida (`tools/extract_dlc.py`), enumeração
+      (`nn::aoc`) e montagem (`nn::fs::MountAddOnContent`) em `runtime/dlc.c`. No notebook o jogo monta os três com
+      conteúdo e entrega o bônus do Expansion Pass ao carregar o save.
+  - [ ] jogar o conteúdo de *Pulse of the Ancients* e *Guardian of Remembrance* (fases, personagens e vídeos novos)
+        no Deck e ler os registros.
 - [ ] Co-op local (tela dividida é carga extra no Deck).
 
 ## Fase 7 — Instalador · ~1–2 semanas

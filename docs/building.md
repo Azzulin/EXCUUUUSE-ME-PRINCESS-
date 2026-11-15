@@ -38,6 +38,7 @@ Passos (os prontos são pulados, então forjar de novo é incremental):
 | `tools` | **prepara o ambiente sozinho.** Windows + Deck: confere o WSL (sem ele imprime `@@NEED wsl`, e o launcher oferece `wsl --install --no-distribution` com elevação) e cria a distro privada **`AoC-Recomp`** com `wsl --install archlinux --name AoC-Recomp --location %LOCALAPPDATA%\AoC-Recomp\wsl --no-launch`, depois `tools/setup_wsl.sh --minimal` como root (o script gera o chaveiro do pacman, que a imagem Arch só gera numa primeira abertura interativa). Windows como destino: MSYS2 em `C:/msys64` (se faltar, o `msys2-base` fixado é baixado e extraído) e os pacotes UCRT64. Linux: `setup_wsl.sh --minimal` (pacman, apt ou dnf; sem terminal, `pkexec` pede a senha). `--wsl-distro` usa outra distro (a de desenvolvimento, por exemplo) |
 | `extract` | `build/v130/exefs` (`extract.py exefs`) |
 | `romfs` | `build/v130/romfs.bin` com `tools/merge_romfs.py` (o `merge_romfs.ps1` em Python, para Windows e Linux; hactool de `prebuilt/hactool/` ou `toolchain/`) |
+| `dlc` | `build/v130/dlc-<title id>.bin`, o RomFS de cada DLC do dump (`tools/extract_dlc.py`, árvore IVFC conferida; pula os já extraídos). Sem NSP de DLC o passo não extrai nada e o jogo roda sem DLC |
 | `deck` | `build.py gen guest dist` no WSL (ou nativo no Linux) → `dist/aoc-deck` |
 | `wingen` | o C gerado para o Windows: copiado do WSL se o passo `deck` rodou, senão gerado no próprio Windows |
 | `winxlate` | `aoc_xlate.exe` de `prebuilt/xlate/win-x64` (pacote) ou publicado pelo `dotnet` do WSL (repositório) |
@@ -84,6 +85,7 @@ As referências (`refs/`) vêm de `sh tools/fetch_refs.sh` — no Windows, pelo 
 python3 tools/extract.py inventory          # confere base, update 1.3.0 e DLCs em "Game Files/"
 python3 tools/extract.py exefs              # build/v130/exefs/ (código do jogo)
 # RomFS mesclado: no Windows, tools\windows\merge_romfs.bat → build\v130\romfs.bin
+python3 tools/extract_dlc.py                # build/v130/dlc-<title id>.bin (um por DLC; opcional)
 python3 tools/inspect_dump.py --exefs build/v130/exefs
 ```
 
@@ -135,7 +137,8 @@ python3 tools/build.py --work ~/aoc-build dist --with-romfs    # põe também o 
   1.4.363. O build confere que o executável não pede GLIBC acima de 2.31 (hoje pede no máximo 2.29).
 - Na primeira vez baixa 1,2 GB (sysroot) e 2,5 MB (zstd) para `~/aoc-build/dl/`.
 - A pasta: `aoc`, `aoc.sh` (lançador: `MESA_SHADER_CACHE_DIR` ao lado do jogo), `lib/libSDL3.so.0`, `exefs/`,
-  `romfs-index.bin` e `romfs/romfs.bin`. O runtime acha `exefs/`, `romfs/` e `profile/` ao lado do executável
+  `romfs-index.bin`, `romfs/romfs.bin` e `romfs/dlc-<title id>.bin` (os DLCs extraídos vão sempre, por hardlink
+  quando dá). O runtime acha `exefs/`, `romfs/` e `profile/` ao lado do executável
   (`main.c portable_paths`). Atualizar = rodar `dist` de novo e copiar `aoc` (o resto só muda com o jogo).
 - Layout e passo a passo no Deck em [steam-deck.md](steam-deck.md).
 

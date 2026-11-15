@@ -22,8 +22,8 @@ Passo a passo: **[GUIA.md](GUIA.md)** (português) · **[GUIDE.md](GUIDE.md)** (
 - **Roda do começo à batalha** no Steam Deck (SteamOS, RADV) e no Windows (RTX 3050): 30 fps na primeira batalha do
   Deck, memória estável em sessões de 10 min ou mais, som, vídeos e menus. Detalhes e números em
   [docs/handover.md](docs/handover.md) e [docs/historico.md](docs/historico.md).
-- **Em aberto:** saves ainda não verificados numa jogatina real, travadas de shader em conteúdo novo, DLCs,
-  60 fps opcional. Fases e portões em [docs/plano.md](docs/plano.md).
+- **Em aberto:** saves ainda não verificados numa jogatina real, travadas de shader em conteúdo novo, o conteúdo
+  dos DLCs jogado de ponta a ponta (eles já são montados e lidos), 60 fps opcional. Fases e portões em [docs/plano.md](docs/plano.md).
 
 ## Como funciona (resumo)
 

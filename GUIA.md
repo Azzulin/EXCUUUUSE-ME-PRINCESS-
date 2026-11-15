@@ -79,7 +79,8 @@ A troca de idioma (**PT / EN**) fica no canto de cima; **Guia** abre esta págin
 O Deck não compila nada: ele recebe a pasta pronta `AoC-Recomp/dist/aoc-deck`.
 
 1. **Na primeira vez**, marque **incluir o romfs.bin** antes de forjar (os dados do jogo, 10,9 GiB, vão para a pasta).
-   Nas atualizações pode deixar desmarcado: os dados não mudam.
+   Nas atualizações pode deixar desmarcado: os dados não mudam. Os DLCs que estiverem na sua pasta de arquivos vão
+   sempre (`romfs/dlc-*.bin`, 1,4 GiB os quatro); copie-os uma vez junto com o `romfs.bin`.
 2. Copie a pasta `aoc-deck` inteira para o Deck — pendrive, cartão SD, pasta de rede ou `scp` — por exemplo para o
    cartão SD: `/run/media/mmcblk0p1/aoc-deck`.
 3. No Deck, em **Modo Desktop**, abra a pasta, abra um terminal ali (*Konsole*) e rode uma vez:

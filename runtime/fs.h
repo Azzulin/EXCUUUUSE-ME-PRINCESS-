@@ -51,6 +51,23 @@ int romfs_prompts_off(const char *folder);
 const char *romfs_overlay(size_t k, const char **file, uint64_t *size, int *is_added);   // RomFS path of overlay k
 void fs_trace(const char *what, const char *path);         // AOC_TRACE=fs: one line per open
 
+// ---- dlc.c: add-on content. Each DLC is <romfs>/dlc-<title id>.bin (tools/extract_dlc.py); file handles
+// 0x4_0000_0000 + j.
+#define DLC_HANDLE_BASE 0x400000000ull
+int dlc_count(void);                                       // nn::aoc::CountAddOnContent: the DLC images found
+int dlc_list(int32_t *out, int offset, int count);         // nn::aoc::ListAddOnContent: indices written, ascending
+uint32_t dlc_cache_size(uint64_t *out, int index);         // nn::fs::QueryMountAddOnContentCacheSize
+uint32_t dlc_mount(const char *name, int index, void *cache, uint64_t cache_size);   // nn::fs::MountAddOnContent
+int dlc_unmount(const char *name);                         // 1 when name was a DLC mount
+int dlc_owns(const char *path);                            // path is on a mounted DLC ("<mount>:...")
+int dlc_handle(uint64_t h);                                // h is a DLC file handle
+uint32_t dlc_open(uint64_t *out, const char *path, int mode);
+uint32_t dlc_read(uint64_t *out, uint64_t h, int64_t offset, void *buffer, uint64_t size);
+uint32_t dlc_size(int64_t *out, uint64_t h);
+void dlc_close(uint64_t h);
+uint32_t dlc_entry_type(int *out, const char *path);
+int dlc_dir_list(const char *path, int (*add)(const char *name, int kind, uint64_t size, void *ctx), void *ctx);
+
 // ---- fs_host.c
 void fs_host_set_profile(const char *dir);                 // profile directory; before the first storage mount only
                                                            // (default rt_config()->profile)

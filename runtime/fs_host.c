@@ -605,7 +605,7 @@ static uint32_t mount_add(const char *name, int kind, const char *root) {
     if (!name || !*name || strlen(name) >= 32 || strchr(name, ':') || strchr(name, '/')) return FS_R_INVALID_ARGUMENT;
     char as_path[40];
     snprintf(as_path, sizeof as_path, "%s:", name);
-    if (romfs_owns(as_path)) return FS_R_ALREADY_EXISTS;   // the RomFS mount's name
+    if (romfs_owns(as_path) || dlc_owns(as_path)) return FS_R_ALREADY_EXISTS;   // the RomFS mount's or a DLC's name
     plat_mutex_lock(&lock);
     int slot = -1;
     for (int i = 0; i < NMOUNTS; i++) {
@@ -801,6 +801,7 @@ static void unmount(const char *name) {
         }
     plat_mutex_unlock(&lock);
     plat_mutex_unlock(&tx_lock);
+    if (dlc_unmount(name)) return;
     size_t n = name ? strlen(name) : 0;
     char probe[40];
     if (!n || n >= 32 || (snprintf(probe, sizeof probe, "%s:", name), !romfs_owns(probe)))
@@ -845,6 +846,7 @@ static int64_t host_read_at(PlatFile *f, void *buf, uint32_t n, uint64_t off) {
 
 static uint32_t open_file(uint64_t *out, const char *path, int mode) {
     if (romfs_owns(path)) return romfs_open(out, path, mode);
+    if (dlc_owns(path)) return dlc_open(out, path, mode);
     fs_trace(mode & FS_OPEN_WRITE ? "write" : "read", path);
     if (!out || !(mode & (FS_OPEN_READ | FS_OPEN_WRITE)) || (mode & ~7)) return FS_R_INVALID_ARGUMENT;
     char p[PATH_CAP];
@@ -875,6 +877,7 @@ static uint32_t open_file(uint64_t *out, const char *path, int mode) {
 
 static uint32_t read_file(uint64_t *out, uint64_t h, int64_t offset, void *buffer, uint64_t size) {
     if (romfs_handle(h)) return romfs_read(out, h, offset, buffer, size);
+    if (dlc_handle(h)) return dlc_read(out, h, offset, buffer, size);
     PlatFile *f;
     int mode;
     if (!out || offset < 0 || (!buffer && size) || !file_of(h, &f, &mode)) return FS_R_INVALID_ARGUMENT;
@@ -919,6 +922,7 @@ static uint32_t write_file(uint64_t h, int64_t offset, const void *buffer, uint6
 
 static uint32_t file_size(int64_t *out, uint64_t h) {
     if (romfs_handle(h)) return romfs_size(out, h);
+    if (dlc_handle(h)) return dlc_size(out, h);
     PlatFile *f;
     PlatFileId id;
     if (!out || !file_of(h, &f, NULL) || !plat_file_id(f, &id)) return FS_R_INVALID_ARGUMENT;
@@ -947,6 +951,10 @@ static uint32_t flush_file(uint64_t h) {
 static void close_file(uint64_t h) {
     if (romfs_handle(h)) {
         romfs_close(h);
+        return;
+    }
+    if (dlc_handle(h)) {
+        dlc_close(h);
         return;
     }
     if (!file_of(h, NULL, NULL)) rt_fatal("fs: close of invalid file handle %#llx", (unsigned long long)h);
@@ -996,6 +1004,7 @@ static uint32_t rename_file(const char *from, const char *to) {
 
 static uint32_t entry_type(int *out, const char *path) {
     if (romfs_owns(path)) return romfs_entry_type(out, path);
+    if (dlc_owns(path)) return dlc_entry_type(out, path);
     char p[PATH_CAP];
     uint32_t r = host_path(path, p, sizeof p);
     if (r) return r;
@@ -1030,6 +1039,8 @@ static uint32_t open_directory(uint64_t *out, const char *path, int mode) {
     Listing l = {0};
     if (romfs_owns(path)) {
         romfs_dir_list(path, listing_add, &l);
+    } else if (dlc_owns(path)) {
+        if (!dlc_dir_list(path, listing_add, &l)) return FS_R_PATH_NOT_FOUND;
     } else {
         char p[PATH_CAP];
         uint32_t r = host_path(path, p, sizeof p);
@@ -1162,6 +1173,9 @@ static void ov_set_priority(Cpu *c) { (void)c; }
 #define S_MOUNT_ROM "_ZN2nn2fs8MountRomEPKcPvm"
 #define S_QUERY_CACHE "_ZN2nn2fs22QueryMountRomCacheSizeEPm"
 #define S_INITIALIZE "_ZN2nn2fs24InitializeForApplicationEv"
+// registered in dlc.c
+#define S_MOUNT_AOC "_ZN2nn2fs17MountAddOnContentEPKciPvm"
+#define S_QUERY_AOC "_ZN2nn2fs31QueryMountAddOnContentCacheSizeEPmi"
 
 HOST_OVERRIDE(S_OPEN_FILE, ov_open_file);
 HOST_OVERRIDE(S_FILE_SIZE, ov_file_size);
@@ -1205,7 +1219,8 @@ static const char *const probe_symbols[] = {
     S_SET_FILE_SIZE, S_FLUSH_FILE, S_CREATE_FILE, S_DELETE_FILE, S_RENAME_FILE, S_CREATE_DIRECTORY, S_DELETE_RECURSIVE,
     S_OPEN_DIRECTORY, S_READ_DIRECTORY, S_CLOSE_DIRECTORY, S_MOUNT_SAVE, S_MOUNT_SAVE_RO, S_SAVE_EXISTS, S_ENSURE_SAVE,
     S_MOUNT_TEMP, S_UNMOUNT, S_COMMIT, S_COMMIT_SAVE, S_CREATE_CACHE, S_DELETE_CACHE, S_MOUNT_CACHE,
-    S_OPEN_CACHE_LIST, S_READ_CACHE_LIST, S_CLOSE_CACHE_LIST, S_SET_PRIORITY, S_MOUNT_ROM, S_QUERY_CACHE, S_INITIALIZE};
+    S_OPEN_CACHE_LIST, S_READ_CACHE_LIST, S_CLOSE_CACHE_LIST, S_SET_PRIORITY, S_MOUNT_ROM, S_QUERY_CACHE, S_INITIALIZE,
+    S_MOUNT_AOC, S_QUERY_AOC};
 #define NPROBE ((int)(sizeof probe_symbols / sizeof *probe_symbols))
 #define SAMPLES 64
 #define HEAD_BYTES (8u << 20)      // a sampled file is compared whole up to this size, else head and tail
@@ -1284,7 +1299,8 @@ static void probe_paths(void) {
 
 static uint64_t probe_romfs(void) {
     uint64_t count = romfs_file_count(), cache = ~0ull;
-    CHECK(RES(S_QUERY_CACHE, U(&cache)) == 0 && cache == 0, "QueryMountRomCacheSize");
+    CHECK(RES(S_QUERY_CACHE, U(&cache)) == 0 && cache >= 0x50 && cache < (1u << 30) && !(cache & 0xfff),
+          "QueryMountRomCacheSize");   // the header and the four metadata tables, page-rounded (romfs.c ov_query_cache)
     CHECK(RES(S_MOUNT_ROM, U("rom"), 0, 0) == 0, "MountRom(\"rom\")");
     CHECK(RES(S_MOUNT_ROM, U("rom"), 0, 0) == 0, "MountRom(\"rom\") again");
     CHECK(RES(S_MOUNT_ROM, U("../x"), 0, 0) == FS_R_INVALID, "MountRom with a bad name");
@@ -1730,6 +1746,65 @@ static void probe_storage(void) {
            "temporary profile: %s; profile deleted: %s\n", failures ? "see FAIL lines" : "ok", removed ? "yes" : "no");
 }
 
+// Add-on content (dlc.c): every DLC image the player has is mounted with the metadata cache the game would pass, its
+// root listed and each root file opened and read to its end; none installed is a pass too (the count is printed).
+static int probe_dlc(void) {
+    int32_t idx[64];
+    uint64_t cache = 1, h = 0, got = 0;
+    int n = dlc_list(idx, 0, 64), type = -1;
+    CHECK(n == dlc_count() && dlc_list(idx, n, 64) == 0, "the DLC list and count disagree");
+    CHECK(RES(S_QUERY_AOC, U(&cache), 0) == FS_R_TARGET_NOT_FOUND && RES(S_MOUNT_AOC, U("dlcp"), 0, 0, 0) ==
+          FS_R_TARGET_NOT_FOUND, "add-on content 0 does not exist");
+    uint64_t files = 0, bytes = 0;
+    uint8_t *buf = malloc(1 << 20);
+    need(buf != NULL, "probe buffer");
+    for (int k = 0; k < n; k++) {
+        CHECK(RES(S_QUERY_AOC, U(&cache), (uint64_t)idx[k]) == 0 && cache >= 0x50 && !(cache & 0xfff),
+              "QueryMountAddOnContentCacheSize(%d)", idx[k]);
+        uint64_t *meta = mem_kernel_alloc(cache, 16);
+        memset(meta, 0xa5, cache);
+        CHECK(RES(S_MOUNT_AOC, U("rom"), (uint64_t)idx[k], U(meta), cache) == FS_R_ALREADY_EXISTS,
+              "a DLC mounted under the RomFS's name");
+        CHECK(RES(S_MOUNT_AOC, U("dlcp"), (uint64_t)idx[k], U(meta), cache) == 0, "MountAddOnContent(%d)", idx[k]);
+        CHECK(RES(S_MOUNT_AOC, U("dlcp"), (uint64_t)idx[k], U(meta), cache) == FS_R_ALREADY_EXISTS,
+              "MountAddOnContent under a mounted name");
+        CHECK(meta[0] == 0x50 && meta[1] == 0x50 && meta[3] == meta[1] + meta[2] && meta[5] == meta[3] + meta[4] &&
+              meta[7] == meta[5] + meta[6] && meta[7] + meta[8] <= cache, "the metadata cache of DLC %d", idx[k]);
+        CHECK(RES(S_ENTRY_TYPE, U(&type), U("dlcp:/")) == 0 && type == FS_ENTRY_DIRECTORY, "the DLC's root directory");
+        CHECK(RES(S_ENTRY_TYPE, U(&type), U("dlcp:/no-such-file")) == FS_R_PATH_NOT_FOUND, "a path the DLC lacks");
+        uint64_t d = 0;
+        int64_t count = 0;
+        static DirectoryEntry e;
+        CHECK(RES(S_OPEN_DIRECTORY, U(&d), U("dlcp:/"), 3) == 0, "OpenDirectory on a DLC");
+        int root_files = 0;
+        while (d && RES(S_READ_DIRECTORY, U(&count), U(&e), d, 1) == 0 && count == 1) {
+            if (e.type != FS_ENTRY_FILE) continue;
+            char path[800];
+            int64_t size = -1;
+            snprintf(path, sizeof path, "dlcp:/%s", e.name);
+            int ok = RES(S_OPEN_FILE, U(&h), U(path), FS_OPEN_READ | FS_OPEN_WRITE) == FS_R_UNSUPPORTED_OPEN &&
+                     RES(S_OPEN_FILE, U(&h), U(path), FS_OPEN_READ) == 0 && dlc_handle(h) &&
+                     RES(S_FILE_SIZE, U(&size), h) == 0 && size == e.size;
+            for (int64_t at = 0; ok && at < size; at += (int64_t)got)
+                ok = RES(S_READ_FILE, U(&got), h, (uint64_t)at, U(buf), 1 << 20) == 0 && got &&
+                     (int64_t)got <= size - at;
+            ok = ok && RES(S_READ_FILE, U(&got), h, (uint64_t)size, U(buf), 16) == 0 && got == 0;
+            if (h) CALL(S_CLOSE_FILE, h);
+            CHECK(ok, "a root file of DLC %d read through the overrides", idx[k]);
+            root_files++, files++, bytes += (uint64_t)size;
+        }
+        if (d) CALL(S_CLOSE_DIRECTORY, d);
+        CHECK(root_files > 0, "DLC %d has no file in its root", idx[k]);
+        CALL(S_UNMOUNT, U("dlcp"));
+        CHECK(RES(S_ENTRY_TYPE, U(&type), U("dlcp:/")) != 0, "the DLC's name after Unmount");
+        mem_kernel_free(meta, cache);
+    }
+    free(buf);
+    printf("dlc: %d add-on contents; %llu root files read whole through the overrides (%.1f MiB): %s\n", n,
+           (unsigned long long)files, bytes / 1048576.0, failures ? "see FAIL lines" : "ok");
+    return n;
+}
+
 int probe_fs(void) {
     fs_init();
     for (int i = 0; i < NPROBE; i++) {
@@ -1747,6 +1822,7 @@ int probe_fs(void) {
     for (int r = 19; r < 30; r++) pcpu->x[r] = 0x1900 + r;
     CALL(S_INITIALIZE, 0);   // nn::fs::InitializeForApplication: fs_init again, idempotent
     uint64_t files = probe_romfs();
+    probe_dlc();
     probe_storage();
     int kept = 1;
     for (int r = 19; r < 30; r++) kept &= pcpu->x[r] == 0x1900u + r;

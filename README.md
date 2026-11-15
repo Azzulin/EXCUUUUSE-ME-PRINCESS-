@@ -1,5 +1,7 @@
 # AoC Recomp
 
+<a href="https://recomplauncher.com/game/excuuuuse-me-princess"><picture><source media="(prefers-color-scheme: dark)" srcset="https://recomplauncher.com/assets/press/launcher/badge-light.svg"><img alt="Get it on RecompLauncher" src="https://recomplauncher.com/assets/press/launcher/badge-dark.svg" height="48"></picture></a>
+
 Recompilação estática de *Hyrule Warriors: Age of Calamity* (Nintendo Switch, 2020, versão 1.3.0) para um programa
 nativo x86-64 com renderização Vulkan, com foco no **Steam Deck** e, em segundo lugar, em PCs mid-end (Linux e
 Windows).

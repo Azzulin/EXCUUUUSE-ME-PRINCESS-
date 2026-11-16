@@ -50,12 +50,20 @@ def hactool() -> Path:
     fail("hactool não encontrado (" + ", ".join(str(c) for c in cands) + ")")
 
 
-def find_nsp(game_dir: Path, tid: str, base: bool) -> Path:
-    for p in sorted(game_dir.rglob("*.nsp")):
-        n = p.name.upper()
-        if tid in n and (not base or "BASE" in n or "[V0]" in n):
-            return p
-    fail(f"NSP {tid} não encontrado em {game_dir}")
+def find_nsps(game_dir: Path, keys: Path) -> tuple[Path, Path]:
+    """Os NSPs da base e do update 1.3.0, achados pelo conteúdo (tools/extract.py scan: title id e versão do .cnmt),
+    qualquer que seja o nome do arquivo."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import extract
+    import nx
+    pkgs = [p for p in extract.scan(game_dir, nx.load_keys(keys)) if p["container"] == "nsp"]
+    out = []
+    for role, what in (("base", "do jogo base (01002B00111A2000)"), ("update", "do update 1.3.0 (01002B00111A2800)")):
+        found = [p["path"] for p in pkgs if p["role"] == role]
+        if len(found) != 1:
+            fail(f"esperado 1 NSP {what} em {game_dir}, achei {len(found)}")
+        out.append(found[0])
+    return out[0], out[1]
 
 
 def link_or_copy(src: Path, dst: Path) -> None:
@@ -99,8 +107,9 @@ def main() -> int:
     # 2. NSPs com nomes ASCII
     inp = TMP / "in"
     inp.mkdir(parents=True, exist_ok=True)
-    link_or_copy(find_nsp(args.game_dir, BASE_ID, True), inp / "base.nsp")
-    link_or_copy(find_nsp(args.game_dir, UPDATE_ID, False), inp / "update.nsp")
+    base_nsp, update_nsp = find_nsps(args.game_dir, keys)
+    link_or_copy(base_nsp, inp / "base.nsp")
+    link_or_copy(update_nsp, inp / "update.nsp")
 
     # 3. NCAs dos dois NSPs (a base tem ~11 GB) e a mescla
     for name in ("base", "update"):

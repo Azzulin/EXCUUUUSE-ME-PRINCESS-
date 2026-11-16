@@ -217,27 +217,48 @@ class SectionReader:
         return decrypt(self.key, modes.CTR(iv), data)[absolute - aligned:]
 
 
+def read_pfs0(f: BinaryIO, nca: Nca, index: int, key: bytes) -> list[tuple[str, bytes]]:
+    """Arquivos de uma seção PFS0 (tabela de hashes de 2 níveis), verificada bloco a bloco."""
+    sec = SectionReader(f, nca, index, key)
+    fs = sec.fs
+    blocksize, levels = struct.unpack_from("<II", fs, 0x28)
+    hashoff, hashsize, pfsoff, pfssize = struct.unpack_from("<QQQQ", fs, 0x30)
+    require(levels == 2 and blocksize > 0 and pfssize <= MAX_READ, "Layout de hash do PFS0 não suportado")
+    hashes = sec.read(hashoff, hashsize)
+    require(hashlib.sha256(hashes).digest() == fs[8:40], "Tabela de hash do PFS0 não bate")
+    pfs = sec.read(pfsoff, pfssize)
+    for block, pos in enumerate(range(0, pfssize, blocksize)):
+        require(hashlib.sha256(pfs[pos:pos + blocksize]).digest() == hashes[block * 32:(block + 1) * 32],
+                f"Hash do bloco {block} do PFS0 não bate")
+    return [(name, pfs[off:off + size]) for name, off, size in partition_entries(io.BytesIO(pfs), 0, len(pfs))]
+
+
 def read_exefs(f: BinaryIO, nca: Nca, key: bytes) -> list[tuple[str, bytes]]:
-    """ExeFS (PFS0 com tabela de hashes de 2 níveis) verificado bloco a bloco."""
+    """ExeFS (a seção PFS0 que tem o main.npdm) verificado bloco a bloco."""
     for i in nca.sections():
         if nca.section_kind(i) != "pfs0":
             continue
-        sec = SectionReader(f, nca, i, key)
-        fs = sec.fs
-        blocksize, levels = struct.unpack_from("<II", fs, 0x28)
-        hashoff, hashsize, pfsoff, pfssize = struct.unpack_from("<QQQQ", fs, 0x30)
-        require(levels == 2 and blocksize > 0 and pfssize <= MAX_READ, "Layout de hash do ExeFS não suportado")
-        hashes = sec.read(hashoff, hashsize)
-        require(hashlib.sha256(hashes).digest() == fs[8:40], "Tabela de hash do ExeFS não bate")
-        pfs = sec.read(pfsoff, pfssize)
-        for index, pos in enumerate(range(0, pfssize, blocksize)):
-            require(hashlib.sha256(pfs[pos:pos + blocksize]).digest() == hashes[index * 32:(index + 1) * 32],
-                    f"Hash do bloco {index} do ExeFS não bate")
-        files = [(name, pfs[off:off + size]) for name, off, size in
-                 partition_entries(io.BytesIO(pfs), 0, len(pfs))]
+        files = read_pfs0(f, nca, i, key)
         if any(name == "main.npdm" for name, _ in files):
             return files
     raise ValueError("NCA sem ExeFS")
+
+
+def package_version(f: BinaryIO, ncas: list[Nca], keys: dict[str, bytes], tickets: dict[bytes, bytes]):
+    """(title id, versão) do pacote, lidos do .cnmt do NCA Meta (switchbrew.org/wiki/CNMT: id u64, versão u32).
+    A versão de um update é o número do título (1.3.0 de Age of Calamity = 327680); None sem NCA Meta legível."""
+    for nca in ncas:
+        if nca.content_type != 1:
+            continue
+        key = nca_ctr_key(nca, keys, tickets)
+        for i in nca.sections():
+            if nca.section_kind(i) != "pfs0":
+                continue
+            for name, data in read_pfs0(f, nca, i, key):
+                if name.lower().endswith(".cnmt") and len(data) >= 12:
+                    tid, version = struct.unpack_from("<QI", data, 0)
+                    return f"{tid:016X}", version
+    return None
 
 
 def romfs_files(sec: SectionReader) -> list[tuple[str, int, int]]:

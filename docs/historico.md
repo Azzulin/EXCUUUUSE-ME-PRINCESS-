@@ -1241,3 +1241,33 @@ Arquivos: `runtime/diag.c` (novo), `kernel.c`, `perf.c`, `flight.c/.h`, `vk_back
   as quatro imagens (1,4 GiB, ~8 min a de 1,1 GiB). SHA-256 das imagens no cartão iguais aos do `dlc.json`;
   `./aoc --probe-fs` no Deck: 4 DLCs, passa.
 - **Não feito:** o conteúdo dos DLCs (fases, personagens, vídeos novos) não foi jogado; sem release da 0.1.5.
+
+## Sessão 16 — 2026-11-15/16 (notebook): instalador conferido, relatos dos usuários, release 0.1.5
+
+- Pedido do dono: conferir se o instalador funciona como deveria, publicar a versão nova e deixar uma opção de
+  mandar registros ou abrir issues, para mais gente testar.
+- **O repositório já é público** e tem relatos: #2 (forja falha no Steam Machine/Deck), #4 (só NSPs com nome
+  "oficial"), #5 e #8 (falha em "gerar o código para o Windows"), #7 (DLC lido mas não registrado). Os
+  `aoc-report.zip` anexados mostraram a causa de #5/#8: o update dos usuários é o **1.4.1 (v458752)**. A checagem
+  aceitava qualquer update pelo nome, o `extract` falhava ("build IDs não batem"), o ExeFS errado ficava no disco, a
+  tentativa seguinte o pulava, montava o RomFS com o 1.4.1 e morria no gerador (`PatchError: main+0x8d9490: module
+  has 2a1f03e1, the patch expects d280f008`) — e continuava morrendo depois de a pessoa trocar o update pelo 1.3.0.
+  #2: `pacman` no SteamOS, "unable to lock database" (sistema somente leitura).
+- **Correções** (`tools/nx.py`, `extract.py`, `make_build.py`, `merge_romfs.py`, `launcher/launcher.cpp`):
+  pacotes identificados pelo conteúdo (title id e versão do `.cnmt`), update de outra versão recusado no primeiro
+  passo com mensagem em português e inglês, ExeFS e `romfs.bin` de tentativas anteriores conferidos (build IDs;
+  tamanho da imagem em `known-builds.json`) e refeitos sozinhos, NSPs com qualquer nome, aviso claro no SteamOS.
+  Testes sintéticos novos em `tests/test_tools.py` (19 no total).
+- **Reportar problema**: o botão do launcher (antes "Relatório…") cria o `aoc-report.zip`, abre a pasta e o
+  formulário de issues; `tools/make_report.py` troca o nome de usuário do PC por `user` em todos os textos (os
+  relatos são públicos); `.github/ISSUE_TEMPLATE/problema.yml`; seção 8 nos guias; o LEIA-ME do Deck aponta o link.
+- **PR #9 de um colaborador** (RecompLauncher: `recomplauncher.json`, `--prepare`, selo no README) foi mesclado pelo
+  dono durante a sessão; lido antes de entrar no pacote (sem nada que rode fora do `make_build.py`).
+- **Teste do instalador** (pacote `AoC-Recomp-0.1.5-Windows.zip` numa pasta limpa, `python/python.exe
+  tools/make_build.py --windows --deck --with-romfs`): o passo `tools` criou a distro WSL privada `AoC-Recomp`,
+  `romfs` mesclou os 10,9 GiB, `dlc` extraiu os quatro, e as duas pastas saíram (`dist/aoc-deck`,
+  `dist/aoc-windows`); ~2 h no notebook. O launcher do pacote abre e mostra **Reportar problema…**. Segunda forja
+  com os seis NSPs renomeados para `arquivo N.nsp`, o build ID do `main` adulterado e um `romfs.bin` de 1 KiB: o
+  passo `extract` avisa e extrai de novo, o `romfs` avisa e mescla de novo.
+- Não coberto pelo teste: instalação do MSYS2 do zero (o notebook já o tem), a instalação do próprio WSL, e um
+  update 1.4.1 de verdade (não há um no dump do dono; o caminho é coberto por teste sintético).

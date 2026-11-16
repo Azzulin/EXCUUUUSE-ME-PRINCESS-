@@ -1,7 +1,7 @@
 # Handover — estado do projeto para o próximo agente
 
 Leia isto primeiro, depois `AGENTS.md` (regras) e `docs/plano.md` (fases). O plano de ação imediato e um prompt pronto
-para uma sessão nova estão em `docs/proxima-sessao.md`. Atualizado em 2026-11-15 (sessão 15, no
+para uma sessão nova estão em `docs/proxima-sessao.md`. Atualizado em 2026-11-16 (sessão 16, no
 notebook, build nativo do Windows na RTX 3050). Tudo aqui foi medido no dump do próprio dono do projeto; nada é
 estimativa salvo onde está dito.
 
@@ -43,7 +43,8 @@ Números-chave (detalhes em `docs/aoc.md`):
 ## 2. Decisões já tomadas (não reabrir sem motivo)
 
 1. **Arquitetura A** (lifter + NVN HLE + Vulkan, linha Astral Chain). Plano B documentado: GPU LLE como o HWDER.
-2. **Versão única 1.3.0** (+ DLCs). Outros builds são recusados.
+2. **Versão única 1.3.0** (+ DLCs). Outros builds são recusados (com mensagem clara desde a 0.1.5; o update 1.4.1
+   existe e é o que muitos usuários têm — ver sessão 16).
 3. **Compila-se no Windows pelo WSL2** (hoje no notebook, seção 3); o Deck **não compila nada**. O resultado é **uma
    pasta única** `dist/aoc-deck/` (`tools/build.py dist`, contra o sysroot sniper) que o dono copia para o cartão SD
    de **1 TB** do Deck (FTP, nuvem ou cabo). Layout em `docs/steam-deck.md`.
@@ -70,7 +71,7 @@ Comum às duas:
 
 | O quê | Onde |
 |---|---|
-| Repositório remoto (privado) | https://github.com/Azzulin/Blonde-Z-and-her-friends |
+| Repositório remoto (**público**) | https://github.com/Azzulin/EXCUUUUSE-ME-PRINCESS- (o nome antigo, `Blonde-Z-and-her-friends`, redireciona) |
 | Dump do jogo | `<repo>\Game Files\` (NSPs + `prod.keys` + `title.keys`) — nunca no git |
 | RomFS mesclado e ExeFS extraído | `<repo>\build\v130\` (`romfs.bin` + `romfs.bin.sha256`, `exefs\`, relatórios dos censos) |
 | hactool | `<repo>\toolchain\hactool-1.4.0-win\hactool.exe` |
@@ -117,6 +118,32 @@ partir de 100 s, `AOC_TRACE=perf`, vigia de travada).
 ## 6. Próximos passos (em ordem)
 
 **Sessão 5 (2026-11-09) — ler primeiro; o plano passo a passo está em `docs/proxima-sessao.md`.**
+
+- **Sessão 16 (2026-11-15/16): instalador conferido contra os relatos dos usuários; reporte de problemas.**
+  O repositório é **público** (`Azzulin/EXCUUUUSE-ME-PRINCESS-`; centenas de downloads por release) e tem issues de
+  usuários: ler `https://api.github.com/repos/Azzulin/EXCUUUUSE-ME-PRINCESS-/issues` no começo de cada sessão (os
+  `aoc-report.zip` anexados trazem os registros da forja). Causas achadas e corrigidas na 0.1.5:
+  - **Update 1.4.1 (v458752) existe e muita gente tem só ele.** A forja dizia "update 1.3.0 ok" pelo nome do arquivo,
+    falhava em `extract` com mensagem obscura, deixava o ExeFS errado no disco (pulado na tentativa seguinte) e
+    morria em `wingen` com `PatchError: main+0x8d9490` (issues #5 e #8), mesmo depois de a pessoa trocar o update.
+    Agora `tools/extract.py scan` lê título e versão do `.cnmt` (`nx.package_version`), `inventory` recusa outro
+    update com mensagem própria (`@@PROBLEM`, traduzida em `make_build.py`), `s_extract` só aproveita um ExeFS com os
+    build IDs do 1.3.0 e `s_romfs` só aproveita um `romfs.bin` com o tamanho do 1.3.0 (`romfs_image_size`).
+    **Suporte ao 1.4.1 é o pedido que mais destrava usuários** (build IDs `main e5f275b5…`; `subsdk0` e `sdk` iguais
+    aos do 1.3.0): precisa de entrada em `known-builds.json`, tabela de patches e spin waits próprias e uma rodada
+    de testes — não começado.
+  - **NSPs renomeados** (#4): base, update e DLCs são achados pelo conteúdo (também no `merge_romfs.py`); o launcher
+    não bloqueia mais o FORJAR por nome sem ID.
+  - **SteamOS** (#2, Deck e Steam Machine): `pacman` falha (sistema somente leitura). A forja agora para com uma
+    mensagem clara mandando forjar num PC. O SteamOS tem `distrobox` e `podman`: forjar dentro de um contêiner é o
+    caminho para suportar isso (não feito).
+  - **DLC não registrado** (#7): era a falta de DLC da 0.1.4; resolvido pela sessão 15.
+  - **Reportar problema…** no launcher: cria o `aoc-report.zip` (agora sem o nome de usuário do PC nos textos),
+    abre a pasta e o formulário de issues (`.github/ISSUE_TEMPLATE/problema.yml`).
+  - Um PR externo foi mesclado pelo dono no meio da sessão (`recomplauncher.json`, `make_build.py --prepare`).
+  Teste do instalador: pacote 0.1.5 desempacotado em `C:\aoc-pkgtest\t1`, forja completa Deck + Windows do zero
+  (distro WSL privada `AoC-Recomp` criada pelo passo `tools`, ~2 h): todos os passos ok. Segunda forja com NSPs
+  renomeados, ExeFS adulterado e `romfs.bin` falso: refaz os dois e termina.
 
 - **Sessão 15 (2026-11-15): DLCs implementados (versão 0.1.5), enviados ao Deck — falta o dono jogar.**
   `tools/extract_dlc.py` tira dos NSPs a imagem RomFS de cada DLC (`build/v130/dlc-<title id>.bin`, árvore IVFC

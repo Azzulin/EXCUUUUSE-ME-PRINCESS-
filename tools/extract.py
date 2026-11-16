@@ -33,6 +33,7 @@ ROOT = Path(__file__).resolve().parent.parent
 BASE_TID = "01002B00111A2000"
 UPDATE_TID = "01002B00111A2800"
 DLC_PREFIX = "01002B00111A3"
+UPDATE_VERSION = 327680   # o número de título do update 1.3.0, o único que o port aceita (tools/data/known-builds.json)
 
 
 def scan(game_dir: Path, keys: dict) -> list[dict]:
@@ -42,24 +43,31 @@ def scan(game_dir: Path, keys: dict) -> list[dict]:
             kind, entries = nx.container_entries(f, path.stat().st_size)
             tickets = nx.common_tickets(f, entries)
             ncas = nx.nca_inventory(f, entries, keys)
+            try:
+                cnmt = nx.package_version(f, ncas, keys, tickets)
+            except ValueError:
+                cnmt = None
         meta = [n for n in ncas if n.content_type == 1]
-        package_tid = meta[0].title_id if meta else (ncas[0].title_id if ncas else "?")
+        package_tid = cnmt[0] if cnmt else meta[0].title_id if meta else (ncas[0].title_id if ncas else "?")
+        version = cnmt[1] if cnmt else None
         if package_tid == BASE_TID:
             role = "base"
         elif package_tid == UPDATE_TID:
-            role = "update"
+            # um update de outra versão (existe o 1.4.1, v458752) não serve: o código gerado e os patches são do 1.3.0
+            role = "update" if version in (None, UPDATE_VERSION) else "update-x"
         elif package_tid.startswith(DLC_PREFIX):
             role = "dlc"
         else:
             role = "outro"
-        found.append({"path": path, "container": kind, "role": role, "title_id": package_tid,
+        found.append({"path": path, "container": kind, "role": role, "title_id": package_tid, "version": version,
                       "ncas": ncas, "tickets": len(tickets)})
     return found
 
 
 def describe(pkgs: list[dict]) -> None:
     for p in pkgs:
-        print(f"[{p['role']:6s}] {p['title_id']}  {p['path'].name}")
+        version = "" if p["version"] is None else f"v{p['version']}  "
+        print(f"[{p['role']:8s}] {p['title_id']}  {version}{p['path'].name}")
         for n in p["ncas"]:
             secs = ", ".join(f"{i}:{n.section_kind(i)}" for i in n.sections())
             print(f"         {n.content_name:10s} {n.size / 2**20:10.1f} MiB  keygen 0x{n.key_generation:02x}"
@@ -70,13 +78,23 @@ def cmd_inventory(args, keys) -> int:
     pkgs = scan(args.game_dir, keys)
     describe(pkgs)
     roles = [p["role"] for p in pkgs]
+    # Cada problema sai também numa linha "@@PROBLEM <código> <detalhe>", que tools/make_build.py traduz para o jogador.
     problems = []
     if roles.count("base") != 1:
-        problems.append(f"esperada 1 base, achei {roles.count('base')}")
-    if roles.count("update") != 1:
-        problems.append(f"esperado 1 update, achei {roles.count('update')}")
-    for msg in problems:
+        problems.append(("base", roles.count("base"), f"esperada 1 base, achei {roles.count('base')}"))
+    if roles.count("update") > 1:
+        problems.append(("updates", roles.count("update"), f"esperado 1 update 1.3.0, achei {roles.count('update')}"))
+    elif not roles.count("update"):
+        other = [p for p in pkgs if p["role"] == "update-x"]
+        if other:
+            problems.append(("wrong_update", other[0]["version"],
+                             f"o update da pasta é a versão v{other[0]['version']} ({other[0]['path'].name}); o port "
+                             f"só aceita o update 1.3.0 (v{UPDATE_VERSION})"))
+        else:
+            problems.append(("update", 0, "falta o update 1.3.0"))
+    for code, detail, msg in problems:
         print("PROBLEMA:", msg)
+        print(f"@@PROBLEM {code} {detail}")
     return 1 if problems else 0
 
 

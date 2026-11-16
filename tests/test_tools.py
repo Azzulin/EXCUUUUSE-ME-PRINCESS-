@@ -177,5 +177,74 @@ class ExtractDlcTest(unittest.TestCase):
             extract_dlc.copy_verified(FakeSection(fs, bytes(bad)), Path(d) / "dlc.bin")
 
 
+try:
+    import extract
+except ImportError:
+    extract = None
+import make_build  # noqa: E402  (só a biblioteca padrão)
+
+
+def fake_pkg(role: str, version, name: str) -> dict:
+    tid = {"base": "01002B00111A2000", "dlc": "01002B00111A3001"}.get(role, "01002B00111A2800")
+    return {"path": Path(name), "container": "nsp", "role": role, "title_id": tid, "version": version, "ncas": [],
+            "tickets": 0}
+
+
+@unittest.skipUnless(extract, "sem o pacote cryptography")
+class InventoryTest(unittest.TestCase):
+    """O inventário decide pelo papel que scan() tirou do conteúdo; o nome do arquivo não entra."""
+
+    def inventory(self, pkgs):
+        from types import SimpleNamespace
+        real, extract.scan = extract.scan, lambda game_dir, keys: pkgs
+        buf = io.StringIO()
+        try:
+            with redirect_stdout(buf):
+                rc = extract.cmd_inventory(SimpleNamespace(game_dir=Path(".")), {})
+        finally:
+            extract.scan = real
+        return rc, [l.split(" ", 2)[1:] for l in buf.getvalue().splitlines() if l.startswith("@@PROBLEM ")]
+
+    def test_good_dump_with_any_names(self):
+        rc, problems = self.inventory([fake_pkg("base", 0, "a.nsp"), fake_pkg("update", 327680, "b.nsp"),
+                                       fake_pkg("dlc", 0, "c.nsp")])
+        self.assertEqual((rc, problems), (0, []))
+
+    def test_update_of_another_version(self):
+        rc, problems = self.inventory([fake_pkg("base", 0, "a.nsp"), fake_pkg("update-x", 458752, "b.nsp")])
+        self.assertEqual((rc, problems), (1, [["wrong_update", "458752"]]))
+
+    def test_right_update_wins_over_another_version(self):
+        rc, problems = self.inventory([fake_pkg("base", 0, "a.nsp"), fake_pkg("update-x", 458752, "b.nsp"),
+                                       fake_pkg("update", 327680, "c.nsp")])
+        self.assertEqual((rc, problems), (0, []))
+
+    def test_missing_packages(self):
+        rc, problems = self.inventory([fake_pkg("dlc", 0, "c.nsp")])
+        self.assertEqual((rc, sorted(p[0] for p in problems)), (1, ["base", "update"]))
+
+    def test_every_problem_has_a_message_for_the_player(self):
+        for code in ("base", "update", "updates", "wrong_update"):
+            self.assertIn("p_" + code, make_build.TEXT)
+
+
+class MakeBuildTest(unittest.TestCase):
+    def test_run_collects_problem_lines(self):
+        found = []
+        with redirect_stdout(io.StringIO()), self.assertRaises(make_build.StepFailed):
+            make_build.run([sys.executable, "-c",
+                            "import sys; print('@@PROBLEM wrong_update 458752'); print('texto'); sys.exit(1)"],
+                           problems=found)
+        self.assertEqual(found, [("wrong_update", "458752")])
+
+    def test_messages_have_both_languages(self):
+        for key, pair in make_build.TEXT.items():
+            self.assertEqual(len(pair), 2, key)
+            self.assertTrue(all(pair), key)
+
+    def test_known_romfs_size(self):
+        self.assertEqual(make_build.romfs_size(), 11719230892)
+
+
 if __name__ == "__main__":
     unittest.main()

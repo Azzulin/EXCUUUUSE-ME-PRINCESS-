@@ -71,7 +71,7 @@ enum Str {
     T_GUIDE, T_NEED_WSL, T_NEED_WSL2, T_INSTALL_WSL, T_WSL_RUNNING, T_WSL_DONE, T_WSL_FAIL, T_CANCELLED_LOG,
     T_NO_PYTHON, T_UPDATE_NOTE, T_GRAPHICS, T_CONTROLS, T_GFX_NOTE, T_CTL_NOTE, T_PLAY, T_PLAYING, T_REPORT,
     T_REPORTING, T_REPORT_DONE, T_REPORT_FAIL, T_GAME_FOLDER, T_LOGS_FOLDER, T_FORGE_AGAIN, T_BACK_TO_GAME, T_SAVE,
-    T_SAVED, T_SAVE_FAIL, T_CLOSE, T_FRAMERATE, T_FRAMERATE_VAL, T_FRAMERATE_DESC, T_UNSAVED, T_PLAY_FAIL, T_COUNT
+    T_SAVED, T_SAVE_FAIL, T_CLOSE, T_FRAMERATE, T_FRAMERATE_VAL, T_FRAMERATE_DESC, T_UNSAVED, T_PLAY_FAIL, T_UNNAMED, T_COUNT
 };
 static const char *STR[T_COUNT][2] = {
     {"HYRULE WARRIORS  ·  RECOMPILADO", "HYRULE WARRIORS  ·  RECOMPILED"},
@@ -161,6 +161,7 @@ static const char *STR[T_COUNT][2] = {
      "30 FPS is the game's own rate: it moves a fixed step per frame. 60 FPS needs a patch that is not ported yet."},
     {"alterações não salvas", "unsaved changes"},
     {"Não consegui abrir o jogo.", "Could not start the game."},
+    {"(nome sem o ID; conferido ao forjar)", "(no ID in the name; checked when forging)"},
 };
 static int g_lang = 0;   // 0 Portuguese, 1 English
 static const char *tr(Str s) { return STR[s][g_lang]; }
@@ -251,7 +252,7 @@ static std::string forged_version() {
 }
 static std::string package_version() { return trim(read_text(g_root / "VERSION")); }
 
-// ---- the dump folder at a glance (names only; the build checks the contents)
+// ---- the dump folder at a glance (names only, a hint; the forge's check step identifies the packages by content)
 struct DumpScan {
     int nsp = 0, dlc = 0;
     bool base = false, update = false, keys = false, exists = false;
@@ -1308,8 +1309,12 @@ static void screen_build(ImGuiIO &io, float pad, float t, DumpScan &scan, char *
     if (!scan.exists) {
         status_dot(false, tr(T_NO_FOLDER));
     } else {
-        status_dot(scan.base, tr(T_BASE), scan.base ? "01002B00111A2000" : tr(T_MISSING));
-        status_dot(scan.update, tr(T_UPDATE), scan.update ? "01002B00111A2800" : tr(T_MISSING));
+        // The names are only a hint: with two or more NSPs whose names carry no title id, the forge's check step
+        // identifies the base and the update by their contents (tools/extract.py inventory).
+        bool unnamed = scan.nsp >= 2;
+        status_dot(scan.base || unnamed, tr(T_BASE), scan.base ? "01002B00111A2000" : tr(unnamed ? T_UNNAMED : T_MISSING));
+        status_dot(scan.update || unnamed, tr(T_UPDATE),
+                   scan.update ? "01002B00111A2800" : tr(unnamed ? T_UNNAMED : T_MISSING));
         char d[48];
         snprintf(d, sizeof d, tr(T_DLC_N), scan.dlc);
         status_dot(scan.dlc > 0, tr(T_DLC), d);
@@ -1464,7 +1469,7 @@ static void screen_build(ImGuiIO &io, float pad, float t, DumpScan &scan, char *
         ImGui::SameLine();
     }
     if (bar_button(T_CLOSE, "close")) quit = true;
-    bool ready = scan.base && scan.update && scan.keys && (S.deck || S.windows) && !g_root.empty();
+    bool ready = ((scan.base && scan.update) || scan.nsp >= 2) && scan.keys && (S.deck || S.windows) && !g_root.empty();
     float check_w = 120 * s, forge_w = 200 * s;
     ImGui::SameLine(io.DisplaySize.x - pad - forge_w - check_w - 10 * s);
     if (!running) {

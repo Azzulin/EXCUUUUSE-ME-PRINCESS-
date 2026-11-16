@@ -36,10 +36,10 @@ Passos (os prontos são pulados, então forjar de novo é incremental):
 
 | Passo | O que faz |
 |---|---|
-| `check` | nomes dos NSPs, `prod.keys`, inventário (`extract.py inventory`), espaço em disco (~23 GB para a mescla do RomFS, ~7 GB por destino) e RAM |
+| `check` | `prod.keys` e o inventário (`extract.py inventory`: cada pacote é identificado pelo conteúdo — title id e versão do `.cnmt` —, com qualquer nome de arquivo; um update que não seja o 1.3.0, v327680, é recusado com mensagem própria), espaço em disco (~23 GB para a mescla do RomFS, ~7 GB por destino) e RAM |
 | `tools` | **prepara o ambiente sozinho.** Windows + Deck: confere o WSL (sem ele imprime `@@NEED wsl`, e o launcher oferece `wsl --install --no-distribution` com elevação) e cria a distro privada **`AoC-Recomp`** com `wsl --install archlinux --name AoC-Recomp --location %LOCALAPPDATA%\AoC-Recomp\wsl --no-launch`, depois `tools/setup_wsl.sh --minimal` como root (o script gera o chaveiro do pacman, que a imagem Arch só gera numa primeira abertura interativa). Windows como destino: MSYS2 em `C:/msys64` (se faltar, o `msys2-base` fixado é baixado e extraído) e os pacotes UCRT64. Linux: `setup_wsl.sh --minimal` (pacman, apt ou dnf; sem terminal, `pkexec` pede a senha). `--wsl-distro` usa outra distro (a de desenvolvimento, por exemplo) |
-| `extract` | `build/v130/exefs` (`extract.py exefs`) |
-| `romfs` | `build/v130/romfs.bin` com `tools/merge_romfs.py` (o `merge_romfs.ps1` em Python, para Windows e Linux; hactool de `prebuilt/hactool/` ou `toolchain/`) |
+| `extract` | `build/v130/exefs` (`extract.py exefs`); um ExeFS no disco só é aproveitado se os build IDs forem os do 1.3.0 (senão é apagado e extraído de novo) |
+| `romfs` | `build/v130/romfs.bin` (só aproveitado com o tamanho do 1.3.0, `romfs_image_size` em `tools/data/known-builds.json`) com `tools/merge_romfs.py` (o `merge_romfs.ps1` em Python, para Windows e Linux; hactool de `prebuilt/hactool/` ou `toolchain/`) |
 | `dlc` | `build/v130/dlc-<title id>.bin`, o RomFS de cada DLC do dump (`tools/extract_dlc.py`, árvore IVFC conferida; pula os já extraídos). Sem NSP de DLC o passo não extrai nada e o jogo roda sem DLC |
 | `deck` | `build.py gen guest dist` no WSL (ou nativo no Linux) → `dist/aoc-deck` |
 | `wingen` | o C gerado para o Windows: copiado do WSL se o passo `deck` rodou, senão gerado no próprio Windows |

@@ -6,7 +6,8 @@ the standard library; the tools it calls run in ~/.venvs/aoc, which the tools st
 Steps (each prints "@@STEP <id> <run|ok|fail|skip> <text>"; every other line is log; the last line is "@@DONE ok|fail";
 "@@NEED wsl" asks the launcher to offer installing WSL):
 
-  check     the dump folder (NSPs of the base, update 1.3.0 and DLCs, and prod.keys), free disk and memory
+  check     the dump folder (NSPs of the base, update 1.3.0 and DLCs, and prod.keys; each package is identified by
+            its contents, not its file name, and an update of another version is refused), free disk and memory
   tools     the build environment, set up once and then only checked:
               Windows + Deck: WSL and a private Arch Linux distro "AoC-Recomp" (wsl --install archlinux --name), with
                               tools/setup_wsl.sh --minimal inside (clang, lld, ninja, Python venv)
@@ -100,6 +101,33 @@ TEXT = {
     "no_bash": ("o Git Bash não está em C:/Program Files/Git (o envio usa ssh e scp dele)",
                 "Git Bash is not in C:/Program Files/Git (sending uses its ssh and scp)"),
     "unexpected": ("ERRO inesperado: {0}", "Unexpected ERROR: {0}"),
+    # what tools/extract.py inventory found wrong in the dump ("@@PROBLEM <code> <detail>")
+    "p_base": ("não achei o jogo base (01002B00111A2000) entre os NSPs da pasta (ou há mais de um)",
+               "the base game (01002B00111A2000) is not among the NSPs in the folder (or there is more than one)"),
+    "p_update": ("não achei o update 1.3.0 (01002B00111A2800) entre os NSPs da pasta",
+                 "update 1.3.0 (01002B00111A2800) is not among the NSPs in the folder"),
+    "p_updates": ("há mais de um update 1.3.0 na pasta; deixe só um", "there is more than one update 1.3.0 in the folder; keep one"),
+    "p_wrong_update": ("o update da sua pasta é de outra versão (v{0}; o 1.4.1 é o v458752). O AoC Recomp só funciona "
+                       "com o update 1.3.0 (v327680): troque o NSP do update pelo da 1.3.0 e forje de novo",
+                       "the update in your folder is another version (v{0}; 1.4.1 is v458752). AoC Recomp only works "
+                       "with update 1.3.0 (v327680): replace the update NSP with the 1.3.0 one and forge again"),
+    "no_nsp": ("não há arquivos .nsp na pasta escolhida", "there are no .nsp files in the chosen folder"),
+    "wrong_build": ("o código do jogo extraído não é o da versão 1.3.0. O AoC Recomp só funciona com o update 1.3.0 "
+                    "(v327680); o 1.4.1 ainda não é aceito. Troque o NSP do update e forje de novo",
+                    "the extracted game code is not version 1.3.0. AoC Recomp only works with update 1.3.0 (v327680); "
+                    "1.4.1 is not accepted yet. Replace the update NSP and forge again"),
+    "stale_exefs": ("o código extraído numa tentativa anterior não é o da versão 1.3.0: extraindo de novo",
+                    "the game code extracted by an earlier attempt is not version 1.3.0: extracting again"),
+    "stale_romfs": ("o romfs.bin de uma tentativa anterior não é o da versão 1.3.0 ({0} bytes): montando de novo",
+                    "the romfs.bin of an earlier attempt is not the 1.3.0 one ({0} bytes): building it again"),
+    "romfs_size": ("o RomFS montado tem {0} bytes, o da versão 1.3.0 tem {1}: confira se o jogo base e o update são os "
+                   "certos (base v0 e update 1.3.0)",
+                   "the merged RomFS has {0} bytes, the 1.3.0 one has {1}: check that the base game and the update are "
+                   "the right ones (base v0 and update 1.3.0)"),
+    "steamos": ("o SteamOS não deixa instalar as ferramentas de compilação (o sistema é somente leitura). Forje num PC "
+                "com Windows ou Linux e copie a pasta dist/aoc-deck para cá (guia, seção 4)",
+                "SteamOS does not let the build tools be installed (the system is read-only). Forge on a Windows or "
+                "Linux PC and copy the dist/aoc-deck folder here (guide, section 4)"),
 }
 
 
@@ -126,14 +154,17 @@ class StepFailed(Exception):
     pass
 
 
-def run(cmd, cwd=None, env=None) -> None:
-    """Runs a command, its output going to the log line by line; a non-zero exit fails the step."""
+def run(cmd, cwd=None, env=None, problems=None) -> None:
+    """Runs a command, its output going to the log line by line; a non-zero exit fails the step. problems: a list that
+    receives the (code, detail) of each "@@PROBLEM <code> <detail>" line the command prints."""
     env = dict(env or os.environ, PYTHONUTF8="1", PYTHONIOENCODING="utf-8", WSL_UTF8="1")
     p = subprocess.Popen([str(c) for c in cmd], cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                          stdin=subprocess.DEVNULL)
     for raw in iter(p.stdout.readline, b""):
         line = raw.decode("utf-8", "replace").rstrip("\r\n").replace("\x00", "")
-        if line.strip():
+        if line.startswith("@@PROBLEM ") and problems is not None:
+            problems.append(tuple((line.split(" ", 2) + [""])[1:3]))
+        elif line.strip():
             out(line)
     if p.wait():
         raise StepFailed(tr("exit", p.returncode))
@@ -208,17 +239,27 @@ def s_check(args) -> None:
     if not g.is_dir():
         raise StepFailed(tr("no_dir", g))
     nsps = sorted(g.rglob("*.nsp"))
-    base = [p for p in nsps if BASE_ID in p.name.upper()]
-    upd = [p for p in nsps if UPDATE_ID in p.name.upper()]
-    dlc = [p for p in nsps if "01002B00111A3" in p.name.upper()]
-    out(f"{g}: {len(nsps)} NSP; base {'ok' if base else '--'}; update 1.3.0 {'ok' if upd else '--'}; "
-        f"DLC {len(dlc)}; prod.keys {'ok' if args.keys.is_file() else '--'}")
-    miss = [tr("base")] * (not base) + [tr("update")] * (not upd) + ["prod.keys"] * (not args.keys.is_file())
-    if miss:
-        raise StepFailed(tr("missing", ", ".join(miss)))
-    # The inventory reads the NSP headers (needs cryptography: on Linux only once the venv exists).
+    out(f"{g}: {len(nsps)} NSP; prod.keys {'ok' if args.keys.is_file() else '--'}")
+    if not args.keys.is_file():
+        raise StepFailed(tr("missing", "prod.keys"))
+    if not nsps:
+        raise StepFailed(tr("no_nsp"))
+    # The inventory identifies each package by what its NCAs say (title id and version), whatever the file is called;
+    # it needs cryptography: on Linux only once the venv exists, and until then the names are the hint.
     if WIN or VENV_PY.is_file():
-        run([tool_python(), ROOT / "tools/extract.py", "inventory", "--game-dir", g, "--keys", args.keys])
+        found = []
+        try:
+            run([tool_python(), ROOT / "tools/extract.py", "inventory", "--game-dir", g, "--keys", args.keys],
+                problems=found)
+        except StepFailed:
+            if found and "p_" + found[0][0] in TEXT:
+                raise StepFailed(tr("p_" + found[0][0], found[0][1]))
+            raise
+    else:
+        miss = [tr("base")] * (not any(BASE_ID in p.name.upper() for p in nsps)) + \
+               [tr("update")] * (not any(UPDATE_ID in p.name.upper() for p in nsps))
+        if miss:
+            raise StepFailed(tr("missing", ", ".join(miss)))
     if args.windows and not WIN:
         raise StepFailed(tr("no_win_linux"))
     if args.send and not args.deck:
@@ -315,6 +356,16 @@ def tools_msys2(args) -> None:
         msys(args, "pacman -S --needed --noconfirm --disable-download-timeout " + " ".join(pkgs))
 
 
+def steamos_readonly() -> bool:
+    """SteamOS (Steam Deck, Steam Machine) with its read-only system and no compiler: pacman cannot install there."""
+    try:
+        text = Path("/etc/os-release").read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+    ids = {l.split("=", 1)[1].strip().strip('"') for l in text.splitlines() if l.startswith("ID=")}
+    return "steamos" in ids and not (shutil.which("clang") and shutil.which("ninja"))
+
+
 def s_tools(args) -> str:
     if WIN:
         if args.deck:
@@ -322,23 +373,55 @@ def s_tools(args) -> str:
         if args.windows:
             tools_msys2(args)
     else:
+        if steamos_readonly():
+            raise StepFailed(tr("steamos"))
         run(["bash", ROOT / "tools/setup_wsl.sh", "--minimal"], cwd=str(ROOT))
     out(tr("tools_ok"))
     return "ok"
 
 
 def s_extract(args) -> str:
-    if (ROOT / "build/v130/exefs/main").is_file():
-        return "skip"
+    # An ExeFS on disk counts only when its build IDs are the 1.3.0 ones (tools/data/known-builds.json): an earlier
+    # attempt with another update leaves one that would be skipped here and fail later, at the code generator.
+    exefs = ROOT / "build/v130/exefs"
+    inspect = [tool_python(), ROOT / "tools/inspect_dump.py", "--exefs", exefs]
+    if (exefs / "main").is_file():
+        if capture(inspect).returncode == 0:
+            return "skip"
+        out(tr("stale_exefs"))
+    if exefs.is_dir():
+        shutil.rmtree(exefs)
     run([tool_python(), ROOT / "tools/extract.py", "exefs", "--game-dir", args.game_dir, "--keys", args.keys])
-    run([tool_python(), ROOT / "tools/inspect_dump.py", "--exefs", ROOT / "build/v130/exefs"])
+    try:
+        run(inspect)
+    except StepFailed:
+        shutil.rmtree(exefs, ignore_errors=True)
+        raise StepFailed(tr("wrong_build"))
     return "ok"
 
 
+def romfs_size() -> int:
+    """Bytes of the merged 1.3.0 RomFS image (tools/data/known-builds.json); 0 when the table has none."""
+    try:
+        known = json.loads((ROOT / "tools/data/known-builds.json").read_text(encoding="utf-8"))
+        return int(known["builds"]["1.3.0"].get("romfs_image_size", 0))
+    except (OSError, ValueError, KeyError):
+        return 0
+
+
 def s_romfs(args) -> str:
-    if (ROOT / "build/v130/romfs.bin").is_file():
-        return "skip"
+    rom, want = ROOT / "build/v130/romfs.bin", romfs_size()
+    if rom.is_file():
+        if not want or rom.stat().st_size == want:
+            return "skip"
+        out(tr("stale_romfs", rom.stat().st_size))   # merged with another update by an earlier attempt
+        rom.unlink()
+        rom.with_name("romfs.bin.sha256").unlink(missing_ok=True)
     run([tool_python(), ROOT / "tools/merge_romfs.py", "--game-dir", args.game_dir, "--keys", args.keys])
+    got = rom.stat().st_size if rom.is_file() else 0
+    if want and got != want:
+        rom.unlink(missing_ok=True)
+        raise StepFailed(tr("romfs_size", got, want))
     return "ok"
 
 
@@ -430,7 +513,9 @@ def s_windist(args) -> str:
     for f in ("aoc.exe", "aoc_xlate.exe", "aoc_xlate.id", "romfs-index.bin"):
         copy(src / f, dist / f)
     # the DLLs aoc.exe imports from MSYS2 (SDL3, libopus and what they pull in)
-    p = capture([msys_root(args) / "usr/bin/bash.exe", "-lc", f"ldd {sh_quote(msys_path(dist / 'aoc.exe'))}"],
+    # from "/": ldd resolves like the loader, current folder included, and a shell that keeps the caller's folder
+    # (CHERE_INVOKING) would find the launcher's own SDL3.dll there instead of MSYS2's and leave the game without one
+    p = capture([msys_root(args) / "usr/bin/bash.exe", "-lc", f"cd / && ldd {sh_quote(msys_path(dist / 'aoc.exe'))}"],
                 env=dict(os.environ, MSYSTEM="UCRT64"))
     lines = p.stdout.decode("utf-8", "replace").splitlines()
     dlls = [l.split("=>")[1].split("(")[0].strip() for l in lines if "/ucrt64/" in l]
@@ -441,6 +526,8 @@ def s_windist(args) -> str:
     for f in ("main", "subsdk0", "sdk", "main.npdm"):
         copy(ROOT / "build/v130/exefs" / f, dist / "exefs" / f)
     rom, dst = ROOT / "build/v130/romfs.bin", dist / "romfs/romfs.bin"
+    if dst.exists() and dst.stat().st_size != rom.stat().st_size:   # the image of an earlier attempt with another update
+        dst.unlink()
     if not dst.exists():
         try:
             os.link(rom, dst)   # same disk: no second 10.9 GiB

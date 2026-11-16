@@ -13,7 +13,7 @@ nothing you make should be shared.
 
 | | |
 |---|---|
-| **Your game files**, in one folder | the base game NSP (`01002B00111A2000`), the **update 1.3.0** NSP (`01002B00111A2800`), the DLC NSPs (optional) and your console's **`prod.keys`**, all dumped from **your own** Switch |
+| **Your game files**, in one folder | the base game NSP (`01002B00111A2000`), the **update 1.3.0** NSP (`01002B00111A2800`), the DLC NSPs (optional) and your console's **`prod.keys`**, all dumped from **your own** Switch. The update must be **1.3.0** (v327680): 1.4.1 is not accepted yet. The files can have any name: the forge identifies them by their contents |
 | **A PC** | Windows 10 (version 2004 or newer) or Windows 11, or a 64-bit Linux with `python3` (almost every distribution has it); **8 GB of RAM** (16 GB is better) |
 | **Free disk space** | about **45 GB** the first time (it drops to ~25 GB when the build is done) |
 | **Internet** | only the first time: the launcher downloads ~2 GB of free tools (compiler, Linux for Windows) |
@@ -72,6 +72,9 @@ The language switch (**PT / EN**) is at the top right; **Guide** opens this page
 4. When it is done the window turns into the game's launcher, as on Windows: settings and **PLAY** (or run
    `dist/aoc-deck/aoc.sh`). The same folder also works on the Steam Deck.
 
+**On the Steam Deck itself or a Steam Machine (SteamOS) the forge does not work yet:** the system is read-only and
+does not let the compiler be installed. Forge on a Windows or Linux PC and copy the folder, as in section 4.
+
 ---
 
 ## 4. Copying to the Steam Deck
@@ -118,8 +121,12 @@ delete `C:\msys64` if the launcher installed it; on Linux delete `~/aoc-build` a
 
 ## 7. If something goes wrong
 
-- **A red dot in "Your files"**: the file is not in the chosen folder. The NSP names must contain the title IDs shown,
-  and `prod.keys` must sit in the same folder.
+- **A red dot in "Your files"**: the file is not in the chosen folder. `prod.keys` must sit in the same folder as the
+  NSPs. The NSPs can have any name: without the ID in the name the launcher shows "checked when forging" and the
+  forge's first step identifies them by their contents.
+- **"The update in your folder is another version"** or **"the extracted game code is not version 1.3.0"**: the port
+  only works with update **1.3.0** (v327680). Update 1.4.1 (v458752) is not accepted yet. Replace the update NSP with
+  the 1.3.0 one and click **FORGE** again; what the earlier attempt left behind is redone by itself.
 - **"Not enough free space"**: the message says how much is needed; free some space and forge again.
 - **A step failed**: the reason is under the step, in red, and the full log is below. Click **FORGE** again:
   finished steps are skipped. **Only check** tests your dump without building. To ask for help, press **Report a problem…**

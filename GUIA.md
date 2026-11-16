@@ -13,7 +13,7 @@ ser compartilhado.
 
 | | |
 |---|---|
-| **Os arquivos do seu jogo**, numa pasta | o NSP do jogo base (`01002B00111A2000`), o NSP do **update 1.3.0** (`01002B00111A2800`), os NSPs das DLCs (opcional) e o **`prod.keys`** do seu console, tudo extraído do **seu** Switch |
+| **Os arquivos do seu jogo**, numa pasta | o NSP do jogo base (`01002B00111A2000`), o NSP do **update 1.3.0** (`01002B00111A2800`), os NSPs das DLCs (opcional) e o **`prod.keys`** do seu console, tudo extraído do **seu** Switch. O update tem de ser o **1.3.0** (v327680): o 1.4.1 ainda não é aceito. Os arquivos podem ter qualquer nome: a forja os reconhece pelo conteúdo |
 | **Um PC** | Windows 10 (versão 2004 ou mais nova) ou Windows 11, ou um Linux 64 bits com `python3` (quase toda distribuição tem); **8 GB de RAM** (16 GB é melhor) |
 | **Espaço livre** | cerca de **45 GB** na primeira vez (cai para ~25 GB quando termina) |
 | **Internet** | só na primeira vez: o launcher baixa ~2 GB de ferramentas gratuitas (compilador, Linux para Windows) |
@@ -72,6 +72,9 @@ A troca de idioma (**PT / EN**) fica no canto de cima; **Guia** abre esta págin
 4. No fim a janela vira o launcher do jogo, como no Windows: configurações e **JOGAR** (ou rode
    `dist/aoc-deck/aoc.sh`). A mesma pasta serve para o Steam Deck.
 
+**No próprio Steam Deck ou numa Steam Machine (SteamOS) a forja ainda não funciona:** o sistema é somente leitura e
+não deixa instalar o compilador. Forje num PC com Windows ou Linux e copie a pasta, como na seção 4.
+
 ---
 
 ## 4. Copiar para o Steam Deck
@@ -118,8 +121,12 @@ Para remover tudo: apague a pasta `AoC-Recomp`; no Windows rode `wsl --unregiste
 
 ## 7. Se algo der errado
 
-- **Ponto vermelho em "Seus arquivos"**: o arquivo não está na pasta escolhida. Os nomes dos NSPs precisam ter os IDs
-  mostrados, e o `prod.keys` precisa estar na mesma pasta.
+- **Ponto vermelho em "Seus arquivos"**: o arquivo não está na pasta escolhida. O `prod.keys` precisa estar na mesma
+  pasta dos NSPs. Os NSPs podem ter qualquer nome: sem o ID no nome o launcher mostra "conferido ao forjar" e o
+  primeiro passo da forja os identifica pelo conteúdo.
+- **"O update da sua pasta é de outra versão"** ou **"o código do jogo extraído não é o da versão 1.3.0"**: o port só
+  funciona com o update **1.3.0** (v327680). O update 1.4.1 (v458752) ainda não é aceito. Troque o NSP do update pelo
+  da 1.3.0 e clique em **FORJAR** de novo; o que sobrou da tentativa anterior é refeito sozinho.
 - **"Pouco espaço livre"**: a mensagem diz quanto é preciso; libere espaço e forje de novo.
 - **Um passo falhou**: o motivo aparece em vermelho embaixo do passo, e o registro completo logo abaixo. Clique em
   **FORJAR** de novo: os passos prontos são pulados. **Só conferir** testa o dump sem compilar. Para pedir ajuda,

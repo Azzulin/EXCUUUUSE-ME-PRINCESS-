@@ -143,7 +143,10 @@ partir de 100 s, `AOC_TRACE=perf`, vigia de travada).
   - Um PR externo foi mesclado pelo dono no meio da sessão (`recomplauncher.json`, `make_build.py --prepare`).
   Teste do instalador: pacote 0.1.5 desempacotado em `C:\aoc-pkgtest\t1`, forja completa Deck + Windows do zero
   (distro WSL privada `AoC-Recomp` criada pelo passo `tools`, ~2 h): todos os passos ok. Segunda forja com NSPs
-  renomeados, ExeFS adulterado e `romfs.bin` falso: refaz os dois e termina.
+  renomeados, ExeFS adulterado e `romfs.bin` falso: refaz os dois e termina; o jogo forjado abre e monta os DLCs.
+  **Release `v0.1.5` publicada** (commit `c1c21a0`), notas em português e inglês citando as issues. As issues dos
+  usuários não foram respondidas nem fechadas (fica para o dono). Sobras do teste: a pasta `C:oc-pkgtest` e a
+  distro WSL `AoC-Recomp` (apagar com `wsl --unregister AoC-Recomp` se não for usar).
 
 - **Sessão 15 (2026-11-15): DLCs implementados (versão 0.1.5), enviados ao Deck — falta o dono jogar.**
   `tools/extract_dlc.py` tira dos NSPs a imagem RomFS de cada DLC (`build/v130/dlc-<title id>.bin`, árvore IVFC

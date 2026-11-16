@@ -1271,3 +1271,10 @@ Arquivos: `runtime/diag.c` (novo), `kernel.c`, `perf.c`, `flight.c/.h`, `vk_back
   passo `extract` avisa e extrai de novo, o `romfs` avisa e mescla de novo.
 - Não coberto pelo teste: instalação do MSYS2 do zero (o notebook já o tem), a instalação do próprio WSL, e um
   update 1.4.1 de verdade (não há um no dump do dono; o caminho é coberto por teste sintético).
+- A pasta do Windows do teste saiu sem `SDL3.dll`: o `ldd` do passo `windist` rodou num shell que manteve a pasta do
+  chamador e achou a `SDL3.dll` do launcher em vez da do MSYS2. Pelo launcher isso não acontecia (os relatos dos
+  usuários mostram a DLL copiada), mas o passo agora roda o `ldd` a partir de `/`. Com a correção, o jogo forjado
+  pelo pacote abriu 60 s (1 710 frames, DLCs montados, 0 draws pulados).
+- **Release `v0.1.5` publicada** (commit `c1c21a0`): `AoC-Recomp-0.1.5-Windows.zip` (68,9 MB, sha256 `9d07ce00…`) e
+  `AoC-Recomp-0.1.5-Linux.tar.gz` (6,6 MB, sha256 `73463b8d…`); os dois pacotes finais passaram no passo `check`
+  desempacotados em pastas limpas (Windows e WSL). Notas em português e inglês. As issues não foram respondidas.

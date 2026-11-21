@@ -1419,3 +1419,9 @@ ponta num Ubuntu limpo.**
   do notebook encheu: o disco virtual da distro e o `pagefile.sys` cresceram; no segundo teste os dados já extraídos
   entraram por hardlink), o `pkexec` com janela de senha (sem desktop no WSL), Fedora, e o distrobox real.
 - Issue #21 (nova): RX 550 + i7-4790 + HD a 25–30 fps, dentro do piso dos guias.
+
+**Release `v0.1.6` publicada (2026-11-21)**: tag no `96ceacf`, pacotes Windows (69,0 MB, sha256 `8a6c9504…`) e
+Linux (10,9 MB, sha256 `1399b7af…`), notas em português e inglês citando #2, #10, #11, #12, #18 e #19; SteamOS e
+Bazzite marcados como experimentais (distrobox ainda não testado num aparelho). A distro WSL `AoC-Recomp` de testes
+anteriores foi removida; `C:\aoc-pkgtest` e `C:\aoc-lt` ficaram para o dono apagar (o ambiente do agente não
+remove pastas na raiz do C:).

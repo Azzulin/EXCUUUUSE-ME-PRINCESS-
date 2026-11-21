@@ -131,7 +131,7 @@ partir de 100 s, `AOC_TRACE=perf`, vigia de travada).
   de soltar a 0.1.6 (os guias já citam "a partir da 0.1.6"); `make_release.py` agora empacota `aoc-launcher.bin`
   e `lib-fallback/`. Responder as issues #12, #18 e #19.
   **Versão 0.1.6** commitada (`b4cc4a0`) e empacotada em `build/release/` (Windows 69,0 MB, sha256 `8a6c9504…`;
-  Linux 10,9 MB, sha256 `1399b7af…`), **ainda não publicada** como release no GitHub. Sobras a apagar à mão (o
+  Linux 10,9 MB, sha256 `1399b7af…`) e **publicada** (release `v0.1.6`, tag no `96ceacf`, notas em português e inglês). Sobras a apagar à mão (o
   ambiente do agente não remove pastas na raiz do C:): `C:\aoc-pkgtest` e `C:\aoc-lt`. A distro WSL
   `AoC-Recomp` foi removida (a próxima geração do Deck pelo launcher a recria).
 

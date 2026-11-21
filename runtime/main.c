@@ -35,7 +35,7 @@ unsigned rt_trace;
 
 // Log file. A game run whose stderr is not a file already (started from Explorer, a shortcut or a console) also
 // writes its log to logs\aoc.log next to aoc, so a player has one to attach to a report; run_game.py and
-// `2> file` keep their own file. Each start moves the earlier logs to totk.1.log .. totk.4.log. A file stops at 64 MiB
+// `2> file` keep their own file. Each start moves the earlier logs to aoc.1.log .. aoc.4.log. A file stops at 64 MiB
 // (AOC_TRACE can write that much). Lines from before log_open wait in a static buffer: mem_init runs first so that
 // nothing else lands in the guest address space, and an earlier open would put the CRT's heap there.
 #define LOG_KEEP 5
@@ -107,10 +107,17 @@ static void log_open(int game) {
     if (cut && (size_t)(cut - dir) + sizeof "/logs" <= sizeof dir) {
         strcpy(cut, "/logs");
         plat_file_mkdir_p(dir);
-        for (int i = LOG_KEEP - 1; i > 0; i--) {   // totk.3.log -> totk.4.log, ..., aoc.log -> totk.1.log
-            if (i > 1) snprintf(from, sizeof from, "%s/totk.%d.log", dir, i - 1);
+        // Builds up to 0.1.5 named the old logs totk.<n>.log (a name left from the runtime this one came from): they
+        // take their aoc.<n>.log place once, so the history carries on.
+        for (int i = 1; i < LOG_KEEP; i++) {
+            snprintf(from, sizeof from, "%s/totk.%d.log", dir, i);
+            snprintf(to, sizeof to, "%s/aoc.%d.log", dir, i);
+            if (plat_file_exists(from) && !plat_file_exists(to)) plat_file_replace(from, to);
+        }
+        for (int i = LOG_KEEP - 1; i > 0; i--) {   // aoc.3.log -> aoc.4.log, ..., aoc.log -> aoc.1.log
+            if (i > 1) snprintf(from, sizeof from, "%s/aoc.%d.log", dir, i - 1);
             else snprintf(from, sizeof from, "%s/aoc.log", dir);
-            snprintf(to, sizeof to, "%s/totk.%d.log", dir, i);
+            snprintf(to, sizeof to, "%s/aoc.%d.log", dir, i);
             if (plat_file_exists(from)) plat_file_replace(from, to);
         }
         snprintf(g_log_path, sizeof g_log_path, "%s/aoc.log", dir);
@@ -217,7 +224,7 @@ static void crash_handler(const PlatCrash *x) {
     if (plat_xchg32(&busy, 1)) plat_exit(71);
     char d[160];
     uintptr_t rip = x->rip;
-    rt_logf("FATAL: %s (%#x) at host %p (astralchain+%#llx)", x->what, x->code, (void *)rip, (unsigned long long)x->offset);
+    rt_logf("FATAL: %s (%#x) at host %p (aoc+%#llx)", x->what, x->code, (void *)rip, (unsigned long long)x->offset);
     if (x->access >= 0)
         rt_logf(", %s address %#llx", x->access == 1 ? "writing" : x->access == 8 ? "executing" : "reading",
                 (unsigned long long)x->addr);
@@ -226,7 +233,7 @@ static void crash_handler(const PlatCrash *x) {
     if (f) rt_logf("  in lifted function f_%llx = %s\n", (unsigned long long)f, ldr_describe(f, d, sizeof d));
     for (int i = 0; i < x->nframes; i++) {   // abort and invalid parameter: where the host code called it
         uint64_t g = lifted_function(x->frames[i]);
-        rt_logf("  host frame %2d: astralchain+%#llx", i, (unsigned long long)(x->frames[i] - (rip - x->offset)));
+        rt_logf("  host frame %2d: aoc+%#llx", i, (unsigned long long)(x->frames[i] - (rip - x->offset)));
         if (g) rt_logf(" in lifted function f_%llx", (unsigned long long)g);
         rt_log_raw("\n", 1);
     }
@@ -247,6 +254,11 @@ static void crash_handler(const PlatCrash *x) {
         rt_logf("  not on a guest thread\n");
     }
     kern_free_cores_note();
+    // The state recorder's report: the seconds before, every guest thread, the last picture copies (diag.c).
+    char why[256];
+    snprintf(why, sizeof why, "the game crashed (%s at %s)", x->what, f ? ldr_describe(f, d, sizeof d) : "host code");
+    if (diag_crash(why, 5000) < 0)
+        rt_log("diag: the crash report did not finish within 5 s (the crashed thread may hold a lock it needs)");
     fflush(stderr);
     plat_exit(71);
 }

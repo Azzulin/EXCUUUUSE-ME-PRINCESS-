@@ -164,6 +164,23 @@ def main():
         print(f"  {fmt_t(e[0][0])}  {len(e)} s, pior {num(r, 'worst_ms'):.0f} ms, fps {num(r, 'fps'):.0f}: {c} {v:.0f} ms"
               + (f" ({', '.join(extra)})" if extra else ""))
 
+    # the main thread's frame, by scene load (logs that carry the main_* columns): where its 33 ms go and how much is left over
+    if "main_run" in play[0]:
+        print("\n== Thread principal do jogo, ms por frame (por carga da cena) ==")
+        print("  draws/frame    seg   jogo   host  fila de núcleo  esperas  dormindo  | pior frame (mediana)  clock máx.")
+        for lo, hi in ((0, 300), (300, 600), (600, 900), (900, 1300), (1300, 10 ** 9)):
+            g = [r for r in play if lo <= num(r, "draws") < hi]
+            if not g:
+                continue
+            m = lambda k: statistics.mean(num(r, k) for r in g)
+            name = f"{lo}-{hi}" if hi < 10 ** 9 else f"{lo}+"
+            print(f"  {name:>11} {len(g):6d} {m('main_run'):6.1f} {m('main_host'):6.1f} {m('main_core'):15.1f} "
+                  f"{m('main_wait'):8.1f} {m('main_sleep'):9.1f}  | {statistics.median(num(r, 'worst_ms') for r in g):6.1f} ms"
+                  f"           {m('cpu_max_mhz'):5.0f} MHz")
+        print("  jogo: código do jogo; host: chamadas ao runtime (NVN, arquivos); fila de núcleo: pronta, sem núcleo virtual;")
+        print("  esperas: locks, condvars e eventos do jogo; dormindo: folga do frame (SleepThread). jogo + host + fila perto")
+        print("  de 33 ms = sem folga: qualquer frame mais pesado atrasa.")
+
     # power and temperatures (Linux / Deck)
     apu = [num(r, "apu_w") for r in play if num(r, "apu_w") > 0]
     if apu:

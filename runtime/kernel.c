@@ -159,18 +159,49 @@ static void wait_add(WaitRec *w, int st, uint64_t obj, uint32_t waker, uint64_t 
         }
 }
 
-// Close the current state's interval and enter st.
+// The main thread's time by state since the start, always taken (diag.c writes the split to the performance log once a
+// second): a clock read per state change of one thread. Written under G by acct, read without it.
+static uint64_t g_main_ns[S_N];
+// The same thread's peaks since diag.c last took them: its longest single wait in the queue for a core, how far its
+// latest-waking SleepThread overslept, and the SleepThread calls.
+static uint64_t g_main_core_max, g_main_over_max, g_main_sleeps;
+
+static void peak(uint64_t *p, uint64_t v) {
+    if (v > __atomic_load_n(p, __ATOMIC_RELAXED)) __atomic_store_n(p, v, __ATOMIC_RELAXED);
+}
+
+void kern_main_peaks(uint64_t *core_max_ns, uint64_t *oversleep_max_ns, uint64_t *sleeps) {
+    *core_max_ns = __atomic_exchange_n(&g_main_core_max, 0, __ATOMIC_RELAXED);
+    *oversleep_max_ns = __atomic_exchange_n(&g_main_over_max, 0, __ATOMIC_RELAXED);
+    *sleeps = __atomic_exchange_n(&g_main_sleeps, 0, __ATOMIC_RELAXED);
+}
+
+void kern_main_split(uint64_t out[KERN_SPLIT_N]) {
+    uint64_t v[S_N];
+    for (int i = 0; i < S_N; i++) v[i] = __atomic_load_n(&g_main_ns[i], __ATOMIC_RELAXED);
+    out[KERN_SPLIT_RUN] = v[S_RUN], out[KERN_SPLIT_CORE] = v[S_CORE], out[KERN_SPLIT_HOST] = v[S_HOST];
+    out[KERN_SPLIT_SLEEP] = v[S_SLEEP], out[KERN_SPLIT_WAIT] = v[S_SYNC] + v[S_CV] + v[S_LOCK] + v[S_ADDR];
+}
+
+// Close the current state's interval and enter st. Every thread with AOC_TRACE=sched; the main thread always.
 static void acct(RtThread *t, int st) {
-    if (!(rt_trace & RT_TRACE_SCHED)) return;
+    int full = (rt_trace & RT_TRACE_SCHED) != 0;
+    if (!full && !t->is_main) return;
     uint64_t now = kern_now_ns();
     if (t->st_since) {
-        t->st_ns[t->st] += now - t->st_since;
-        if (t->st >= S_HOST && (t == g_render || t->is_main)) {
-            uint32_t waker = t->st == S_HOST || t->st == S_SLEEP ? 0 : t->waker;
-            wait_add(t == g_render ? g_rw : g_mw, t->st, t->wobj, waker, now - t->st_since);
+        if (t->is_main) {
+            __atomic_store_n(&g_main_ns[t->st], g_main_ns[t->st] + (now - t->st_since), __ATOMIC_RELAXED);
+            if (t->st == S_CORE) peak(&g_main_core_max, now - t->st_since);
+        }
+        if (full) {
+            t->st_ns[t->st] += now - t->st_since;
+            if (t->st >= S_HOST && (t == g_render || t->is_main)) {
+                uint32_t waker = t->st == S_HOST || t->st == S_SLEEP ? 0 : t->waker;
+                wait_add(t == g_render ? g_rw : g_mw, t->st, t->wobj, waker, now - t->st_since);
+            }
         }
     }
-    if (g_crit_on) crit_add(CRIT_STATE, t->handle, t->waker, st, t->wobj, now);
+    if (full && g_crit_on) crit_add(CRIT_STATE, t->handle, t->waker, st, t->wobj, now);
     t->st = st;
     t->st_since = now;
 }
@@ -1729,6 +1760,10 @@ int kern_svc(Cpu *c, uint32_t imm) {
             t->sl_n++;
             t->sl_req += (uint64_t)ns;
             t->sl_act += took;
+            if (t->is_main) {
+                if (took > (uint64_t)ns) peak(&g_main_over_max, took - (uint64_t)ns);
+                __atomic_store_n(&g_main_sleeps, g_main_sleeps + 1, __ATOMIC_RELAXED);
+            }
             core_take(t);
             unlock();
             return 1;

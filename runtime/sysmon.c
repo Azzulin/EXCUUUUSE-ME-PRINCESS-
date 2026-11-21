@@ -111,15 +111,19 @@ static int cpu_times(double *busy, double *total) {
     return 1;
 }
 
-static double cpu_mhz(void) {
-    double sum = 0;
+// The average clock of the CPU threads, MHz; *max (may be NULL): the fastest one, the thread a busy game thread is on.
+static double cpu_mhz(double *max) {
+    double sum = 0, top = 0;
     int n = 0;
     for (int i = 0; i < P.ncpu && i < 64; i++) {
         char path[96];
         double v;
         snprintf(path, sizeof path, "/sys/devices/system/cpu/cpu%d/cpufreq/scaling_cur_freq", i);
-        if (read_num(path, &v)) sum += v / 1000.0, n++;
+        if (!read_num(path, &v)) continue;
+        sum += v / 1000.0, n++;
+        if (v / 1000.0 > top) top = v / 1000.0;
     }
+    if (max) *max = top;
     return n ? sum / n : 0;
 }
 
@@ -157,7 +161,7 @@ static void sampler(void *arg) {
         if (read_num(P.fan, &v)) acc(&fan, v);
         if (read_num(P.gpu_busy, &v)) acc(&busy, v);
         if (read_num(P.gpu_freq, &v)) acc(&gmhz, v / 1e6);
-        if ((v = cpu_mhz()) > 0) acc(&mhz, v);
+        if ((v = cpu_mhz(NULL)) > 0) acc(&mhz, v);
         {   // this second alone, for the performance log (diag.c)
             SysSecond s = {.valid = 1};
             double x, y, z;
@@ -168,7 +172,8 @@ static void sampler(void *arg) {
             if (read_num(P.gpu_busy, &x)) s.gpu_busy = (float)x;
             if (read_num(P.gpu_freq, &x)) s.gpu_mhz = (float)(x / 1e6);
             if (read_num(P.fan, &x)) s.fan = (float)x;
-            s.cpu_mhz = (float)cpu_mhz();
+            s.cpu_mhz = (float)cpu_mhz(&x);
+            s.cpu_max_mhz = (float)x;
             char capt[16] = "";
             if (read_text(P.bat_capacity, capt, sizeof capt)) s.bat_pct = (float)atof(capt);
             static double pc0;

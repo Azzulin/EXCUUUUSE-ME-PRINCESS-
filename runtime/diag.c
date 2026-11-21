@@ -15,6 +15,8 @@
 //   - a dark picture (mean luma under 25, not black) with the scene being drawn (over 150 draws a frame) for
 //     AOC_DARK_SECS (15; 0 off), once per dark stretch;
 //   - F8 with the game window in front: a mark. Also saves that present full size under <log dir>/diag/marks/.
+//   - a crash (main.c crash_handler, diag_crash): written by this thread while the crashed one waits up to 5 s; the
+//     other guest threads keep running meanwhile, so their table is from a moment after the crash.
 // Hit watch: the start of a controller vibration is the game's own sign of a hit given or taken (ov_input.c). Each
 // one is counted in the timeline; with AOC_HIT_SHOTS=<n> the next 8 presents after a hit are saved full size under
 // <log dir>/diag/hits/ for the first n hits at least 3 s apart, to see whether the hit effect is drawn.
@@ -273,13 +275,22 @@ static void perf_open(void) {
     fprintf(perf_f, "t_s,game_s,frame,fps,worst_ms,over34,over50,worst_xlate,worst_pipe,worst_tex,worst_replay,worst_fence,"
                     "worst_pace,avg_ms,xlate_ms,pipe_ms,tex_ms,replay_ms,fence_ms,pace_ms,draws,skip_pipe,skip_shader,"
                     "xlated,pipes,tex_up,tex_reup,luma,lit,audio,read_kib,movies,main,cores,hits,apu_w,bat_w,bat_pct,"
-                    "cpu_c,gpu_c,fan,gpu_busy,cpu_mhz,gpu_mhz,game_cores,mark\n");
+                    "cpu_c,gpu_c,fan,gpu_busy,cpu_mhz,gpu_mhz,game_cores,mark,"
+                    "main_run,main_core,main_host,main_sleep,main_wait,cpu_max_mhz,main_core_max,main_oversleep_max,main_sleeps\n");
     perf_state = 1;
     rt_log("diag: performance log %s (one row a second)", path);
 }
 
 static void perf_row(const Sample *s) {
     static uint64_t p_xl, p_pipes, p_up, p_reup;
+    // the main thread's time by state over this second, ms a frame (kernel.c kern_main_split): game code, queued for a
+    // virtual core, host calls, SleepThread, kernel waits
+    static uint64_t p_split[KERN_SPLIT_N];
+    uint64_t split[KERN_SPLIT_N];
+    double sp[KERN_SPLIT_N];
+    kern_main_split(split);
+    uint64_t core_max, over_max, sleeps;   // this second's peaks of the same thread, ms; SleepThread calls a frame
+    kern_main_peaks(&core_max, &over_max, &sleeps);
     if (!perf_state) perf_open();
     PerfSecond ps;
     perf_second_take(&ps);
@@ -288,16 +299,19 @@ static void perf_row(const Sample *s) {
     uint64_t pipes = perf_total(PERF_CNT_PIPE_BUILT), up = perf_total(PERF_CNT_TEX_UP), reup = perf_total(PERF_CNT_TEX_REUP);
     if (perf_state != 1) {
         p_xl = xl, p_pipes = pipes, p_up = up, p_reup = reup;
+        memcpy(p_split, split, sizeof p_split);
         return;
     }
     SysSecond sy;
     sysmon_second(&sy);
     double f = ps.frames ? (double)ps.frames : 1.0, ms = 1e-6;
+    for (int i = 0; i < KERN_SPLIT_N; i++) sp[i] = (double)(split[i] - p_split[i]) * ms / f;
+    memcpy(p_split, split, sizeof p_split);
 #define W(k) (ps.worst_wait[k] * ms)
 #define A(k) (ps.wait_ns[k] * ms / f)
     int64_t g = frame_step_world_us();
     fprintf(perf_f, "%.0f,%.1f,%llu,%llu,%.1f,%llu,%llu,%.1f,%.1f,%.1f,%.1f,%.1f,%.1f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,"
-                    "%u,%u,%u,%llu,%llu,%llu,%llu,%d,%d,%.2f,%u,%d,%s,%d,%d,%.1f,%.1f,%.0f,%.0f,%.0f,%.0f,%.0f,%.0f,%.0f,%.2f,%d\n",
+                    "%u,%u,%u,%llu,%llu,%llu,%llu,%d,%d,%.2f,%u,%d,%s,%d,%d,%.1f,%.1f,%.0f,%.0f,%.0f,%.0f,%.0f,%.0f,%.0f,%.2f,%d,%.2f,%.2f,%.2f,%.2f,%.2f,%.0f,%.2f,%.2f,%.1f\n",
             (double)s->t, g >= 0 ? (double)g / 1e6 : -1.0, (unsigned long long)s->frame, (unsigned long long)ps.frames,
             ps.worst_ns * ms, (unsigned long long)ps.over34, (unsigned long long)ps.over50, W(PERF_XLATE), W(PERF_PIPE),
             W(PERF_TEX), ps.worst_replay * ms, W(PERF_FENCE) + W(PERF_DRAIN), W(PERF_PACE), ps.sum_ns * ms / f,
@@ -306,7 +320,9 @@ static void perf_row(const Sample *s) {
             (unsigned long long)(pipes - p_pipes), (unsigned long long)(up - p_up), (unsigned long long)(reup - p_reup),
             s->luma, s->lit, (double)s->audio, s->read_kib, s->movies, s->main_st, s->cores, s->rumbles,
             (double)sy.apu_w, (double)sy.bat_w, (double)sy.bat_pct, (double)sy.cpu_c, (double)sy.gpu_c, (double)sy.fan,
-            (double)sy.gpu_busy, (double)sy.cpu_mhz, (double)sy.gpu_mhz, (double)sy.game_cores, perf_mark);
+            (double)sy.gpu_busy, (double)sy.cpu_mhz, (double)sy.gpu_mhz, (double)sy.game_cores, perf_mark,
+            sp[KERN_SPLIT_RUN], sp[KERN_SPLIT_CORE], sp[KERN_SPLIT_HOST], sp[KERN_SPLIT_SLEEP], sp[KERN_SPLIT_WAIT],
+            (double)sy.cpu_max_mhz, core_max * ms, over_max * ms, (double)sleeps / f);
 #undef W
 #undef A
     perf_mark = 0;
@@ -397,6 +413,12 @@ static void write_thumbs(const char *why) {
 
 static int n_reports;
 
+// A crash (diag_crash): the crashed thread asks, this thread writes the report on its own stack. The crashed thread may
+// hold a lock the report needs (the heap's, a file's), so it waits with a time limit instead of writing it itself.
+static volatile int32_t g_running, g_crash_req, g_crash_done;
+static char g_crash_why[256];
+static _Thread_local int t_on_diag;
+
 static void report(const char *why, const char *slug, const char *thread_tag) {
     int id = ++n_reports;
     uint64_t now = kern_now_ns();
@@ -429,6 +451,8 @@ static void report(const char *why, const char *slug, const char *thread_tag) {
 
 static void diag_main(void *arg) {
     (void)arg;
+    t_on_diag = 1;
+    __atomic_store_n(&g_running, 1, __ATOMIC_RELEASE);
     sysmon_start();   // the performance log's machine columns; idempotent (perf.c starts it at the first frame too)
     const char *v = cfg_get("AOC_HANG_SECS");
     double hang_s = v && *v ? atof(v) : 10.0;
@@ -448,6 +472,12 @@ static void diag_main(void *arg) {
     int black_reported = 0, key_was = 0;
     for (;;) {
         plat_sleep_ms(100);
+        if (__atomic_load_n(&g_crash_req, __ATOMIC_ACQUIRE)) {
+            if (perf_f) fflush(perf_f);
+            report(g_crash_why, "crash", "crash");
+            __atomic_store_n(&g_crash_done, 1, __ATOMIC_RELEASE);
+            for (;;) plat_sleep_ms(1000);   // the crashed thread ends the process
+        }
         uint64_t now = kern_now_ns();
         int key = input_flight_key();
         if (key && !key_was) {
@@ -554,6 +584,17 @@ void diag_exit(void) {
     if (!n_samples || plat_xchg32(&done, 1)) return;
     if (perf_f) fflush(perf_f);
     report("the game is exiting", "exit", "diag");
+}
+
+int diag_crash(const char *why, uint32_t wait_ms) {
+    if (!__atomic_load_n(&g_running, __ATOMIC_ACQUIRE) || t_on_diag) return 0;
+    snprintf(g_crash_why, sizeof g_crash_why, "%s", why);
+    __atomic_store_n(&g_crash_req, 1, __ATOMIC_RELEASE);
+    for (uint32_t t = 0; t < wait_ms; t += 20) {
+        if (__atomic_load_n(&g_crash_done, __ATOMIC_ACQUIRE)) return 1;
+        plat_sleep_ms(20);
+    }
+    return __atomic_load_n(&g_crash_done, __ATOMIC_ACQUIRE) ? 1 : -1;
 }
 
 void diag_start(void) {

@@ -6,6 +6,7 @@
 #include <string.h>
 
 #if defined(__x86_64__)
+#include <cpuid.h>
 #include <immintrin.h>
 #endif
 
@@ -77,8 +78,15 @@ __attribute__((target("sha,sse4.1"))) static void blocks_ni(uint32_t h[8], const
 
 static void blocks(uint32_t h[8], const uint8_t *p, size_t n) {
 #if defined(__x86_64__)
+    // SHA extensions (CPUID 7.0 EBX bit 29) and SSE4.1 (CPUID 1 ECX bit 19), read directly: __builtin_cpu_supports
+    // only knows "sha" from clang 19 on, and Ubuntu 24.04's clang 18 refuses the build (measured on the Linux build).
     static int ni = -1;
-    if (ni < 0) ni = __builtin_cpu_supports("sha") && __builtin_cpu_supports("sse4.1");
+    if (ni < 0) {
+        unsigned a, b, c, d;
+        int sse41 = __get_cpuid(1, &a, &b, &c, &d) && (c & (1u << 19));
+        int sha = __get_cpuid_count(7, 0, &a, &b, &c, &d) && (b & (1u << 29));
+        ni = sse41 && sha;
+    }
     if (ni) return blocks_ni(h, p, n);
 #endif
     blocks_c(h, p, n);

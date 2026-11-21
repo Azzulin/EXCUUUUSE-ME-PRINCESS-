@@ -29,6 +29,9 @@ import sys
 import time
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import elfdeps  # noqa: E402  (as bibliotecas de reserva da pasta do Linux)
+
 ROOT = Path(__file__).resolve().parent.parent
 # Windows (MSYS2 UCRT64 Python + clang): ninja starts commands with CreateProcess, not a shell, so arguments take
 # double quotes and there is no rm; the runtime takes its Win32 files (platform/win32.c, *_win.*). For tests on a
@@ -295,12 +298,21 @@ def write_if_changed(path: Path, text: str) -> None:
     path.write_bytes(data)
 
 
+def font_inc(out: Path) -> None:
+    """<out>/roboto_ttf.inc: os bytes de runtime/ui/fonts/Roboto-Medium.ttf como lista C, que runtime/ui/menu.cpp inclui.
+    Era #embed, que em C++ só existe do clang 19 em diante (o Ubuntu 24.04 tem o 18 e o dist falhava lá)."""
+    data = (RUNTIME / "ui" / "fonts" / "Roboto-Medium.ttf").read_bytes()
+    rows = (",".join(str(b) for b in data[i:i + 32]) for i in range(0, len(data), 32))
+    write_if_changed(out / "roboto_ttf.inc", "// tools/build.py font_inc\n" + ",\n".join(rows) + "\n")
+
+
 def step_host(args, gen: Path, lib: Path) -> Path:
     """Compila o runtime e linka <work>/host/aoc com a libaoc_guest.a."""
     cc, ninja = need("clang"), need("ninja")
     out = args.work / "host"
     out.mkdir(parents=True, exist_ok=True)
     write_if_changed(out / "modules.c", module_glue(gen, args.exefs))
+    font_inc(out)
     sys.path.insert(0, str(ROOT / "tools"))
     import romfs_index
     if ROMFS_IMAGE.is_file():
@@ -366,6 +378,11 @@ SNIPER_MEMBERS = ["usr/include", "usr/share/pkgconfig", "usr/lib/x86_64-linux-gn
                   "lib/x86_64-linux-gnu", "lib64"]
 ZSTD_TAR = ("https://github.com/facebook/zstd/releases/download/v1.5.7/zstd-1.5.7.tar.gz",
             "eb33e51f49a15e023950cd7825ca74a4a2b43db8354825ac24fc1b7ee09e6fa3")
+# Headers do Vulkan fixados, não os do sistema: o runtime usa extensões de 1.3.277+ (dynamic_rendering_local_read) e o
+# Ubuntu 24.04 traz 1.3.275 (medido: o dist falhava lá). Só headers, nada linkado.
+VK_HEADERS_VERSION = "1.4.363"
+VK_HEADERS_TAR = (f"https://github.com/KhronosGroup/Vulkan-Headers/archive/refs/tags/v{VK_HEADERS_VERSION}.tar.gz",
+                  "cbaf687d3c59b9666fe080e7f8396b6b4f4d344a768ee6b337c59852f4526b68")
 # Opus e libvpx estáticos do sysroot (o SteamOS tem outra libvpx.so), zstd estática compilada aqui, SDL3 dinâmica
 # copiada para lib/ ao lado do executável, Vulkan do sistema (o loader é estável).
 DIST_LIBS = ["-lvulkan", "-lSDL3", "-l:libopus.a", "-l:libvpx.a", "-l:libzstd.a", "-l:libstdc++.a", "-lm", "-lpthread",
@@ -416,16 +433,22 @@ def sniper_sysroot(work: Path) -> Path:
 
 
 def dist_deps(work: Path, cc: list[str]) -> Path:
-    """<work>/deps: headers Vulkan 1.4.363 e VMA (só headers) e libzstd.a 1.5.7 compilada contra o sysroot."""
+    """<work>/deps: headers Vulkan (VK_HEADERS_VERSION, baixados) e VMA (só headers) e libzstd.a 1.5.7 compilada contra o
+    sysroot."""
     deps = work / "deps"
     inc, lib = deps / "include", deps / "lib"
     inc.mkdir(parents=True, exist_ok=True)
     lib.mkdir(parents=True, exist_ok=True)
-    for d in ("vulkan", "vk_video"):
-        if not (inc / d).is_dir():
-            if not Path(f"/usr/include/{d}").is_dir():
-                sys.exit("ERRO: faltam os headers do Vulkan (pacman -S vulkan-headers / apt install libvulkan-dev)")
-            shutil.copytree(f"/usr/include/{d}", inc / d)
+    stamp = inc / ".vulkan-headers"
+    if not stamp.is_file() or stamp.read_text().strip() != VK_HEADERS_VERSION:
+        tar = fetch(VK_HEADERS_TAR, work / "dl" / f"vulkan-headers-{VK_HEADERS_VERSION}.tar.gz")
+        src = work / "dl" / f"Vulkan-Headers-{VK_HEADERS_VERSION}"
+        if not src.is_dir():
+            subprocess.run(["tar", "-xf", str(tar), "-C", str(work / "dl")], check=True)
+        for d in ("vulkan", "vk_video"):
+            shutil.rmtree(inc / d, ignore_errors=True)
+            shutil.copytree(src / "include" / d, inc / d)
+        stamp.write_text(VK_HEADERS_VERSION + "\n")
     if not (inc / "vk_mem_alloc.h").is_file():
         shutil.copy(vma_include() / "vk_mem_alloc.h", inc / "vk_mem_alloc.h")
     if not (lib / "libzstd.a").is_file():
@@ -463,6 +486,7 @@ def step_dist(args, gen: Path, lib: Path) -> Path:
     host = args.work / "host"   # modules.c e romfs_config.h do passo host
     host.mkdir(parents=True, exist_ok=True)
     write_if_changed(host / "modules.c", module_glue(gen, args.exefs))
+    font_inc(host)
     sys.path.insert(0, str(ROOT / "tools"))
     import romfs_index
     if not ROMFS_IMAGE.is_file():
@@ -545,16 +569,20 @@ if [ -s "$here/logs/aoc.log" ]; then
     [ -f "$here/logs/sessoes/$ts.log.gz" ] || gzip -c "$here/logs/aoc.log" > "$here/logs/sessoes/$ts.log.gz"
     ls -1t "$here/logs/sessoes/"*.log.gz 2>/dev/null | tail -n +61 | xargs -r rm -f
 fi
-cd "$here"
+# Um Linux sem alguma biblioteca que a SDL3 do sniper liga direto (libdecor, libXss, libpulse...): só as que faltam
+# entram no caminho de busca, de lib/fallback (no SteamOS nada falta e nada entra; tools/elfdeps.py).
+fb_bin="$here/aoc"; fb_dir="$here/lib/fallback"
+""" + elfdeps.FALLBACK_SH + """cd "$here"
 exec "$here/aoc" "$@"
 """
 
 
 # Configuração inicial da pasta do Deck (cfg.c: "chave = valor", sem o prefixo AOC_). FPS e modo vêm do perfil "deck"
-# do runtime (30 fps, portátil); aqui só o idioma do menu.
-INI_DECK = """# Configurações do AoC Recomp. O menu (Menos+Mais) e o menu rápido (segurar L3+R3) gravam aqui.
+# do runtime (30 fps, portátil); aqui só o idioma do menu: o do launcher que gerou a pasta (AOC_MENU_LANG, que
+# tools/make_build.py passa), português por padrão.
+INI_DECK = """# AoC Recomp settings / configurações. The menu (Minus+Plus) and the quick menu (hold L3+R3) write here.
 [menu]
-menu_lang = pt-BR
+menu_lang = {lang}
 """
 
 README_DECK = """Hyrule Warriors: Age of Calamity - port nativo para o Steam Deck (AoC Recomp)
@@ -609,6 +637,62 @@ ARQUIVOS
   profile/, logs/, mesa-cache/ saves, registros e cache de shaders (criados ao jogar)
   aoc-logs.sh, ferramentas/    leitura dos registros (logs/sessoes/ guarda as sessões anteriores)
 ATUALIZAR: copie por cima só "aoc" (e "lib/" se mudar). O romfs não muda.
+(English: README.txt)
+"""
+
+README_DECK_EN = """Hyrule Warriors: Age of Calamity - native port for the Steam Deck and Linux (AoC Recomp)
+=====================================================================================
+
+Personal use: this folder holds the game (from your own console). Do not share it.
+
+INSTALL ON THE STEAM DECK (once)
+1. On the Deck, in Desktop Mode, copy the whole "aoc-deck" folder to the SD card (USB stick formatted exFAT,
+   network share or cable). Example: /run/media/mmcblk0p1/aoc-deck   (romfs/romfs.bin is 10.9 GiB)
+2. Open Konsole inside the folder and run once:   sh install-shortcut.sh
+   (makes the files executable and puts the game in SteamOS's application menu)
+3. Steam > Games > "Add a Non-Steam Game to My Library" > tick
+   "Hyrule Warriors: Age of Calamity (AoC Recomp)" > Add Selected Programs.
+4. Back in Game Mode the game is in your library, under "Non-Steam".
+On a Linux PC: run ./aoc.sh, or the same install-shortcut.sh for a menu entry.
+
+FIRST TEST (Konsole, inside the folder)
+  ./aoc --selftest                         should end with "selftest: passed"
+  ./aoc.sh                                 the game (the first time it translates shaders: stutters until the cache fills)
+
+LOGS (power, temperature, fps of each session)
+  ./aoc-logs.sh list                       one line per session played: date, minutes, fps, watts, temperatures
+  ./aoc-logs.sh                            summary of the last session (./aoc-logs.sh summary 2: the one before)
+  ./aoc-logs.sh live                       follows the session in progress (from another terminal or over SSH)
+  ./aoc-logs.sh system                     TDP, watts, temperatures and clocks now
+  ./aoc-logs.sh verbose on|off             more performance detail in the next sessions
+  ./aoc-logs.sh performance                where the last session lost fps: stutters, causes, power, marks
+  ./aoc-logs.sh diag                       reads the freeze and black-screen reports of the last session
+  ./aoc-logs.sh package                    bundles everything into logs/pacote-<date>.tar.gz to send
+  (the tools print their reports in Portuguese)
+
+REPORTING A PROBLEM
+  Run ./aoc-logs.sh package and attach the file it makes to a report at
+  https://github.com/Azzulin/EXCUUUUSE-ME-PRINCESS-/issues
+  (never attach game files, keys or saves)
+
+PORT CONTROLS
+  Hold L3+R3 (~1.5 s)    quick menu: frame rate, internal resolution, performance overlay and
+                         "Mark this moment" (points a stutter out in the performance log)
+  Tap L3+R3              toggles the FPS overlay
+  Minus + Plus together  full menu (its language is in aoc.ini, menu_lang = en or pt-BR)
+  B                      closes the menus
+
+GOING EASY ON THE DECK
+  - Default: 30 FPS (the game's own rate) and "Handheld" internal resolution (the game's lightest).
+  - Steam's performance menu ("..." button > battery) can also cap the TDP and the refresh rate.
+
+FILES
+  aoc, aoc.sh, lib/            the program
+  exefs/, romfs/, romfs-index.bin   the game (romfs/dlc-*.bin are the DLCs; without them the game runs without DLC)
+  aoc.ini                      your settings (never overwritten by updates)
+  profile/, logs/, mesa-cache/ saves, logs and shader cache (made while playing)
+  aoc-logs.sh, ferramentas/    log readers (logs/sessoes/ keeps the earlier sessions)
+UPDATING: copy over only "aoc" (and "lib/" if it changed). The romfs does not change.
 """
 
 
@@ -616,8 +700,9 @@ ATUALIZAR: copie por cima só "aoc" (e "lib/" se mudar). O romfs não muda.
 # janela "Adicionar um jogo que não é da Steam" lista esses aplicativos, e um script solto no cartão SD não aparece nela.
 INSTALL_SH = """#!/bin/sh
 # Cria o atalho do AoC Recomp no menu de aplicativos do SteamOS. Rode uma vez (Desktop Mode, Konsole):
-#   sh instalar-atalho.sh
+#   sh instalar-atalho.sh      (o mesmo arquivo em inglês: install-shortcut.sh)
 # Depois: Steam > Jogos > "Adicionar um jogo que não é da Steam" > marque "Hyrule Warriors: Age of Calamity".
+# Makes the AoC Recomp entry in SteamOS's application menu; then Steam > Games > "Add a Non-Steam Game".
 here="$(cd "$(dirname "$0")" && pwd)"
 chmod +x "$here/aoc" "$here/aoc.sh" "$here/aoc_xlate"
 mkdir -p "$HOME/.local/share/applications"
@@ -627,8 +712,9 @@ printf '%s\\n' '[Desktop Entry]' 'Type=Application' 'Name=Hyrule Warriors: Age o
     'Icon=applications-games' > "$f"
 chmod +x "$f"
 update-desktop-database "$HOME/.local/share/applications" 2>/dev/null
-echo "Atalho criado: $f"
+echo "Atalho criado / shortcut made: $f"
 echo "Agora: Steam > Jogos > Adicionar um jogo que nao e da Steam > marque Hyrule Warriors: Age of Calamity"
+echo "Now: Steam > Games > Add a Non-Steam Game > tick Hyrule Warriors: Age of Calamity"
 """
 
 
@@ -650,15 +736,23 @@ def assemble_dist(args, exe: Path, sysroot: Path, host: Path, xl: Path) -> Path:
     copy(xl / "aoc_xlate", dist / "aoc_xlate")
     (dist / "aoc_xlate").chmod(0o755)
     shutil.copy2(xl / "aoc_xlate.id", dist / "aoc_xlate.id")
-    copy((sysroot / "usr/lib/x86_64-linux-gnu/libSDL3.so.0").resolve(), dist / "lib" / "libSDL3.so.0")
+    sdl = (sysroot / "usr/lib/x86_64-linux-gnu/libSDL3.so.0").resolve()
+    copy(sdl, dist / "lib" / "libSDL3.so.0")
+    # The sniper's SDL3 links X11, Wayland, PulseAudio, ALSA and libdecor directly: a Linux PC without one of them could
+    # not load the game. Their copies from the same sysroot go to lib/fallback, which aoc.sh uses only when ldd reports
+    # a library missing (SteamOS has them all). tools/elfdeps.py.
+    n = elfdeps.copy_fallback(sysroot, [sdl, exe], dist / "lib" / "fallback", skip={"libSDL3.so.0"})
+    print(f"dist: {n} bibliotecas de reserva em lib/fallback")
     for f in ("main", "subsdk0", "sdk", "main.npdm"):
         copy(args.exefs / f, dist / "exefs" / f)
     copy(host / "romfs-index.bin", dist / "romfs-index.bin")
     (dist / "aoc.sh").write_text(LAUNCHER)
     (dist / "aoc.sh").chmod(0o755)
     (dist / "LEIA-ME.txt").write_text(README_DECK, encoding="utf-8")
-    (dist / "instalar-atalho.sh").write_text(INSTALL_SH, encoding="utf-8")
-    (dist / "instalar-atalho.sh").chmod(0o755)
+    (dist / "README.txt").write_text(README_DECK_EN, encoding="utf-8")
+    for name in ("instalar-atalho.sh", "install-shortcut.sh"):   # the same script, a name in each language
+        (dist / name).write_text(INSTALL_SH, encoding="utf-8")
+        (dist / name).chmod(0o755)
     # Registros no Deck: aoc-logs.sh (lista, resumo, acompanhamento, pacote) e o resumidor que ele usa.
     (dist / "ferramentas").mkdir(exist_ok=True)
     shutil.copy2(ROOT / "tools" / "deck" / "logsum.py", dist / "ferramentas" / "logsum.py")
@@ -667,7 +761,8 @@ def assemble_dist(args, exe: Path, sysroot: Path, host: Path, xl: Path) -> Path:
     shutil.copy2(ROOT / "tools" / "deck" / "aoc-logs.sh", dist / "aoc-logs.sh")
     (dist / "aoc-logs.sh").chmod(0o755)
     if not (dist / "aoc.ini").exists():   # só na primeira vez: depois o arquivo é do jogador (o menu grava nele)
-        (dist / "aoc.ini").write_text(INI_DECK, encoding="utf-8")
+        lang = "en" if os.environ.get("AOC_MENU_LANG", "") == "en" else "pt-BR"
+        (dist / "aoc.ini").write_text(INI_DECK.format(lang=lang), encoding="utf-8")
     if args.with_romfs:
         dst = dist / "romfs" / "romfs.bin"
         if not (dst.exists() and dst.stat().st_size == ROMFS_IMAGE.stat().st_size):

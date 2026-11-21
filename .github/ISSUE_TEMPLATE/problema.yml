@@ -1,5 +1,5 @@
 name: Problema / Bug report
-description: Algo não funcionou na forja ou no jogo / Something failed in the forge or in the game
+description: Algo não funcionou ao gerar o jogo ou jogando / Something failed while building the game or playing
 labels: ["bug"]
 body:
   - type: markdown
@@ -32,7 +32,7 @@ body:
     attributes:
       label: Em que parte / Which part
       options:
-        - Forja (launcher, preparar o jogo) / Forge (launcher, building the game)
+        - Gerar o jogo (launcher) / Building the game (launcher)
         - Abrir o jogo / Starting the game
         - Jogando (imagem, som, travada, desempenho) / Playing (picture, sound, freeze, performance)
         - DLC

@@ -61,13 +61,11 @@ void ov_operation_mode_changed(void);   // ov_system.c: AOC_OPERATION_MODE chang
 void diag_mark_user(void);              // diag.c: a mark in the performance log and a report
 }
 
-// Roboto Medium (Apache-2.0, ui/fonts/LICENSE-Roboto.txt) with Latin and Cyrillic glyphs.
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wc23-extensions"   // #embed in C++
+// Roboto Medium (Apache-2.0, ui/fonts/LICENSE-Roboto.txt) with Latin and Cyrillic glyphs. Its bytes come from
+// roboto_ttf.inc, which tools/build.py font_inc writes into the build's host folder: #embed in C++ needs clang 19.
 static const unsigned char roboto_ttf[] = {
-#embed "fonts/Roboto-Medium.ttf"
+#include "roboto_ttf.inc"
 };
-#pragma clang diagnostic pop
 
 // ---- open state, any thread
 static std::atomic<int> g_open;     // the menu is open

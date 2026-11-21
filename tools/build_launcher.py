@@ -1,9 +1,10 @@
 """Builds the launcher (launcher/launcher.cpp) as one self-contained executable.
 
   Windows, in MSYS2 UCRT64:  python3 tools/build_launcher.py          -> build/launcher/aoc-launcher.exe
-  Linux (WSL is fine):       python3 tools/build_launcher.py --linux  -> build/launcher-linux/aoc-launcher
+  Linux (WSL is fine):       python3 tools/build_launcher.py --linux  -> build/launcher-linux/aoc-launcher(.bin)
 
-Both link SDL3 and the C++ runtime statically, so nothing has to sit beside the executable. The Linux build is made
+Both link the C++ runtime statically; SDL3 sits beside the executable (SDL3.dll; on Linux libSDL3.so.0, lib-fallback/
+and the aoc-launcher script that starts aoc-launcher.bin). The Linux build is made
 against the Steam Runtime "sniper" sysroot that tools/build.py's dist step downloads (glibc 2.31, SDL 3.4 static), so it
 runs on any current distribution; --sysroot points at another copy.
 """
@@ -15,6 +16,8 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "tools"))
+import elfdeps  # noqa: E402
 IMGUI = ROOT / "runtime" / "third_party" / "imgui"
 SOURCES = [ROOT / "launcher" / "launcher.cpp"] + [IMGUI / f for f in ("imgui.cpp", "imgui_draw.cpp", "imgui_tables.cpp",
                                                                        "imgui_widgets.cpp")] + \
@@ -52,20 +55,42 @@ def build_windows(out: Path) -> Path:
     return exe
 
 
+# What the player runs on Linux (./aoc-launcher): the program is aoc-launcher.bin. With the fallback libraries in use,
+# the launcher puts the caller's LD_LIBRARY_PATH back before it starts anything (launcher.cpp main), so the compiler,
+# Python and the game do not inherit them.
+LINUX_SCRIPT = """#!/bin/sh
+# AoC Recomp launcher (Linux). Runs aoc-launcher.bin; the libraries its SDL3 needs that this system lacks come from
+# lib-fallback/ (copies from the Steam Runtime), only those.
+here="$(cd "$(dirname "$0")" && pwd)"
+saved="${LD_LIBRARY_PATH-}"
+fb_bin="$here/aoc-launcher.bin"; fb_dir="$here/lib-fallback"
+""" + elfdeps.FALLBACK_SH + """[ -n "$fb_used" ] && export AOC_LD_SAVED="$saved" AOC_LD_FALLBACK=1
+exec "$here/aoc-launcher.bin" "$@"
+"""
+
+
 def build_linux(sysroot: Path, out: Path) -> Path:
     if not (sysroot / "usr/lib/x86_64-linux-gnu/libSDL3.a").is_file():
         sys.exit(f"ERRO: {sysroot} não tem a SDL3 estática; rode antes tools/build.py dist (baixa o sniper)")
     out.mkdir(parents=True, exist_ok=True)
-    exe = out / "aoc-launcher"
+    exe = out / "aoc-launcher.bin"
     cc = ["clang++", "--target=x86_64-linux-gnu", f"--sysroot={sysroot}", "-fuse-ld=lld"]
-    # SDL3 as the game's Deck build has it: the sniper's libSDL3.so.0 beside the executable (rpath $ORIGIN), which
-    # opens X11, Wayland, PulseAudio... with dlopen. The sniper's static libSDL3.a links those directly, so a missing
-    # one would stop the launcher from starting. The C++ runtime is static.
+    # SDL3 as the game's Deck build has it: the sniper's libSDL3.so.0 beside the executable (rpath $ORIGIN). That
+    # library links X11, Wayland, PulseAudio, ALSA and libdecor directly (DT_NEEDED, not dlopen), so a Linux without
+    # one of them could not start the launcher: their copies from the sysroot go to lib-fallback/, and the aoc-launcher
+    # script puts them on LD_LIBRARY_PATH only when ldd reports one missing (tools/elfdeps.py). The C++ runtime is
+    # static.
     cmd = cc + CXXFLAGS + [*map(str, SOURCES), "-o", str(exe), "-static-libstdc++", "-static-libgcc",
                            "-Wl,-rpath,$ORIGIN", "-lSDL3", "-lpthread", "-ldl", "-lm"]
     subprocess.run(cmd, check=True)
     subprocess.run(["llvm-strip", str(exe)], check=True)
-    shutil.copy2((sysroot / "usr/lib/x86_64-linux-gnu/libSDL3.so.0").resolve(), out / "libSDL3.so.0")
+    sdl = (sysroot / "usr/lib/x86_64-linux-gnu/libSDL3.so.0").resolve()
+    shutil.copy2(sdl, out / "libSDL3.so.0")
+    n = elfdeps.copy_fallback(sysroot, [sdl], out / "lib-fallback", skip={"libSDL3.so.0"})
+    script = out / "aoc-launcher"
+    script.write_text(LINUX_SCRIPT)
+    script.chmod(0o755)
+    print(f"{n} bibliotecas de reserva em {out / 'lib-fallback'}")
     p = subprocess.run(["objdump", "-T", str(exe)], capture_output=True, text=True)
     vers = sorted(set(re.findall(r"GLIBC_(2\.[0-9.]+)", p.stdout)), key=lambda v: tuple(int(x) for x in v.split(".")))
     print(f"glibc máxima pedida: {vers[-1] if vers else '?'}")

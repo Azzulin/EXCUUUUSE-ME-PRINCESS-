@@ -71,7 +71,8 @@ enum Str {
     T_GUIDE, T_NEED_WSL, T_NEED_WSL2, T_INSTALL_WSL, T_WSL_RUNNING, T_WSL_DONE, T_WSL_FAIL, T_CANCELLED_LOG,
     T_NO_PYTHON, T_UPDATE_NOTE, T_GRAPHICS, T_CONTROLS, T_GFX_NOTE, T_CTL_NOTE, T_PLAY, T_PLAYING, T_REPORT,
     T_REPORTING, T_REPORT_DONE, T_REPORT_FAIL, T_GAME_FOLDER, T_LOGS_FOLDER, T_FORGE_AGAIN, T_BACK_TO_GAME, T_SAVE,
-    T_SAVED, T_SAVE_FAIL, T_CLOSE, T_FRAMERATE, T_FRAMERATE_VAL, T_FRAMERATE_DESC, T_UNSAVED, T_PLAY_FAIL, T_UNNAMED, T_COUNT
+    T_SAVED, T_SAVE_FAIL, T_CLOSE, T_FRAMERATE, T_FRAMERATE_VAL, T_FRAMERATE_DESC, T_UNSAVED, T_PLAY_FAIL, T_UNNAMED,
+    T_CPU_OLD, T_GAME_QUIT, T_COUNT
 };
 static const char *STR[T_COUNT][2] = {
     {"HYRULE WARRIORS  ·  RECOMPILADO", "HYRULE WARRIORS  ·  RECOMPILED"},
@@ -97,8 +98,8 @@ static const char *STR[T_COUNT][2] = {
     {"AoC-Recomp (automática)", "AoC-Recomp (automatic)"},
     {"pasta de trabalho (Windows)", "work folder (Windows)"},
     {"padrão", "default"},
-    {"FORJAR", "FORGE"},
-    {"FORJANDO...", "FORGING..."},
+    {"GERAR", "BUILD"},
+    {"GERANDO...", "BUILDING..."},
     {"Só conferir", "Only check"},
     {"Cancelar", "Cancel"},
     {"PROGRESSO", "PROGRESS"},
@@ -106,12 +107,12 @@ static const char *STR[T_COUNT][2] = {
     {"2. Marque onde vai jogar: Steam Deck / Linux, Windows ou os dois.", "2. Tick where you will play: Steam Deck / Linux, Windows or both."},
     {"2. Deixe marcado Steam Deck / Linux (a pasta serve para este PC e para o Deck).",
      "2. Keep Steam Deck / Linux ticked (the folder works on this PC and on the Deck)."},
-    {"3. Clique em FORJAR e deixe o PC trabalhar.", "3. Click FORGE and let the PC work."},
+    {"3. Clique em GERAR e deixe o PC trabalhar.", "3. Click BUILD and let the PC work."},
     {"A primeira vez leva de 1 a 2 horas (baixa ~2 GB de ferramentas e compila tudo).\nDepois, só o que mudou: minutos.",
      "The first time takes 1 to 2 hours (downloads ~2 GB of tools and compiles everything).\nAfter that, only what changed: minutes."},
     {"(já feito)", "(already done)"},
     {"Arquivos conferidos: tudo certo.", "Files checked: all good."},
-    {"Pronto. O port foi forjado.", "Done. The port is forged."},
+    {"Pronto. O jogo foi gerado.", "Done. The game is built."},
     {"Pronto. Copie a pasta do Deck para o Steam Deck (veja o guia).", "Done. Copy the Deck folder to the Steam Deck (see the guide)."},
     {"Falhou. Veja o registro abaixo.", "Failed. See the log below."},
     {"Cancelado.", "Cancelled."},
@@ -132,8 +133,8 @@ static const char *STR[T_COUNT][2] = {
      "The WSL install did not finish (code %d). Try again or see the guide."},
     {"cancelado pelo usuário", "cancelled by the user"},
     {"não consegui iniciar o Python: ", "could not start Python: "},
-    {"Versão nova do AoC Recomp: forje de novo para atualizar o jogo (só o que mudou é refeito).",
-     "New AoC Recomp version: forge again to update the game (only what changed is redone)."},
+    {"Versão nova do AoC Recomp: gere de novo para atualizar o jogo (só o que mudou é refeito).",
+     "New AoC Recomp version: build again to update the game (only what changed is redone)."},
     {"GRÁFICOS", "GRAPHICS"},
     {"CONTROLE E SOM", "CONTROLS AND SOUND"},
     {"Valem na próxima vez que o jogo abrir. Mais opções no jogo: F1.",
@@ -149,7 +150,7 @@ static const char *STR[T_COUNT][2] = {
     {"O relatório não foi criado.", "The report could not be made."},
     {"Pasta do jogo", "Game folder"},
     {"Registros", "Logs"},
-    {"Forjar de novo", "Forge again"},
+    {"Gerar de novo", "Build again"},
     {"Voltar ao jogo", "Back to the game"},
     {"Salvar", "Save"},
     {"Configurações salvas.", "Settings saved."},
@@ -161,7 +162,11 @@ static const char *STR[T_COUNT][2] = {
      "30 FPS is the game's own rate: it moves a fixed step per frame. 60 FPS needs a patch that is not ported yet."},
     {"alterações não salvas", "unsaved changes"},
     {"Não consegui abrir o jogo.", "Could not start the game."},
-    {"(nome sem o ID; conferido ao forjar)", "(no ID in the name; checked when forging)"},
+    {"(nome sem o ID; conferido ao gerar)", "(no ID in the name; checked when building)"},
+    {"O processador deste PC não tem AVX2 (Intel Core de 4ª geração / AMD Ryzen ou mais novo): o jogo não roda nele.",
+     "This PC's processor lacks AVX2 (Intel Core 4th gen / AMD Ryzen or newer): the game cannot run on it."},
+    {"O jogo fechou logo depois de abrir. Use Reportar problema... para mandar o registro.",
+     "The game closed right after starting. Use Report a problem... to send its log."},
 };
 static int g_lang = 0;   // 0 Portuguese, 1 English
 static const char *tr(Str s) { return STR[s][g_lang]; }
@@ -251,6 +256,33 @@ static std::string forged_version() {
     return b == std::string::npos ? "" : t.substr(a + 1, b - a - 1);
 }
 static std::string package_version() { return trim(read_text(g_root / "VERSION")); }
+
+// tools/build.py compiles the game with -march=x86-64-v3: a CPU without AVX2, FMA and BMI2 stops it on its first such
+// instruction, before it writes a word to its log, so the launcher tells the player instead.
+static bool cpu_runs_game() {
+#if defined(__x86_64__) || defined(_M_X64)
+    __builtin_cpu_init();
+    return __builtin_cpu_supports("avx2") && __builtin_cpu_supports("fma") && __builtin_cpu_supports("bmi2");
+#else
+    return true;
+#endif
+}
+
+// The line of the game's logs/aoc.log that says why it stopped (rt_fatal's "FATAL:", the crash handler's, or
+// vk_device.c's "no device with Vulkan 1.3..." / "required feature missing"), "" when there is none.
+static std::string game_stop_reason() {
+    std::string t = read_text(game_dir() / "logs" / "aoc.log"), why;
+    for (size_t s = 0; s < t.size();) {
+        size_t e = t.find('\n', s);
+        if (e == std::string::npos) e = t.size();
+        std::string l = trim(t.substr(s, e - s));
+        if (l.find("FATAL") != std::string::npos || l.find("vk: no device") != std::string::npos ||
+            l.find("required feature missing") != std::string::npos)
+            why = l;
+        s = e + 1;
+    }
+    return why.size() > 110 ? why.substr(0, 107) + "..." : why;
+}
 
 // ---- the dump folder at a glance (names only, a hint; the forge's check step identifies the packages by content)
 struct DumpScan {
@@ -786,6 +818,16 @@ static void cancel_build() {
         log_line(tr(T_CANCELLED_LOG));
     }
     if (g_pid > 0) kill(-g_pid, SIGTERM);
+    // In the distrobox container (SteamOS, Bazzite) the build is not in that process group: the host sees the
+    // container's processes, so stop it by name, as the WSL side does on Windows.
+    pid_t pk = fork();
+    if (pk == 0) {
+        int nul = open("/dev/null", O_RDWR);
+        if (nul >= 0) dup2(nul, 0), dup2(nul, 1), dup2(nul, 2);
+        execlp("pkill", "pkill", "-f", "tools/build.py", (char *)nullptr);
+        _exit(127);
+    }
+    if (pk > 0) std::thread([pk]() { int st; waitpid(pk, &st, 0); }).detach();
 }
 
 static pid_t spawn_detached(const std::vector<std::string> &cmd, const fs::path &cwd) {
@@ -1120,9 +1162,12 @@ enum Screen { SCR_BUILD, SCR_PLAY };
 static Screen g_screen;
 static std::string g_status;     // the bottom bar's message
 static ImVec4 g_status_col = C_MUTED;
-static double g_status_t;
+static double g_status_t, g_status_secs = 8;
 
-static void set_status(const char *msg, const ImVec4 &c) { g_status = msg, g_status_col = c, g_status_t = now_s(); }
+static void set_status(const char *msg, const ImVec4 &c, double secs = 8) {
+    g_status = msg, g_status_col = c, g_status_t = now_s(), g_status_secs = secs;
+}
+static double g_game_t0;   // when Play started the game; 0 once its end was seen
 
 // Header: a kicker line, the title with a soft glow, a line with diamonds; guide and language at the top right.
 static void draw_header(ImGuiIO &io, float pad) {
@@ -1262,15 +1307,24 @@ static void screen_play(ImGuiIO &io, float pad, float t, bool &quit) {
     if (bar_button(T_CLOSE, "close")) quit = true;
     float play_w = 230 * s;
     bool running = game_running();
+    if (g_game_t0 > 0 && !running) {   // the game ended: within 30 s it did not really start (issue #19 saw nothing)
+        if (now_s() - g_game_t0 < 30) {
+            std::string why = game_stop_reason();
+            set_status((std::string(tr(T_GAME_QUIT)) + (why.empty() ? "" : "  [" + why + "]")).c_str(), C_RED, 600);
+        }
+        g_game_t0 = 0;
+    }
     ImGui::SameLine(io.DisplaySize.x - pad - play_w);
     if (big_button("play", tr(running ? T_PLAYING : T_PLAY), ImVec2(play_w, 44 * s), !running, t)) {
         if (dirty && !ini_save()) set_status(tr(T_SAVE_FAIL), C_RED);
+        else if (!cpu_runs_game()) set_status(tr(T_CPU_OLD), C_RED, 600);
         else if (!play()) set_status(tr(T_PLAY_FAIL), C_RED);
+        else g_game_t0 = now_s(), g_status.clear();
     }
     // the message line under the bar
     ImGui::SetCursorPos(ImVec2(pad, io.DisplaySize.y - 22 * s));
     ImGui::PushFont(F_SMALL);
-    if (!g_status.empty() && now_s() - g_status_t < 8) ImGui::TextColored(g_status_col, "%s", g_status.c_str());
+    if (!g_status.empty() && now_s() - g_status_t < g_status_secs) ImGui::TextColored(g_status_col, "%s", g_status.c_str());
     else if (dirty) ImGui::TextColored(C_ORANGE, "%s", tr(T_UNSAVED));
     else ImGui::TextColored(C_MUTED, "%s", tr(T_FOOTER));
     ImGui::PopFont();
@@ -1328,7 +1382,8 @@ static void screen_build(ImGuiIO &io, float pad, float t, DumpScan &scan, char *
     ImGui::Checkbox(lab(IS_WINDOWS ? T_DECK : T_DECK_LINUX, "deck").c_str(), &S.deck);
     if (S.deck) {
         ImGui::Indent(26 * s);
-        ImGui::Checkbox(lab(T_ROMFS, "romfs").c_str(), &S.with_romfs);
+        // On Linux the folder is also this PC's game, so tools/make_build.py always puts romfs.bin in (a hard link)
+        if (IS_WINDOWS) ImGui::Checkbox(lab(T_ROMFS, "romfs").c_str(), &S.with_romfs);
         ImGui::Checkbox(lab(T_SEND, "send").c_str(), &S.send);
         if (S.send) {
             ImGui::SetNextItemWidth(220 * s);
@@ -1488,12 +1543,24 @@ static void screen_build(ImGuiIO &io, float pad, float t, DumpScan &scan, char *
     }
     ImGui::SetCursorPos(ImVec2(pad, io.DisplaySize.y - 22 * s));
     ImGui::PushFont(F_SMALL);
-    if (!g_status.empty() && now_s() - g_status_t < 8) ImGui::TextColored(g_status_col, "%s", g_status.c_str());
+    if (!g_status.empty() && now_s() - g_status_t < g_status_secs) ImGui::TextColored(g_status_col, "%s", g_status.c_str());
     else ImGui::TextColored(C_MUTED, "%s", tr(T_FOOTER));
     ImGui::PopFont();
 }
 
 int main(int argc, char **argv) {
+#ifndef _WIN32
+    // Started with the fallback libraries (the aoc-launcher script, tools/build_launcher.py): they are loaded by now,
+    // and glibc reads LD_LIBRARY_PATH only at startup, so the caller's value goes back for what this starts (Python,
+    // the compiler, the game).
+    if (getenv("AOC_LD_FALLBACK")) {
+        const char *saved = getenv("AOC_LD_SAVED");
+        if (saved && *saved) setenv("LD_LIBRARY_PATH", saved, 1);
+        else unsetenv("LD_LIBRARY_PATH");
+        unsetenv("AOC_LD_SAVED");
+        unsetenv("AOC_LD_FALLBACK");
+    }
+#endif
     g_exe_dir = exe_dir();
     g_root = find_root(g_exe_dir);
     settings_load();

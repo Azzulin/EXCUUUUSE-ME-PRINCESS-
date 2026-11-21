@@ -15,6 +15,10 @@ Steps (each prints "@@STEP <id> <run|ok|fail|skip> <text>"; every other line is 
                               SDL3, Opus, libvpx, zstd and Vulkan
               Linux:          the distro's packages and the venv (tools/setup_wsl.sh --minimal; pkexec asks for the
                               password in a window)
+              Linux whose system cannot take packages (SteamOS, Bazzite and other Fedora Atomic, NixOS): a
+                              distrobox container "aoc-recomp" (Arch Linux) with tools/setup_wsl.sh --minimal inside;
+                              every tool of the later steps runs in it (the home folder is shared, so build/,
+                              ~/aoc-build and the venv are the same files)
   extract   build/v130/exefs from the update (tools/extract.py exefs), once
   romfs     build/v130/romfs.bin, base + update merged (tools/merge_romfs.py with hactool), once
   dlc       build/v130/dlc-<title id>.bin, the RomFS of each DLC in the dump (tools/extract_dlc.py), once; the game
@@ -47,6 +51,10 @@ BASE_ID, UPDATE_ID = "01002B00111A2000", "01002B00111A2800"
 WIN = os.name == "nt"
 DISTRO = "AoC-Recomp"   # the private WSL distro the tools step makes
 VENV_PY = Path.home() / ".venvs" / "aoc" / "bin" / "python"
+# Linux with a system the forge cannot install into: the tools live in this distrobox container instead. Arch, like the
+# WSL distro, so tools/setup_wsl.sh takes the same pacman path that the Windows forge uses every day.
+CONTAINER = "aoc-recomp"
+CONTAINER_IMAGE = "docker.io/library/archlinux:latest"
 # MSYS2 base, pinned (https://github.com/msys2/msys2-installer/releases/tag/2026-09-27); unpacked only when the PC has
 # no MSYS2. The packages come from MSYS2's own mirrors.
 MSYS2_SFX = ("https://github.com/msys2/msys2-installer/releases/download/2026-09-27/msys2-base-x86_64-20260927.sfx.exe",
@@ -75,7 +83,7 @@ TEXT = {
     "missing": ("faltam na pasta escolhida: {0}", "missing from the chosen folder: {0}"),
     "base": ("o jogo base (01002B00111A2000)", "the base game (01002B00111A2000)"),
     "update": ("o update 1.3.0 (01002B00111A2800)", "update 1.3.0 (01002B00111A2800)"),
-    "disk": ("pouco espaço livre em {0}: {1:.0f} GB livres, a forja precisa de ~{2:.0f} GB",
+    "disk": ("pouco espaço livre em {0}: {1:.0f} GB livres, a geração precisa de ~{2:.0f} GB",
              "not enough free space on {0}: {1:.0f} GB free, the build needs about {2:.0f} GB"),
     "ram": ("AVISO: {0:.0f} GB de RAM; com menos de 8 GB a compilação pode falhar ou levar horas",
             "WARNING: {0:.0f} GB of RAM; with less than 8 GB the build may fail or take hours"),
@@ -84,8 +92,8 @@ TEXT = {
                  "WSL is not installed: click \"Install WSL\" (asks for administrator) and restart the PC"),
     "wsl_install": ("criando a distro Linux privada {0} (Arch Linux, ~1 GB, só na primeira vez)...",
                     "creating the private Linux distro {0} (Arch Linux, ~1 GB, first time only)..."),
-    "wsl_old": ("o WSL não criou a distro: atualize-o (num terminal como administrador: wsl --update) e forje de novo",
-                "WSL could not create the distro: update it (in an administrator terminal: wsl --update) and forge again"),
+    "wsl_old": ("o WSL não criou a distro: atualize-o (num terminal como administrador: wsl --update) e gere de novo",
+                "WSL could not create the distro: update it (in an administrator terminal: wsl --update) and build again"),
     "no_distro": ("a distro do WSL \"{0}\" não existe (wsl -l -v)", "the WSL distro \"{0}\" does not exist (wsl -l -v)"),
     "msys_get": ("baixando o MSYS2 ({0:.0f} MB, só na primeira vez)...", "downloading MSYS2 ({0:.0f} MB, first time only)..."),
     "msys_hash": ("o download do MSYS2 não bate com o hash fixado", "the MSYS2 download does not match the pinned hash"),
@@ -108,14 +116,14 @@ TEXT = {
                  "update 1.3.0 (01002B00111A2800) is not among the NSPs in the folder"),
     "p_updates": ("há mais de um update 1.3.0 na pasta; deixe só um", "there is more than one update 1.3.0 in the folder; keep one"),
     "p_wrong_update": ("o update da sua pasta é de outra versão (v{0}; o 1.4.1 é o v458752). O AoC Recomp só funciona "
-                       "com o update 1.3.0 (v327680): troque o NSP do update pelo da 1.3.0 e forje de novo",
+                       "com o update 1.3.0 (v327680): troque o NSP do update pelo da 1.3.0 e gere de novo",
                        "the update in your folder is another version (v{0}; 1.4.1 is v458752). AoC Recomp only works "
-                       "with update 1.3.0 (v327680): replace the update NSP with the 1.3.0 one and forge again"),
+                       "with update 1.3.0 (v327680): replace the update NSP with the 1.3.0 one and build again"),
     "no_nsp": ("não há arquivos .nsp na pasta escolhida", "there are no .nsp files in the chosen folder"),
     "wrong_build": ("o código do jogo extraído não é o da versão 1.3.0. O AoC Recomp só funciona com o update 1.3.0 "
-                    "(v327680); o 1.4.1 ainda não é aceito. Troque o NSP do update e forje de novo",
+                    "(v327680); o 1.4.1 ainda não é aceito. Troque o NSP do update e gere de novo",
                     "the extracted game code is not version 1.3.0. AoC Recomp only works with update 1.3.0 (v327680); "
-                    "1.4.1 is not accepted yet. Replace the update NSP and forge again"),
+                    "1.4.1 is not accepted yet. Replace the update NSP and build again"),
     "stale_exefs": ("o código extraído numa tentativa anterior não é o da versão 1.3.0: extraindo de novo",
                     "the game code extracted by an earlier attempt is not version 1.3.0: extracting again"),
     "stale_romfs": ("o romfs.bin de uma tentativa anterior não é o da versão 1.3.0 ({0} bytes): montando de novo",
@@ -124,10 +132,27 @@ TEXT = {
                    "certos (base v0 e update 1.3.0)",
                    "the merged RomFS has {0} bytes, the 1.3.0 one has {1}: check that the base game and the update are "
                    "the right ones (base v0 and update 1.3.0)"),
-    "steamos": ("o SteamOS não deixa instalar as ferramentas de compilação (o sistema é somente leitura). Forje num PC "
-                "com Windows ou Linux e copie a pasta dist/aoc-deck para cá (guia, seção 4)",
-                "SteamOS does not let the build tools be installed (the system is read-only). Forge on a Windows or "
-                "Linux PC and copy the dist/aoc-deck folder here (guide, section 4)"),
+    "immutable": ("este Linux ({0}) não deixa instalar as ferramentas de compilação no sistema, e o distrobox, que as "
+                  "instalaria num contêiner, não está instalado. Instale o distrobox (o SteamOS 3.5+ e o Bazzite já "
+                  "trazem) ou gere num PC com Windows ou Linux e copie a pasta dist/aoc-deck para cá (guia, seção 4)",
+                  "this Linux ({0}) does not let the build tools be installed into the system, and distrobox, which "
+                  "would install them in a container, is missing. Install distrobox (SteamOS 3.5+ and Bazzite ship "
+                  "it) or build on a Windows or Linux PC and copy the dist/aoc-deck folder here (guide, section 4)"),
+    "box_make": ("criando o contêiner {0} (Arch Linux, ~1,5 GB, só na primeira vez; o sistema não é alterado)...",
+                 "creating the container {0} (Arch Linux, ~1.5 GB, first time only; the system is not changed)..."),
+    "box_fail": ("o distrobox não criou o contêiner {0}; veja as linhas acima (o podman ou o docker precisa funcionar)",
+                 "distrobox could not create the container {0}; see the lines above (podman or docker must work)"),
+    "names_later": ("os nomes dos NSPs não dizem o que são; o conteúdo é conferido depois de preparar as ferramentas",
+                    "the NSP names do not say what they are; their contents are checked once the tools are ready"),
+    "cpu_old": ("o processador deste PC não tem AVX2/FMA/BMI2 (têm: Intel Core de 4ª geração, de 2013, em diante, e AMD "
+                "Ryzen em diante; Pentium e Celeron antigos e AMD FX não têm), e o jogo compilado precisa deles: a "
+                "versão Windows não abriria aqui. A versão do Steam Deck pode ser gerada mesmo assim",
+                "this PC's processor lacks AVX2/FMA/BMI2 (Intel Core 4th gen, from 2013, and newer and AMD Ryzen and "
+                "newer have them; older Pentium and Celeron and AMD FX do not), which the compiled game needs: the "
+                "Windows version would not start here. The Steam Deck version can still be built"),
+    "cpu_warn": ("AVISO: o processador deste PC não tem AVX2/FMA/BMI2: a pasta gerada roda no Steam Deck, mas não "
+                 "neste PC", "WARNING: this PC's processor lacks AVX2/FMA/BMI2: the built folder runs on the Steam "
+                 "Deck, not on this PC"),
 }
 
 
@@ -203,15 +228,29 @@ def msys_root(args) -> Path:
 
 def msys(args, script: str) -> None:
     env = dict(os.environ, MSYSTEM="UCRT64", CHERE_INVOKING="1")
-    run([msys_root(args) / "usr/bin/bash.exe", "-lc", script], cwd=str(ROOT), env=env)
+    # MSYS2's login shell sets TMP and TEMP to /tmp, which native programs get as <msys2>\tmp. A missing folder there
+    # (removed by a cleaner, or an MSYS2 copied without it) stops llvm-windres with "Unable to create temp file: No
+    # such file or directory" at the Windows build's first step (issue #12), so it is made every time.
+    run([msys_root(args) / "usr/bin/bash.exe", "-lc", "mkdir -p /tmp && " + script], cwd=str(ROOT), env=env)
 
 
-def tool_python() -> str:
+def tool_python(args=None) -> str:
     """The Python with cryptography, lz4 and numpy: this one on Windows (the launcher's embedded Python or MSYS2's),
-    the venv on Linux."""
-    if not WIN and VENV_PY.is_file():
+    the venv on Linux (in the container when the forge uses one)."""
+    if not WIN and (VENV_PY.is_file() or (args is not None and args.container)):
         return str(VENV_PY)
     return sys.executable
+
+
+def box(args) -> list:
+    """What a tool command is prefixed with: nothing, or "distrobox enter aoc-recomp --" when the Linux tools live in
+    the container (its venv's Python and its compiler only work in there)."""
+    return ["distrobox", "enter", CONTAINER, "--"] if args.container else []
+
+
+def tool(args, script: str, *rest) -> list:
+    """Command line of one of our Python tools with the tools' Python, in the container when there is one."""
+    return box(args) + [tool_python(args), ROOT / "tools" / script] + list(rest)
 
 
 def mem_gib() -> float:
@@ -232,6 +271,45 @@ def mem_gib() -> float:
         return 0.0
 
 
+def cpu_v3():
+    """Whether this CPU runs x86-64-v3 code (AVX2, FMA, BMI2: tools/build.py compiles the game with
+    -march=x86-64-v3); None when it cannot be told. Without them aoc.exe dies on its first such instruction, before it
+    can write a word to its log."""
+    if not WIN:
+        try:
+            flags = next((l.split(":", 1)[1].split() for l in Path("/proc/cpuinfo").read_text().splitlines()
+                          if l.startswith("flags")), [])
+            return {"avx2", "fma", "bmi2"} <= set(flags)
+        except (OSError, StopIteration):
+            return None
+    try:   # numpy (in the launcher's Python) reads CPUID itself, whatever the Windows version
+        try:
+            from numpy._core._multiarray_umath import __cpu_features__ as f
+        except ImportError:
+            from numpy.core._multiarray_umath import __cpu_features__ as f
+        if "AVX2" in f and "FMA3" in f:
+            return bool(f["AVX2"] and f["FMA3"])
+    except Exception:
+        pass
+    try:   # PF_AVX2_INSTRUCTIONS_AVAILABLE (40): a Windows without it in its table answers "no", hence only a hint
+        import ctypes
+        return True if ctypes.windll.kernel32.IsProcessorFeaturePresent(40) else None
+    except Exception:
+        return None
+
+
+def inventory(args) -> None:
+    """tools/extract.py inventory: each package identified by what its NCAs say (title id and version), whatever the
+    file is called; an update of another version is refused with its own message."""
+    found = []
+    try:
+        run(tool(args, "extract.py", "inventory", "--game-dir", args.game_dir, "--keys", args.keys), problems=found)
+    except StepFailed:
+        if found and "p_" + found[0][0] in TEXT:
+            raise StepFailed(tr("p_" + found[0][0], found[0][1]))
+        raise
+
+
 # ---- steps
 
 def s_check(args) -> None:
@@ -244,26 +322,22 @@ def s_check(args) -> None:
         raise StepFailed(tr("missing", "prod.keys"))
     if not nsps:
         raise StepFailed(tr("no_nsp"))
-    # The inventory identifies each package by what its NCAs say (title id and version), whatever the file is called;
-    # it needs cryptography: on Linux only once the venv exists, and until then the names are the hint.
-    if WIN or VENV_PY.is_file():
-        found = []
-        try:
-            run([tool_python(), ROOT / "tools/extract.py", "inventory", "--game-dir", g, "--keys", args.keys],
-                problems=found)
-        except StepFailed:
-            if found and "p_" + found[0][0] in TEXT:
-                raise StepFailed(tr("p_" + found[0][0], found[0][1]))
-            raise
-    else:
-        miss = [tr("base")] * (not any(BASE_ID in p.name.upper() for p in nsps)) + \
-               [tr("update")] * (not any(UPDATE_ID in p.name.upper() for p in nsps))
-        if miss:
-            raise StepFailed(tr("missing", ", ".join(miss)))
+    # The inventory needs cryptography: on Linux only once the venv exists. Until then it runs at the end of the tools
+    # step, before anything is extracted, so NSPs renamed without their IDs are not refused here by their names.
+    args.inventory_later = not (WIN or VENV_PY.is_file())
+    if not args.inventory_later:
+        inventory(args)
+    elif not (any(BASE_ID in p.name.upper() for p in nsps) and any(UPDATE_ID in p.name.upper() for p in nsps)):
+        out(tr("names_later"))
     if args.windows and not WIN:
         raise StepFailed(tr("no_win_linux"))
     if args.send and not args.deck:
         raise StepFailed(tr("send_deck"))
+    v3 = cpu_v3()
+    if v3 is False and args.windows:
+        raise StepFailed(tr("cpu_old"))
+    if v3 is False:
+        out(tr("cpu_warn"))
     # Space: the RomFS merge holds the NCAs (~11 GB) and the image (10.9 GB) at once; each build ~6-8 GB.
     need = (23 if not (ROOT / "build/v130/romfs.bin").is_file() else 0) + 7 * args.deck + 9 * args.windows
     free = shutil.disk_usage(ROOT).free / 1e9
@@ -356,14 +430,48 @@ def tools_msys2(args) -> None:
         msys(args, "pacman -S --needed --noconfirm --disable-download-timeout " + " ".join(pkgs))
 
 
-def steamos_readonly() -> bool:
-    """SteamOS (Steam Deck, Steam Machine) with its read-only system and no compiler: pacman cannot install there."""
+def immutable_host() -> str:
+    """Name of a Linux whose system packages the forge cannot install, '' for any other: SteamOS (Steam Deck, Steam
+    Machine: read-only, pacman fails with "unable to lock database", issue #2), Fedora Atomic and what is built on it
+    (Bazzite, Silverblue, Kinoite, Bluefin: rpm-ostree, and dnf refuses, issue #18), NixOS."""
+    if WIN:
+        return ""
+    if Path("/run/ostree-booted").exists():
+        return "rpm-ostree"
+    if Path("/etc/NIXOS").exists():
+        return "NixOS"
     try:
         text = Path("/etc/os-release").read_text(encoding="utf-8", errors="replace")
     except OSError:
-        return False
-    ids = {l.split("=", 1)[1].strip().strip('"') for l in text.splitlines() if l.startswith("ID=")}
-    return "steamos" in ids and not (shutil.which("clang") and shutil.which("ninja"))
+        return ""
+    ids = " ".join(l.split("=", 1)[1].strip().strip('"') for l in text.splitlines()
+                   if l.startswith(("ID=", "ID_LIKE="))).split()
+    return "SteamOS" if "steamos" in ids else ""
+
+
+def host_has_tools() -> bool:
+    """The compiler the Deck build needs is already on this Linux (installed some other way): no container then."""
+    return all(shutil.which(t) for t in ("clang", "ld.lld", "llvm-ar", "ninja", "make", "curl"))
+
+
+def box_exists() -> bool:
+    p = capture(["distrobox", "list", "--no-color"])
+    names = [l.split("|")[1].strip() for l in p.stdout.decode("utf-8", "replace").splitlines() if l.count("|") >= 3]
+    return CONTAINER in names
+
+
+def tools_box(args) -> None:
+    if not shutil.which("distrobox"):
+        raise StepFailed(tr("immutable", immutable_host() or "Linux"))
+    if not box_exists():
+        out(tr("box_make", CONTAINER))
+        try:
+            run(["distrobox", "create", "--yes", "--name", CONTAINER, "--image", CONTAINER_IMAGE])
+        except StepFailed:
+            raise StepFailed(tr("box_fail", CONTAINER))
+    # The first enter sets the container up (distrobox installs sudo and its own needs: some minutes); then the same
+    # setup as the WSL distro, its packages going into the container only.
+    run(box(args) + ["bash", ROOT / "tools/setup_wsl.sh", "--minimal"], cwd=str(ROOT))
 
 
 def s_tools(args) -> str:
@@ -372,10 +480,12 @@ def s_tools(args) -> str:
             tools_wsl(args)
         if args.windows:
             tools_msys2(args)
+    elif args.container:
+        tools_box(args)
     else:
-        if steamos_readonly():
-            raise StepFailed(tr("steamos"))
         run(["bash", ROOT / "tools/setup_wsl.sh", "--minimal"], cwd=str(ROOT))
+    if getattr(args, "inventory_later", False):   # NSPs without IDs in their names (s_check): checked now
+        inventory(args)
     out(tr("tools_ok"))
     return "ok"
 
@@ -384,14 +494,14 @@ def s_extract(args) -> str:
     # An ExeFS on disk counts only when its build IDs are the 1.3.0 ones (tools/data/known-builds.json): an earlier
     # attempt with another update leaves one that would be skipped here and fail later, at the code generator.
     exefs = ROOT / "build/v130/exefs"
-    inspect = [tool_python(), ROOT / "tools/inspect_dump.py", "--exefs", exefs]
+    inspect = tool(args, "inspect_dump.py", "--exefs", exefs)
     if (exefs / "main").is_file():
         if capture(inspect).returncode == 0:
             return "skip"
         out(tr("stale_exefs"))
     if exefs.is_dir():
         shutil.rmtree(exefs)
-    run([tool_python(), ROOT / "tools/extract.py", "exefs", "--game-dir", args.game_dir, "--keys", args.keys])
+    run(tool(args, "extract.py", "exefs", "--game-dir", args.game_dir, "--keys", args.keys))
     try:
         run(inspect)
     except StepFailed:
@@ -417,7 +527,7 @@ def s_romfs(args) -> str:
         out(tr("stale_romfs", rom.stat().st_size))   # merged with another update by an earlier attempt
         rom.unlink()
         rom.with_name("romfs.bin.sha256").unlink(missing_ok=True)
-    run([tool_python(), ROOT / "tools/merge_romfs.py", "--game-dir", args.game_dir, "--keys", args.keys])
+    run(tool(args, "merge_romfs.py", "--game-dir", args.game_dir, "--keys", args.keys))
     got = rom.stat().st_size if rom.is_file() else 0
     if want and got != want:
         rom.unlink(missing_ok=True)
@@ -427,7 +537,7 @@ def s_romfs(args) -> str:
 
 def s_dlc(args) -> str:
     # finds the DLC NCAs by content, checks their hash trees and skips the images already extracted
-    run([tool_python(), ROOT / "tools/extract_dlc.py", "--game-dir", args.game_dir, "--keys", args.keys])
+    run(tool(args, "extract_dlc.py", "--game-dir", args.game_dir, "--keys", args.keys))
     return "ok"
 
 
@@ -447,19 +557,22 @@ def link_dlc(dist_romfs: Path) -> None:
 
 def s_deck(args) -> str:
     extra = " --with-romfs" if args.with_romfs else ""
+    lang = f"AOC_MENU_LANG={LANG}"   # the in-game menu's language in a new aoc.ini: the launcher's (tools/build.py)
     if WIN:
         wsl(args, f"cd {sh_quote(wsl_path(ROOT))} && . ~/.venvs/aoc/bin/activate && "
-                  f"python3 -u tools/build.py --work ~/aoc-build gen guest dist{extra}", root=distro(args) == DISTRO)
+                  f"{lang} python3 -u tools/build.py --work ~/aoc-build gen guest dist{extra}",
+            root=distro(args) == DISTRO)
     else:
-        run([tool_python(), "-u", ROOT / "tools/build.py", "--work", Path.home() / "aoc-build", "gen", "guest", "dist"]
-            + (["--with-romfs"] if args.with_romfs else []), cwd=str(ROOT))
+        run(box(args) + ["env", lang, tool_python(args), "-u", ROOT / "tools/build.py", "--work",
+                         Path.home() / "aoc-build", "gen", "guest", "dist"] + (["--with-romfs"] if args.with_romfs else []),
+            cwd=str(ROOT))
     return "ok"
 
 
 def s_wingen(args) -> str:
     gen = args.win_work / "generated"
     if not args.deck:   # no WSL build: generate the C here (the generator runs on Windows too)
-        run([tool_python(), "-u", ROOT / "tools/build.py", "--work", args.win_work, "gen"], cwd=str(ROOT))
+        run([tool_python(args), "-u", ROOT / "tools/build.py", "--work", args.win_work, "gen"], cwd=str(ROOT))
         return "ok"
     # the Deck step generated it in WSL: copy only the files that changed
     w = wsl_path(gen)
@@ -572,6 +685,9 @@ def main() -> int:
     ap.add_argument("--wsl-distro", default=os.environ.get("AOC_WSL_DISTRO", ""),
                     help=f"WSL distro (default: {DISTRO}, made by the tools step)")
     ap.add_argument("--msys2", default="", help="MSYS2 folder (default: C:/msys64, installed there if missing)")
+    ap.add_argument("--container", action="store_true", default=os.environ.get("AOC_CONTAINER", "") == "1",
+                    help=f"Linux: the build tools in the distrobox container {CONTAINER} (automatic on SteamOS, "
+                         "Bazzite and other systems that cannot take packages)")
     ap.add_argument("--lang", choices=("pt", "en"), default="pt")
     ap.add_argument("--check-only", action="store_true", help="only the check step")
     ap.add_argument("--prepare", action="store_true",
@@ -586,6 +702,11 @@ def main() -> int:
         args.windows, args.deck = WIN, not WIN
     if not (args.deck or args.windows):
         ap.error("--deck, --windows or both")
+    # On Linux dist/aoc-deck is also the game this PC plays (the launcher's Play, RecompLauncher's start): without
+    # romfs.bin it has no data. On the same disk it is a hard link, so it costs no space; only the copy to a Deck is big.
+    if not WIN and args.deck:
+        args.with_romfs = True
+    args.container = not WIN and (args.container or (bool(immutable_host()) and not host_has_tools()))
     plan = [("check", s_check), ("tools", s_tools), ("extract", s_extract), ("romfs", s_romfs), ("dlc", s_dlc)]
     if args.deck:
         plan.append(("deck", s_deck))

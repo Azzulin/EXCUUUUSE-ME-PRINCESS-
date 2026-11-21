@@ -10,18 +10,19 @@ Para quem só quer jogar: o pacote da release (guia em [GUIA.md](../GUIA.md) / [
 como ele funciona e como se faz um.
 
 **O launcher** (`launcher/launcher.cpp`, Dear ImGui + SDL3, tema Sheikah/Calamidade, português e inglês) roda no
-Windows e no Linux e tem duas telas, no padrão do launcher do B2recomp (uma janela que primeiro forja e depois vira o
+Windows e no Linux e tem duas telas, no padrão do launcher do B2recomp (uma janela que primeiro gera o jogo e depois vira o
 launcher do jogo; nada copiado de lá, que é GPL):
 
-- **Forja:** a pessoa aponta a pasta com a **própria cópia** (NSPs da base, update 1.3.0, DLCs e `prod.keys`), marca
-  os destinos e clica em **FORJAR**. Por baixo ele roda `tools/make_build.py` e lê as linhas `@@PLAN`,
+- **Gerar** (até a 0.1.5, "forja"): a pessoa aponta a pasta com a **própria cópia** (NSPs da base, update 1.3.0, DLCs e `prod.keys`), marca
+  os destinos e clica em **GERAR** (**BUILD** em inglês). Por baixo ele roda `tools/make_build.py` e lê as linhas `@@PLAN`,
   `@@STEP <id> run|ok|skip|fail`, `@@NEED wsl` e `@@DONE`. Aparece enquanto o jogo deste PC não existe, depois de uma
-  atualização (o `VERSION` difere do `build/forge-state.json` que o `make_build.py` grava no fim) e em "Forjar de novo".
+  atualização (o `VERSION` difere do `build/forge-state.json` que o `make_build.py` grava no fim) e em "Gerar de novo". Os nomes internos `forge-state.json` e `build/logs/forge-*.log` ficaram, para uma
+  atualização reconhecer a geração já feita.
 - **Jogo:** com `dist/aoc-windows` (Windows) ou `dist/aoc-deck` (Linux) pronto, os painéis **GRÁFICOS** e
   **CONTROLE E SOM** editam o `aoc.ini` dessa pasta como o `cfg_save` do runtime (a linha da chave mantém a grafia,
   uma chave nova entra na seção dela, o resto do arquivo fica igual). Só opções medidas no AoC; o resto fica no menu do
   jogo (F1). **JOGAR** salva e abre o jogo sem janela de console; **Reportar problema…** roda `tools/make_report.py`
-  (`aoc-report.zip` com `system.txt`, os registros da forja em `build/logs/` e os do jogo, nada do jogo, com o nome
+  (`aoc-report.zip` com `system.txt`, os registros da geração em `build/logs/` e os do jogo, nada do jogo, com o nome
   de usuário do PC trocado por `user`), abre a pasta do zip e o formulário de issues do repositório
   (`.github/ISSUE_TEMPLATE/problema.yml`).
 
@@ -32,16 +33,16 @@ No repositório, `launcher.bat` compila o launcher na primeira vez (`python3 too
 python tools/make_build.py --game-dir "D:/dump" --deck --windows [--with-romfs] [--send] [--lang en] [--check-only]
 ```
 
-Passos (os prontos são pulados, então forjar de novo é incremental):
+Passos (os prontos são pulados, então gerar de novo é incremental):
 
 | Passo | O que faz |
 |---|---|
 | `check` | `prod.keys` e o inventário (`extract.py inventory`: cada pacote é identificado pelo conteúdo — title id e versão do `.cnmt` —, com qualquer nome de arquivo; um update que não seja o 1.3.0, v327680, é recusado com mensagem própria), espaço em disco (~23 GB para a mescla do RomFS, ~7 GB por destino) e RAM |
-| `tools` | **prepara o ambiente sozinho.** Windows + Deck: confere o WSL (sem ele imprime `@@NEED wsl`, e o launcher oferece `wsl --install --no-distribution` com elevação) e cria a distro privada **`AoC-Recomp`** com `wsl --install archlinux --name AoC-Recomp --location %LOCALAPPDATA%\AoC-Recomp\wsl --no-launch`, depois `tools/setup_wsl.sh --minimal` como root (o script gera o chaveiro do pacman, que a imagem Arch só gera numa primeira abertura interativa). Windows como destino: MSYS2 em `C:/msys64` (se faltar, o `msys2-base` fixado é baixado e extraído) e os pacotes UCRT64. Linux: `setup_wsl.sh --minimal` (pacman, apt ou dnf; sem terminal, `pkexec` pede a senha). `--wsl-distro` usa outra distro (a de desenvolvimento, por exemplo) |
+| `tools` | **prepara o ambiente sozinho.** Windows + Deck: confere o WSL (sem ele imprime `@@NEED wsl`, e o launcher oferece `wsl --install --no-distribution` com elevação) e cria a distro privada **`AoC-Recomp`** com `wsl --install archlinux --name AoC-Recomp --location %LOCALAPPDATA%\AoC-Recomp\wsl --no-launch`, depois `tools/setup_wsl.sh --minimal` como root (o script gera o chaveiro do pacman, que a imagem Arch só gera numa primeira abertura interativa). Windows como destino: MSYS2 em `C:/msys64` (se faltar, o `msys2-base` fixado é baixado e extraído) e os pacotes UCRT64. Linux: `setup_wsl.sh --minimal` (pacman, apt ou dnf; com `sudo -n` se não precisar de senha, senão `sudo` num terminal ou `pkexec` sem terminal). Linux imutável (SteamOS, `/run/ostree-booted`, NixOS) sem compilador: contêiner distrobox `aoc-recomp` (Arch), com o `setup_wsl.sh` e todas as ferramentas dos passos seguintes dentro dele (`--container` ou `AOC_CONTAINER=1` forçam). No Linux sem venv, o inventário do `check` roda no fim deste passo. `--wsl-distro` usa outra distro (a de desenvolvimento, por exemplo) |
 | `extract` | `build/v130/exefs` (`extract.py exefs`); um ExeFS no disco só é aproveitado se os build IDs forem os do 1.3.0 (senão é apagado e extraído de novo) |
 | `romfs` | `build/v130/romfs.bin` (só aproveitado com o tamanho do 1.3.0, `romfs_image_size` em `tools/data/known-builds.json`) com `tools/merge_romfs.py` (o `merge_romfs.ps1` em Python, para Windows e Linux; hactool de `prebuilt/hactool/` ou `toolchain/`) |
 | `dlc` | `build/v130/dlc-<title id>.bin`, o RomFS de cada DLC do dump (`tools/extract_dlc.py`, árvore IVFC conferida; pula os já extraídos). Sem NSP de DLC o passo não extrai nada e o jogo roda sem DLC |
-| `deck` | `build.py gen guest dist` no WSL (ou nativo no Linux) → `dist/aoc-deck` |
+| `deck` | `build.py gen guest dist` no WSL (ou nativo/no contêiner no Linux) → `dist/aoc-deck`; no Linux sempre com `--with-romfs` (hardlink), porque a pasta é também o jogo do PC; `AOC_MENU_LANG` leva o idioma do launcher ao `aoc.ini` novo |
 | `wingen` | o C gerado para o Windows: copiado do WSL se o passo `deck` rodou, senão gerado no próprio Windows |
 | `winxlate` | `aoc_xlate.exe` de `prebuilt/xlate/win-x64` (pacote) ou publicado pelo `dotnet` do WSL (repositório) |
 | `winbuild` | `build.py guest host` no MSYS2 |
@@ -54,8 +55,13 @@ o repositório no HEAD (`git archive`) mais o que o PC do jogador não pode comp
 - Windows (`AoC-Recomp-<versão>-Windows.zip`): `AoC-Launcher.exe` + `SDL3.dll` oficial 3.4.18; `python/` (Python
   3.13.17 embarcável com cryptography, lz4 e numpy; o `python313._pth` lista `../tools` e `../recomp`, porque com ele o
   Python ignora a pasta do script); `prebuilt/hactool/win-x64`; `prebuilt/xlate/win-x64` e `linux-x64`.
-- Linux (`AoC-Recomp-<versão>-Linux.tar.gz`): `aoc-launcher` + `libSDL3.so.0` do sniper (rpath `$ORIGIN`; a SDL3
-  estática do sniper liga ALSA, X11 etc. direto, e um launcher assim não abriria numa distro sem uma delas);
+- Linux (`AoC-Recomp-<versão>-Linux.tar.gz`): `aoc-launcher` (script) + `aoc-launcher.bin` + `libSDL3.so.0` do sniper
+  (rpath `$ORIGIN`) + `lib-fallback/`. A SDL3 do sniper liga ALSA, X11, Wayland, PulseAudio e libdecor direto
+  (DT_NEEDED): sem uma delas nem o launcher nem o jogo carregam (medido num Ubuntu 24.04 sem `libasound`, `libXss`,
+  `libpulse` e `libdecor`). `tools/elfdeps.py` copia o fecho dessas bibliotecas do sniper, uma subpasta por biblioteca,
+  e o script põe no `LD_LIBRARY_PATH` só as que o `ldd` diz faltar (uma cópia antiga de algo que o sistema tem, como o
+  `libwayland-client`, quebrava o EGL do Mesa do sistema); o launcher devolve o `LD_LIBRARY_PATH` original ao que ele
+  abre;
   `prebuilt/hactool/linux-x64` (`tools/build_hactool_linux.sh`, contra o sniper); `prebuilt/xlate/linux-x64`.
 
 O tradutor pronto evita que o jogador precise do .NET. O `make_release.py` recusa um tradutor cuja identidade não bate
@@ -138,7 +144,9 @@ python3 tools/build.py --work ~/aoc-build dist --with-romfs    # põe também o 
   como no TotK Recomp), com Opus e libvpx estáticos do sysroot, zstd 1.5.7 estática compilada aqui e headers Vulkan
   1.4.363. O build confere que o executável não pede GLIBC acima de 2.31 (hoje pede no máximo 2.29).
 - Na primeira vez baixa 1,2 GB (sysroot) e 2,5 MB (zstd) para `~/aoc-build/dl/`.
-- A pasta: `aoc`, `aoc.sh` (lançador: `MESA_SHADER_CACHE_DIR` ao lado do jogo), `lib/libSDL3.so.0`, `exefs/`,
+- A pasta: `aoc`, `aoc.sh` (lançador: `MESA_SHADER_CACHE_DIR` ao lado do jogo; as bibliotecas de `lib/fallback/` que
+  faltarem no sistema, como no launcher), `lib/libSDL3.so.0`, `LEIA-ME.txt` e `README.txt`, `instalar-atalho.sh` e
+  `install-shortcut.sh` (o mesmo script), `exefs/`,
   `romfs-index.bin`, `romfs/romfs.bin` e `romfs/dlc-<title id>.bin` (os DLCs extraídos vão sempre, por hardlink
   quando dá). O runtime acha `exefs/`, `romfs/` e `profile/` ao lado do executável
   (`main.c portable_paths`). Atualizar = rodar `dist` de novo e copiar `aoc` (o resto só muda com o jogo).

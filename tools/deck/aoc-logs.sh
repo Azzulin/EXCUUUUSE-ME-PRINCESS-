@@ -1,6 +1,8 @@
 #!/bin/bash
 # Registros do AoC Recomp no Steam Deck: lista e resume as sessões jogadas, acompanha a sessão em andamento e junta um
 # pacote para mandar. Fica na pasta do jogo (tools/build.py dist); roda no Konsole ou por SSH.
+# In English: list, summary, live, system, verbose, performance, diag and package are the same commands as
+# lista, resumo, ao-vivo, sistema, detalhado, desempenho, diag and pacote.
 #
 #   ./aoc-logs.sh                    resumo da última sessão (o mesmo que "resumo 1")
 #   ./aoc-logs.sh lista [N]          uma linha por sessão, as N mais recentes (padrão 15): data, minutos, fps, watts
@@ -70,7 +72,7 @@ machine() {
 
 cmd=${1:-resumo}
 case "$cmd" in
-lista)
+lista|list)
     need_python
     n=${2:-15}
     files=$(sessions | head -n "$n")
@@ -78,7 +80,7 @@ lista)
     # oldest first, so the table reads top to bottom in time
     python3 "$PY" --list $(echo "$files" | tac)
     ;;
-resumo)
+resumo|summary)
     need_python
     shift
     k=1
@@ -88,14 +90,14 @@ resumo)
     echo "== $f"
     python3 "$PY" "$f" "$@"
     ;;
-ao-vivo)
+ao-vivo|live)
     [ -f "$L/aoc.log" ] || { echo "sem logs/aoc.log"; exit 1; }
     tail -n 20 -F "$L/aoc.log" | grep --line-buffered -E '^\[host\] (sys:|fps:|frametime:|resolution:)|FATAL|hang:|device lost'
     ;;
-sistema)
+sistema|system)
     machine
     ;;
-detalhado)
+detalhado|verbose)
     case "$2" in
     on)
         if grep -qiE '^[[:space:]]*trace[[:space:]]*=' "$INI" 2>/dev/null; then
@@ -114,7 +116,7 @@ detalhado)
         ;;
     esac
     ;;
-desempenho)
+desempenho|performance)
     command -v python3 >/dev/null || { echo "python3 não encontrado"; exit 1; }
     f=$(ls -1 "$L"/desempenho/*.csv 2>/dev/null | sort -r | sed -n "${2:-1}p")
     [ -n "$f" ] || { echo "sem registro de desempenho ${2:-1} em $L/desempenho"; exit 1; }
@@ -130,7 +132,7 @@ diag)
     *) python3 "$here/ferramentas/diag_view.py" "$f" --threads ;;
     esac
     ;;
-pacote)
+pacote|package)
     ts=$(date +%Y%m%d-%H%M%S)
     tmp=$(mktemp -d)
     machine > "$tmp/maquina.txt" 2>&1
@@ -151,7 +153,7 @@ pacote)
     echo "$out ($(du -h "$out" | cut -f1))"
     ;;
 *)
-    sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,/^# As sessões/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//'
     exit 1
     ;;
 esac

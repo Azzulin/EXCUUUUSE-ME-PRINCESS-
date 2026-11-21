@@ -1278,3 +1278,144 @@ Arquivos: `runtime/diag.c` (novo), `kernel.c`, `perf.c`, `flight.c/.h`, `vk_back
 - **Release `v0.1.5` publicada** (commit `c1c21a0`): `AoC-Recomp-0.1.5-Windows.zip` (68,9 MB, sha256 `9d07ce00…`) e
   `AoC-Recomp-0.1.5-Linux.tar.gz` (6,6 MB, sha256 `73463b8d…`); os dois pacotes finais passaram no passo `check`
   desempacotados em pastas limpas (Windows e WSL). Notas em português e inglês. As issues não foram respondidas.
+
+## Sessão 17 — 2026-11-16 (notebook): leitura da sessão do dono no Deck; medição da thread principal
+
+Pedido do dono: ler os registros do Deck e otimizar. Sessão lida: `logs/aoc.log` e
+`logs/desempenho/20261115-235131.csv` (12 min 22 s de jogo, saída 960×540 com FSR, versão 0.1.5).
+
+### O que os registros mostram
+
+- **O jogo já está no teto de 30 fps**: média 29,8; 14 s abaixo de 28 fps (1,9 %), 5 s abaixo de 25. APU 5,1 W de
+  média (pico 12,5), CPU até 74 °C. Nas três sessões anteriores em 1280×720: 29,8 fps de média, APU 6,1–7,8 W.
+- O frame de 892 ms no fim (`replay 805 ms`) é o Deck voltando da suspensão (sessão aberta 23h51, fechada 17h55 do
+  dia seguinte, 747 s de relógio do jogo); não é defeito.
+- Engasgadas reais: cargas no começo (2,7 s e 0,3 s), uma de 403 ms aos 2:42 (compute shader novo traduzido na
+  thread do replay, 280 ms; fica gravado e é pré-montado no próximo boot) e uma de 143 ms aos 7:20 (2 shaders novos).
+  10 shaders traduzidos e 34 draws pulados na sessão inteira.
+- **O que sobra é a irregularidade dos frames na batalha**: média 33,3 ms, mas o pior frame de cada segundo fica em
+  35–47 ms (1 % low 25,6–28,2 fps), sem nenhuma espera medida nele (replay 6–9 ms, fence 0, pacing 0).
+- CPU do Deck: `amd-pstate-epp`, governador `powersave`, EPP `balance_performance`; clock médio 2,3–2,5 GHz na
+  batalha (máximo 3,5). A coluna `cpu_mhz` é média dos 8 threads, não diz o clock do núcleo da thread principal.
+- A coluna `main` do CSV (estado da thread principal, uma amostra por segundo) não serve como medida: a amostra cai
+  quase sempre na mesma fase do frame (30 frames por segundo exatos).
+
+### Medição nova (sempre ligada)
+
+`runtime/kernel.c` passa a contar o tempo da thread principal por estado mesmo sem `AOC_TRACE=sched`
+(`kern_main_split`, `kern_main_peaks`; uma leitura de relógio por troca de estado de uma thread) e o CSV ganhou as
+colunas `main_run`, `main_core`, `main_host`, `main_sleep`, `main_wait` (ms por frame), `main_core_max`,
+`main_oversleep_max` (ms, pico no segundo), `main_sleeps` (SleepThread por frame) e `cpu_max_mhz` (o thread de CPU
+mais rápido). `tools/perf_view.py` mostra a tabela "Thread principal do jogo" por carga de cena.
+
+### Medido no notebook (rota `input-route1.txt`, 175 s, três corridas)
+
+- A thread principal (`0x1001`) é também a que apresenta. Na batalha (~1 350 draws): código do jogo 5,0 ms, host
+  6,0 ms, fila por núcleo virtual 1,7 ms, **dormindo 20 ms** por frame; soma 33,4 ms.
+- A folga é gasta em `SleepThread(1 ms)` em laço (~20 por frame): o laço principal em `main+0xfdf58c…0xfdf64c` chama
+  o passo de frame (`main+0xfddb30`; a decisão de "é hora" parece ser de `main+0xfde490`, não conferido) e dorme 1 ms quando não é.
+- Mesmo com 20 ms de folga, o pior frame de cada segundo na batalha fica em 39–40 ms de mediana (p90 44–49), igual
+  à assinatura do Deck. Não vem de: fila por núcleo (pico 2–3 ms), sono estourado (pico < 1 ms), esperas do
+  render (0 %), nem das cópias 320×180 do gravador (`AOC_DIAG=0`: mediana 39,6 ms contra 39,1–40,3).
+- **Conclusão:** o frame atrasado é decidido pelo próprio temporizador de frame do jogo (dentro de `main+0xfddb30`), não por
+  falta de CPU. Próximo passo: ler `main+0xfde490` (o que ela compara: tick do sistema, contador de vsync, tempo do
+  present) e conferir o que o host entrega nesse relógio.
+- Windows: os sonos de 1 ms giram no relógio (`SLEEP_SPIN_NS` = 1 ms lá), então a thread principal mostra 93 % de CPU
+  "dormindo"; no Linux o limite é 120 µs e o sono de 1 ms é do sistema.
+
+### No Deck
+
+Binário novo enviado (`deploy.sh`; sha256 `033ecec5…`), o anterior em `bak-0.1.5/`. `--selftest` e `--probe-fs`
+passam lá. Falta o dono jogar uma batalha para o CSV trazer a divisão da thread principal no Deck. Sem commit.
+
+## Sessão 18 — 2026-11-18 (notebook): queda numa sessão do dono no Deck; relatório completo nas quedas
+
+Pedido do dono: buscar os logs de uma queda. Lidos por SSH `logs/totk.1.log` (a sessão de 18:05–18:09), o
+`sessions/input-20261118-180552.txt` e os outros 13 logs guardados (nenhum outro `FATAL`).
+
+- A queda: leitura de nulo em `main+0x13c13c0`, chamada por `main+0xfa2150` com o resultado de uma busca de
+  `main+0xf9e4b0` que não achou a entrada de id 0x52. Detalhes em `docs/aoc.md` ("Queda ao iniciar uma missão").
+  O dono estava iniciando uma missão pelo menu (+, baixo, A); refez o mesmo caminho e não caiu. Tratada como corrida;
+  causa não encontrada.
+- O relatório de queda (`runtime/main.c` `crash_handler`) só escrevia a pilha da thread que caiu: nada em
+  `logs/diag/`, nem a linha do tempo, nem as outras threads. Agora ele pede um relatório ao gravador
+  (`runtime/diag.c` `diag_crash`): a thread do `diag` escreve a linha do tempo, a tabela de todas as threads guest
+  (prefixo `crash:`) e as últimas 10 cópias da tela em `logs/diag/<hora>-crash/`, na pilha dela; a thread que caiu
+  espera até 5 s (pode estar segurando um lock que o relatório usa) e sai com 71. Sem o gravador rodando (antes do
+  primeiro present, `AOC_DIAG=0`, ou a queda é nele), segue como antes.
+- Nomes herdados: os logs antigos agora giram como `aoc.1.log`…`aoc.4.log` (os `totk.<n>.log` existentes são
+  renomeados uma vez) e o relatório escreve `aoc+0x…` em vez de `astralchain+0x…`.
+- Testado no WSL (`AOC_GPU=null`): o gdb pôs uma thread guest dentro de uma função traduzida com `Cpu *` inválido;
+  saíram o `FATAL`, o relatório 1 "the game crashed (…)" com as 186 linhas `crash:`, e código 71 (sem cópias de tela
+  porque não há GPU). `--selftest` passa no WSL e no Deck.
+- No Deck: `aoc` novo (sha256 `05eac558…`, inclui a medição da sessão 17). Sem commit.
+
+## Sessão 19 — 2026-11-20 (notebook): passo a passo conferido contra as issues; forja no SteamOS/Bazzite
+
+Pedido do dono: conferir o passo a passo (GUIA/GUIDE) para que o maior número possível de usuários consiga forjar.
+Lidas as 19 issues públicas e os registros anexados (#12, #18) e as capturas da #19.
+
+- **#12, "Unable to create temp file" no `llvm-windres`** (Compilar para o Windows): reproduzido no notebook com
+  `TMP` apontando para uma pasta inexistente. O shell de login do MSYS2 põe `TMP=/tmp`, que os programas nativos
+  recebem como `C:\msys64\tmp`; sem essa pasta o primeiro passo que cria temporário (o `.rc`) falha.
+  `make_build.py` `msys()` agora faz `mkdir -p /tmp` antes de cada comando.
+- **Linux: a pasta `dist/aoc-deck` jogada no próprio PC ficava sem o `romfs.bin`** quando "incluir o romfs.bin" não
+  estava marcado (o guia do Linux não mandava marcar; o `--prepare` do RecompLauncher nunca passava). No Linux o
+  `--with-romfs` agora é sempre ligado: é hardlink no mesmo disco.
+- **Linux, primeira vez, NSPs sem ID no nome**: o `check` recusava pelo nome porque o inventário precisa do venv. Agora
+  o inventário roda no fim do passo `tools` (sempre, então o 1.4.1 também é recusado já na primeira vez).
+- **CPU sem AVX2**: o jogo é compilado com `-march=x86-64-v3` e morre na primeira instrução AVX2, sem log. O `check`
+  recusa a versão Windows nesse PC (a do Deck pode; só avisa) — `cpu_v3()` lê o CPUID pelo numpy do Python do
+  launcher, `/proc/cpuinfo` no Linux. O launcher confere antes do JOGAR (`cpu_runs_game`) e, quando o jogo termina em
+  menos de 30 s, avisa embaixo dos botões com a linha `FATAL`/`vk:` do `aoc.log` (`game_stop_reason`) — a #19 viu o
+  botão voltar para JOGAR sem mensagem nenhuma.
+- **SteamOS, Bazzite e outros sistemas imutáveis (#2, #18)**: `immutable_host()` (SteamOS, `/run/ostree-booted`,
+  NixOS) sem compilador no sistema → a forja cria o contêiner distrobox `aoc-recomp` (Arch) e roda o
+  `setup_wsl.sh --minimal` e todas as ferramentas dentro dele (`box()`/`tool()`; o home é compartilhado). `--container`
+  ou `AOC_CONTAINER=1` forçam. `setup_wsl.sh` usa `sudo -n` dentro de contêiner. O Cancelar do launcher no Linux
+  também roda `pkill -f tools/build.py` (o build no contêiner não está no grupo de processos). Testado só o
+  encanamento, no WSL, com um `distrobox` falso; **falta testar com o distrobox de verdade num SteamOS ou Bazzite**.
+- **#11 (zip que o Explorer não abre)**: o zip da 0.1.5 abriu pelo mesmo extrator do Explorer (Shell.Application) em
+  14 s, 1874 arquivos. Ficou como orientação no guia (7-Zip/WinRAR, não abrir de dentro do zip).
+- Guias reescritos nas mesmas seções (as âncoras da 4 e da 8 ficaram): resumo no topo, requisitos reais (AVX2,
+  Vulkan 1.3 com modelos, NTFS e não FAT32/exFAT, SSD), "antes de começar" (versão do update, `prod.keys`, OneDrive,
+  antivírus), tabela de distros no Linux, pendrive exFAT para o Deck, problemas separados em antes/durante/jogando,
+  perguntas comuns (#10). README: seção de desenvolvimento sem o "repositório privado".
+- Conferido: `tests/test_tools.py` (19 OK), `check_content.py`, `make_build.py --windows --check-only` com o dump do
+  dono, launcher compilado no MSYS2 e contra o sniper. Sem commit e sem release.
+
+**Continuação (2026-11-20/21): "gerar" no lugar de "forja", tudo bilíngue, e o caminho do Linux validado de ponta a
+ponta num Ubuntu limpo.**
+
+- Nomenclatura: o botão é **GERAR / BUILD** (e "Gerar de novo / Build again"), como nos recomps atuais; mensagens da
+  geração, guias, README e modelo de issue acompanham. Os arquivos internos (`forge-state.json`, `forge-*.log`)
+  ficaram, para quem atualizar não perder a geração feita.
+- Bilíngue: README com seção em inglês; a pasta do Deck/Linux ganhou `README.txt` (inglês) ao lado do `LEIA-ME.txt`,
+  `install-shortcut.sh` ao lado do `instalar-atalho.sh` (mesmo script, mensagens nas duas línguas), comandos do
+  `aoc-logs.sh` em inglês (`list`, `summary`, `live`, `system`, `verbose`, `performance`, `package`) e o `aoc.ini`
+  novo com `menu_lang` no idioma do launcher (`AOC_MENU_LANG`, antes era sempre pt-BR).
+- **Validação no Linux**: distro WSL Ubuntu 24.04 nova, usuário comum (sudo sem senha, que o `setup_wsl.sh` agora usa
+  com `sudo -n`), o pacote 0.1.5 com a árvore atual por cima, geração pelo mesmo comando do launcher. Achados e
+  corrigidos, todos invisíveis no Arch do dono (clang 23, headers Vulkan novos, todas as bibliotecas de desktop):
+  - **`runtime/sha256.c`**: `__builtin_cpu_supports("sha")` só existe do clang 19 em diante; o clang 18 do Ubuntu
+    recusava. Agora lê o CPUID direto (`__get_cpuid_count`).
+  - **`runtime/ui/menu.cpp`**: a fonte entrava por `#embed` em C++ (clang 19+). Agora o `build.py` (`font_inc`) gera
+    `roboto_ttf.inc` na pasta `host` do build e o menu o inclui.
+  - **Headers Vulkan**: o `dist` copiava os do sistema (Ubuntu 24.04: 1.3.275, sem `dynamic_rendering_local_read`).
+    Agora baixa o Vulkan-Headers 1.4.363 fixado por hash (`VK_HEADERS_TAR`).
+  - **A SDL3 do sniper liga ALSA, X11, Wayland, PulseAudio e libdecor direto**: sem `libasound`, `libXss`, `libpulse` e
+    `libdecor` nem o launcher nem o jogo carregavam ("error while loading shared libraries"). `tools/elfdeps.py` copia
+    do sniper o fecho dessas bibliotecas (38, 10 MB), uma subpasta por biblioteca, e o `aoc.sh` e o script
+    `aoc-launcher` (o binário virou `aoc-launcher.bin`) põem no caminho só as que o `ldd` diz faltar. Pôr a pasta
+    inteira quebrava o EGL do Mesa do sistema (um `libwayland-client` antigo na frente do novo). O launcher devolve o
+    `LD_LIBRARY_PATH` original ao que ele abre.
+  - O launcher no Linux não mostra mais "incluir o romfs.bin" (sempre vai).
+- Resultado no Ubuntu: ferramentas pelo `apt`, inventário depois do passo `tools`, código do jogo compilado com o
+  clang 18 (377 arquivos, 3 941 s, uma função gigante por vez com 11 GB), pasta montada (`@@DONE ok`). O `aoc` sozinho
+  falha como falharia para um jogador (`libasound.so.2: cannot open`); pelo `aoc.sh`: `selftest: passed` e
+  `probe-fs: passed (1101 files)`. O launcher abriu nesse Ubuntu com as 4 bibliotecas da reserva. No Windows o runtime
+  recompila com as duas correções e o `--selftest` passa.
+- Não validado: a montagem do RomFS no Linux até o fim (o hactool do Linux rodou e escrevia o `romfs.bin`, mas o C:
+  do notebook encheu: o disco virtual da distro e o `pagefile.sys` cresceram; no segundo teste os dados já extraídos
+  entraram por hardlink), o `pkexec` com janela de senha (sem desktop no WSL), Fedora, e o distrobox real.
+- Issue #21 (nova): RX 550 + i7-4790 + HD a 25–30 fps, dentro do piso dos guias.

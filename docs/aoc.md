@@ -472,3 +472,51 @@ Rota `route-long.txt`, 330 s, cache de shaders quente, RTX 3050. Contadores do g
   0–1 draw por frame.
 - Cinemática dos canhões da primeira missão (~240 s da rota longa): em tempo real (nenhum decodificador de vídeo),
   monstros mortos em preto com fumaça roxa.
+
+## Thread principal: divisão do frame e laço de espera (2026-11-16)
+
+- Laço principal: `main+0xfdf58c…0xfdf64c`. Chama o passo de frame `main+0xfddb30` (devolve se fez um frame; a
+  decisão de "é hora" parece ser de `main+0xfde490`, a primeira chamada dele; não conferido) e, quando não fez, `nn::os::SleepThread(1 ms)` por `main+0x1b51bf0`
+  (retorno em `main+0xfdf650`). A thread principal (`0x1001`, prioridade 44, máscara de núcleo 1) também apresenta.
+- Notebook (i5-11400H), primeira batalha, ~1 350 draws por frame, ms por frame: código do jogo 5,0; host 6,0; fila
+  por núcleo virtual 1,7 (pico 2–3 por segundo); dormindo 20 (≈20 `SleepThread` de 1 ms); soma 33,4. Menu/cinemática
+  em vídeo: jogo 0,4, host 0,6, dormindo 32,5.
+- Pior frame de cada segundo na batalha, notebook: mediana 39–40 ms, p90 44–49 (três corridas; com `AOC_DIAG=0`
+  igual). Deck (sessão do dono, 960×540): mediana 35,8 ms, p90 41,3 com 900–1 300 draws.
+- Deck, sessão de 12 min 22 s (2026-11-15, 0.1.5, 960×540 + FSR): 29,8 fps de média; APU 5,1 W (pico 12,5); núcleos
+  do jogo 0,70 em menus e 1,9 na batalha; replay 2,3 ms (calmo) a 8,4 ms (1 300+ draws) por frame.
+- Deck: `scaling_driver` `amd-pstate-epp`, governador `powersave`, EPP `balance_performance`, kernel
+  7.2.7-valve2 (`CONFIG_UCLAMP_TASK=y`, `HZ=1000`).
+
+## Queda ao iniciar uma missão: busca do id 0x52 sem resultado (2026-11-18, Deck, 0.1.5 + medição da sessão 17)
+
+Uma vez só: o dono, no menu, apertou +, baixo, A para iniciar a missão e o jogo caiu 2–3 s depois (196 s de sessão,
+frame ~5900). Repetindo o mesmo caminho na sessão seguinte, não caiu. Único `FATAL` nos 14 logs guardados no Deck.
+
+- `FATAL: access violation ... reading address 0x20` em `main+0x13c13c0`, com `x2 = 0`. A função trava um lock em
+  `[x0+8]` (ldxr/stxr, `SleepThread` por `main+0x1b51bf0` a cada 4096 voltas) e lê `[x2+0x20]` sem checar nulo.
+- Pilha guest: `main+0xfa21a8 < main+0xf9e858 < main+0xfa2868 < main+0xf9b908 < main+0xf9a954 < main+0x88b3a4 <
+  main+0x88a260 < main+0x8c39ac < main+0x166e9d0 < main+0x1047d6c < … < main+0x104b5cc`.
+- Quem passa o nulo: `main+0xf9e4b0` (`f_7000f9e4b0`). Escolhe um id em `x24`: **0x52** quando `[[x23+0xa68]+0x138]`
+  é nulo; se não, 0x5d quando o tipo do objeto (vtable `+0x48` → `+0x20`) é 0x12; se não, 0x52/0x53/0x54 pelo byte
+  `+0x5f` de uma entrada de 0x70 bytes da tabela em `[0x700277ca38]+0x10` (até 0x1e entradas; a de fora é
+  `0x7001f04cc8`). Depois procura o id numa lista de `[x23+0xa68]+0x111ed8` (array em `+0x8`, contagem em `+0x10`):
+  entrada com id `[e+8]` igual, id em 1..0x63 e "pronta" (`[e+0xc] != 0`, ou `[[e]+0x10] != 0`). Sem achar,
+  `x0 = 0` (`main+0xf9e83c`) e chama `main+0xfa2150` mesmo assim, que repassa como `x2` ao método virtual `+0x440` do
+  objeto `[[0x700277f988]+0x38]+0x20`, que é `main+0x13c13c0`. No registro da queda, `x24 = 0x52`.
+- Leitura: o jogo supõe que a entrada já está carregada nesse instante. Intermitente → corrida (carga assíncrona que
+  terminou depois, ou outra ordem de threads). Sem prova de erro do lifter; o caminho até o nulo é coerente com os dados.
+
+## Geração no Linux: Ubuntu 24.04 limpo (2026-11-20, WSL do notebook)
+
+Medido com o pacote 0.1.5 e a árvore da sessão 19, usuário comum, 11 GB de RAM para a VM, 12 threads:
+
+| O quê | Valor |
+|---|---|
+| Ferramentas (`apt`, `setup_wsl.sh --minimal`) | clang 18.1.3, ninja 1.11.1, 63 pacotes novos |
+| Código do jogo (`guest`) com o clang 18 | 377 arquivos, **3 941 s**, 40 com função gigante, 1 por vez; `libaoc_guest.a` 259 MiB |
+| Executável (`dist`) | pede no máximo GLIBC_2.29 |
+| Bibliotecas que a SDL3 do sniper liga direto e faltavam no Ubuntu do WSL | `libasound.so.2`, `libXss.so.1`, `libpulse.so.0`, `libdecor-0.so.0` |
+| Reserva (`lib/fallback`, fecho no sniper sem glibc e driver) | 38 bibliotecas, ~10 MB |
+| `aoc.sh --selftest` / `--probe-fs` | passed / passed (1101 arquivos) |
+| Montagem do RomFS no Linux (hactool do pacote, NSPs em `/mnt/c`) | ~15 min até 7,5 de 10,9 GiB; não terminou (disco do Windows cheio) |

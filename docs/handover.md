@@ -1,7 +1,7 @@
 # Handover — estado do projeto para o próximo agente
 
 Leia isto primeiro, depois `AGENTS.md` (regras) e `docs/plano.md` (fases). O plano de ação imediato e um prompt pronto
-para uma sessão nova estão em `docs/proxima-sessao.md`. Atualizado em 2026-11-16 (sessão 16, no
+para uma sessão nova estão em `docs/proxima-sessao.md`. Atualizado em 2026-11-20 (sessão 19, no
 notebook, build nativo do Windows na RTX 3050). Tudo aqui foi medido no dump do próprio dono do projeto; nada é
 estimativa salvo onde está dito.
 
@@ -118,6 +118,45 @@ partir de 100 s, `AOC_TRACE=perf`, vigia de travada).
 ## 6. Próximos passos (em ordem)
 
 **Sessão 5 (2026-11-09) — ler primeiro; o plano passo a passo está em `docs/proxima-sessao.md`.**
+
+- **Sessão 19 (2026-11-20): passo a passo conferido contra as issues; forja no SteamOS/Bazzite por distrobox.**
+  Corrigidos em `tools/make_build.py` (detalhes em `docs/historico.md`): pasta temporária do MSYS2 (#12),
+  `romfs.bin` sempre na pasta do Linux, inventário por conteúdo na primeira vez no Linux, recusa da versão Windows
+  num CPU sem AVX2, e o contêiner `aoc-recomp` em sistemas imutáveis (#2, #18). Launcher: confere AVX2 antes do
+  JOGAR e avisa quando o jogo fecha em menos de 30 s (#19). GUIA/GUIDE reescritos com requisitos e problemas reais.
+  Depois: o botão virou **GERAR / BUILD**; pasta do Linux bilíngue; **caminho do Linux validado num Ubuntu 24.04
+  limpo**, com quatro correções que o Arch não mostrava (CPUID no `sha256.c`, fonte do menu sem `#embed`, headers
+  Vulkan 1.4.363 baixados, bibliotecas de reserva para a SDL3 do sniper em `lib/fallback` e `lib-fallback`).
+  **Pendente:** testar o distrobox de verdade (SteamOS do Deck do dono ou Bazzite) e o `pkexec` num desktop antes
+  de soltar a 0.1.6 (os guias já citam "a partir da 0.1.6"); `make_release.py` agora empacota `aoc-launcher.bin`
+  e `lib-fallback/`. Responder as issues #12, #18 e #19.
+
+- **Sessão 18 (2026-11-18): queda intermitente ao iniciar uma missão; quedas agora geram relatório completo.**
+  Leitura de nulo em `main+0x13c13c0`: `main+0xf9e4b0` não achou na lista a entrada de id 0x52 "pronta" e o jogo
+  seguiu com nulo (detalhes em `docs/aoc.md`). Uma vez em 14 sessões; o dono refez o caminho e não repetiu.
+  `crash_handler` agora pede ao `diag` o relatório completo (linha do tempo, todas as threads com prefixo `crash:`,
+  cópias da tela em `logs/diag/<hora>-crash/`; a thread que caiu espera até 5 s). Logs antigos viram `aoc.<n>.log`.
+  **No Deck:** `aoc` sha256 `05eac558…` (com a medição da sessão 17). **Se cair de novo:** ler o relatório `crash`
+  e ver o que as threads de carga faziam; se for de novo `f_7000f9e4b0`, registrar quando a entrada 0x52 da lista
+  `[x23+0xa68]+0x111ed8` fica pronta. Sem commit.
+
+- **Sessão 17 (2026-11-16): sessão do dono no Deck lida; o jogo está no teto de 30 fps; sobra a irregularidade dos
+  frames na batalha.** Registros de 12 min a 960×540: 29,8 fps de média, APU 5,1 W; o pior frame de cada segundo na
+  batalha fica em 35–47 ms sem espera medida. No notebook a mesma assinatura aparece com a thread principal
+  **dormindo 20 ms por frame** (jogo 5 ms, host 6 ms, fila por núcleo 1,7 ms): não é falta de CPU. O atraso é
+  decidido pelo temporizador de frame do jogo (dentro de `main+0xfddb30`, provavelmente `main+0xfde490`; laço de
+  `main+0xfdf58c`, que dorme `SleepThread(1 ms)` entre tentativas). Descartados por medição: fila por núcleo
+  virtual, sono estourado, esperas do render, cópias 320×180 do gravador. **Próximo passo:** ler `main+0xfde490`
+  e ver que relógio ele usa e o que o host entrega nele (tick do sistema, contador de vsync a 60,000 Hz contra a
+  tela de 59,81 Hz do Deck, tempo do present).
+  Medição nova sempre ligada: colunas `main_run/core/host/sleep/wait`, `main_core_max`, `main_oversleep_max`,
+  `main_sleeps` e `cpu_max_mhz` no CSV (`runtime/kernel.c` `kern_main_split`/`kern_main_peaks`, `diag.c`), tabela
+  "Thread principal do jogo" no `tools/perf_view.py`. **No Deck:** binário com a medição (sha256 `033ecec5…`), o
+  anterior em `bak-0.1.5/`; **falta o dono jogar uma batalha** e o agente ler o CSV. Sem commit.
+  Outros achados: o frame de 892 ms no fim daquela sessão é a volta da suspensão; CPU do Deck em `amd-pstate-epp`
+  `powersave` (2,3–2,5 GHz de média na batalha); `tools/prepare_shaders.py` (semente do `aoc --prepare-shaders`)
+  não existe para o AoC — o runtime tem o lado dele pronto (`gfx_shader_prepare_seed`), falta gerar
+  `seed-programs.bin`/`seed-answers.bin` com as respostas do tradutor.
 
 - **Sessão 16 (2026-11-15/16): instalador conferido contra os relatos dos usuários; reporte de problemas.**
   O repositório é **público** (`Azzulin/EXCUUUUSE-ME-PRINCESS-`; centenas de downloads por release) e tem issues de

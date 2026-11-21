@@ -3,7 +3,8 @@
 #   bash "<repositório>/tools/setup_wsl.sh"            tudo, para desenvolver (bibliotecas do runtime, gdb, testes)
 #   bash "<repositório>/tools/setup_wsl.sh" --minimal  só o que a forja do Deck precisa (o launcher usa este)
 # Instala os pacotes pelo pacman, apt ou dnf e cria um venv Python em ~/.venvs/aoc. Como root (o Arch do WSL) não pede
-# senha; num terminal usa o sudo; sem terminal (o launcher) usa o pkexec, que abre a janela de senha do sistema.
+# senha; com sudo sem senha (o distrobox que a geração cria no SteamOS e no Bazzite, ou um sudoers NOPASSWD) usa o
+# sudo -n; num terminal usa o sudo; sem terminal (o launcher) usa o pkexec, que abre a janela de senha do sistema.
 set -euo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 MINIMAL=0
@@ -11,15 +12,22 @@ MINIMAL=0
 
 if [ "$(id -u)" = 0 ]; then
     SUDO=()
+elif command -v sudo >/dev/null && sudo -n true 2>/dev/null; then
+    SUDO=(sudo -n)
 elif [ -t 0 ] && command -v sudo >/dev/null; then
     SUDO=(sudo)
 elif command -v pkexec >/dev/null; then
     SUDO=(pkexec)
+    # pkexec needs a polkit agent for its password window: KDE, GNOME, Xfce and Cinnamon have one, bare window
+    # managers (i3, sway, Hyprland without one) do not. The way out then is one run from a terminal.
+    trap 'echo "ERRO/ERROR: a instalação pelo pkexec falhou. Num terminal, rode / In a terminal, run:" >&2
+          echo "  bash \"$REPO/tools/setup_wsl.sh\" --minimal" >&2
+          echo "e gere de novo / and build again." >&2' ERR
 else
     SUDO=(sudo)
 fi
 
-# O que a forja precisa: clang, lld e llvm-ar (código do jogo e o executável do Deck contra o sysroot sniper), ninja,
+# O que a geração precisa: clang, lld e llvm-ar (código do jogo e o executável do Deck contra o sysroot sniper), ninja,
 # Python com venv, make e curl (passo dist: zstd estática e o sysroot) e os headers do Vulkan (o dist os copia para
 # compilar contra o sniper). O modo completo junta as bibliotecas do runtime (SDL3, Opus, libvpx, zstd, o loader do
 # Vulkan) para o executável de desenvolvimento, pkg-config, git e gdb.

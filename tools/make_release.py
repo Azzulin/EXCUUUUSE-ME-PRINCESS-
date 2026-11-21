@@ -198,8 +198,9 @@ def main() -> int:
     lin.append(("aoc-launcher", 0o755, (ll / "aoc-launcher").read_bytes()))
     lin.append(("aoc-launcher.bin", 0o755, (ll / "aoc-launcher.bin").read_bytes()))
     lin.append(("libSDL3.so.0", 0o644, (ll / "libSDL3.so.0").read_bytes()))
-    for f in sorted((ll / "lib-fallback").iterdir()):
-        lin.append((f"lib-fallback/{f.name}", 0o644, f.read_bytes()))
+    fb = ll / "lib-fallback"   # one subfolder per library (tools/elfdeps.py copy_fallback)
+    for f in sorted(p for p in fb.rglob("*") if p.is_file()):
+        lin.append((f"lib-fallback/{f.relative_to(fb).as_posix()}", 0o644, f.read_bytes()))
     lin.append(("prebuilt/hactool/linux-x64/hactool", 0o755, (stage / "hactool-linux/hactool").read_bytes()))
     lin.append(("prebuilt/hactool/LICENSE", 0o644, lic))
     for f in ("aoc_xlate", "aoc_xlate.id"):
